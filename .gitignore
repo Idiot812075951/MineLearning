@@ -1,0 +1,50 @@
+# Unreal Engine generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+.idea/
+
+# Build artifacts
+Build/
+*.sln
+*.VC.db
+*.opensdf
+*.suo
+*.user
+*.userosscache
+*.sdf
+*.sln.DotSettings.user
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# Visual Studio
+.vs/
+*.VC.opendb
+*.VC.db
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Crash reports
+Crashes/
+
+# Unreal autosaves/backups
+Saved/Autosaves/
+Saved/Backup/
+Saved/Logs/
+
+# DDC
+DerivedDataCache/
+
+# Optional large local files
+*.tmp
+*.cache
