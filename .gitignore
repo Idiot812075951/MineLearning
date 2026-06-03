@@ -48,3 +48,5 @@ DerivedDataCache/
 # Optional large local files
 *.tmp
 *.cache
+# vsconfig
+.vsconfig
