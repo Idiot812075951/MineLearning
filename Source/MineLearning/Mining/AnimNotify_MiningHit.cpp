@@ -2,12 +2,12 @@
 
 
 #include "AnimNotify_MiningHit.h"
+#include "MiningToolComponent.h"
 
-#include "MineLearning/MineLearningCharacter.h"
-
-void UAnimNotify_MiningHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation)
+void UAnimNotify_MiningHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation,
+	const FAnimNotifyEventReference& EventReference)
 {
-	Super::Notify(MeshComp, Animation);
+	Super::Notify(MeshComp, Animation, EventReference);
 	if (!MeshComp)
 	{
 		return;
@@ -18,12 +18,12 @@ void UAnimNotify_MiningHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequen
 	{
 		return;
 	}
-	//TODO 这里要改，不能在表现层写业务
-	AMineLearningCharacter* Character = Cast<AMineLearningCharacter>(Owner);
-	if (!Character)
+
+	UMiningToolComponent* MiningComp = Owner->FindComponentByClass<UMiningToolComponent>();
+	if (!MiningComp)
 	{
 		return;
 	}
 
-	Character->OnMiningHitNotify();
+	MiningComp->HandleMiningHitNotify();
 }

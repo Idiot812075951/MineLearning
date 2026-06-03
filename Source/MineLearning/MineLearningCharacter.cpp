@@ -132,59 +132,11 @@ void AMineLearningCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-void AMineLearningCharacter::OnMiningHitNotify()
+void AMineLearningCharacter::Mine()
 {
 	if (MiningToolComponent)
 	{
-		MiningToolComponent->TryMine();
+		MiningToolComponent->StartMining();
 	}
 }
 
-void AMineLearningCharacter::Mine()
-{
-	if (bIsMining)
-	{
-		return;
-	}
-
-	if (!MiningMontage || !GetMesh())
-	{
-		return;
-	}
-
-	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
-	if (!AnimInstance)
-	{
-		return;
-	}
-
-	bIsMining = true;
-
-	GetCharacterMovement()->DisableMovement();
-
-	const float Duration = AnimInstance->Montage_Play(MiningMontage);
-	//TODO 临时做法，考虑优化
-	if (Duration > 0.0f)
-	{
-		FTimerHandle TimerHandle;
-		GetWorldTimerManager().SetTimer(
-			TimerHandle,
-			this,
-			&AMineLearningCharacter::EndMining,
-			Duration,
-			false
-		);
-	}
-	else
-	{
-		EndMining();
-	}
-}
-
-//TODO 临时做法，考虑优化
-void AMineLearningCharacter::EndMining()
-{
-	bIsMining = false;
-
-	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-}

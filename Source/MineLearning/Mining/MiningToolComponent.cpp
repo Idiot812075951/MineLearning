@@ -1,16 +1,106 @@
 ﻿#include "MiningToolComponent.h"
 
 #include "MineableOre.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/World.h"
-#include "Engine/OverlapResult.h"
-#include "Components/PrimitiveComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "Engine/OverlapResult.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 UMiningToolComponent::UMiningToolComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+    PrimaryComponentTick.bCanEverTick = false;
+}
+
+ACharacter* UMiningToolComponent::GetOwnerCharacter() const
+{
+    return Cast<ACharacter>(GetOwner());
+}
+
+USkeletalMeshComponent* UMiningToolComponent::GetOwnerMesh() const
+{
+    if (const ACharacter* Character = GetOwnerCharacter())
+    {
+        return Character->GetMesh();
+    }
+
+    return GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+}
+
+bool UMiningToolComponent::StartMining()
+{
+    if (bIsMining)
+    {
+        return false;
+    }
+
+    ACharacter* Character = GetOwnerCharacter();
+    USkeletalMeshComponent* Mesh = GetOwnerMesh();
+
+    if (!Mesh || !MiningMontage)
+    {
+        return false;
+    }
+
+    UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        return false;
+    }
+
+    bIsMining = true;
+
+    if (bLockMovementDuringMining && Character)
+    {
+        if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+        {
+            MoveComp->DisableMovement();
+        }
+    }
+
+    const float Duration = AnimInstance->Montage_Play(MiningMontage);
+
+    if (Duration <= 0.0f)
+    {
+        EndMining();
+        return false;
+    }
+
+    GetWorld()->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+    GetWorld()->GetTimerManager().SetTimer(
+        EndMiningTimerHandle,
+        this,
+        &UMiningToolComponent::EndMining,
+        Duration,
+        false
+    );
+
+    return true;
+}
+
+void UMiningToolComponent::EndMining()
+{
+    bIsMining = false;
+
+    if (bLockMovementDuringMining)
+    {
+        if (ACharacter* Character = GetOwnerCharacter())
+        {
+            if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+            {
+                MoveComp->SetMovementMode(MOVE_Walking);
+            }
+        }
+    }
+}
+
+void UMiningToolComponent::HandleMiningHitNotify()
+{
+    TryMine();
 }
 
 bool UMiningToolComponent::TryMine()
@@ -32,10 +122,10 @@ bool UMiningToolComponent::TryMine()
 
     LastMineTime = Now;
 
-    FVector HitCenter;
+    FVector HitCenter = Owner->GetActorLocation();
     const FVector Forward = Owner->GetActorForwardVector();
 
-    USkeletalMeshComponent* OwnerMesh = Owner->FindComponentByClass<USkeletalMeshComponent>();
+    USkeletalMeshComponent* OwnerMesh = GetOwnerMesh();
 
     if (bUseOwnerMeshSocket && OwnerMesh && OwnerMesh->DoesSocketExist(HitSocketName))
     {
@@ -43,10 +133,8 @@ bool UMiningToolComponent::TryMine()
     }
     else
     {
-        const FVector OwnerLocation = Owner->GetActorLocation();
-
         HitCenter =
-            OwnerLocation
+            Owner->GetActorLocation()
             + Forward * StartForwardOffset
             + FVector(0.0f, 0.0f, StartHeightOffset);
     }
@@ -92,13 +180,22 @@ bool UMiningToolComponent::TryMine()
 
     for (const FOverlapResult& Result : Overlaps)
     {
-        AMineableOre* Ore = Cast<AMineableOre>(Result.GetActor());
+        AActor* HitActor = Result.GetActor();
+        if (!HitActor)
+        {
+            continue;
+        }
+
+        AMineableOre* Ore = Cast<AMineableOre>(HitActor);
         if (!Ore || Ore->IsDestroyed())
         {
             continue;
         }
 
-        const float DistSq = FVector::DistSquared(Ore->GetActorLocation(), HitCenter);
+        const float DistSq = FVector::DistSquared(
+            Ore->GetActorLocation(),
+            HitCenter
+        );
 
         if (DistSq < BestDistSq)
         {
@@ -119,11 +216,15 @@ bool UMiningToolComponent::TryMine()
     if (BestComp)
     {
         FVector ClosestPoint;
-        const float Distance = BestComp->GetClosestPointOnCollision(HitCenter, ClosestPoint);
+        const float Distance = BestComp->GetClosestPointOnCollision(
+            HitCenter,
+            ClosestPoint
+        );
 
         if (Distance >= 0.0f)
         {
             ActualHitLocation = ClosestPoint;
+
             ActualHitNormal = (HitCenter - ClosestPoint).GetSafeNormal();
 
             if (ActualHitNormal.IsNearlyZero())

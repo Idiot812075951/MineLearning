@@ -48,17 +48,10 @@ class AMineLearningCharacter : public ACharacter
 	/** Look Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* MineAction;
-	//TODO 临时做法，考虑优化
-	bool bIsMining;
 
 public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining")
 	UMiningToolComponent* MiningToolComponent;
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Animation")
-	UAnimMontage* MiningMontage;
-	
-	UFUNCTION()
-	void OnMiningHitNotify();
 	
 
 public:
@@ -73,7 +66,6 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 	void Mine();
-	void EndMining();
 
 protected:
 

@@ -16,6 +16,7 @@ class MINELEARNING_API UAnimNotify_MiningHit : public UAnimNotify
 public:
 	virtual void Notify(
 		USkeletalMeshComponent* MeshComp,
-		UAnimSequenceBase* Animation
+		UAnimSequenceBase* Animation,
+		const FAnimNotifyEventReference& EventReference
 	) override;
 };
