@@ -59,8 +59,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
 	float StartHeightOffset = 60.0f;
-	
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
+	bool bUseMiningMontage = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation", meta=(EditCondition="!bUseMiningMontage"))
+	float NonMontageMiningDuration = 0.25f;
 private:
 	double LastMineTime = -999.0;
 

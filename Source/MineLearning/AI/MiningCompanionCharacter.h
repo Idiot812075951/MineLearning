@@ -15,8 +15,6 @@ public:
 	AMiningCompanionCharacter();
 
 	UMiningToolComponent* GetMiningToolComponent() const { return MiningToolComponent; }
-	
-	virtual void Tick(float DeltaSeconds) override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining")

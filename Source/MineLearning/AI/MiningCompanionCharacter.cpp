@@ -12,9 +12,3 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 	AutoPossessPlayer = EAutoReceiveInput::Disabled;
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
-
-void AMiningCompanionCharacter::Tick(float DeltaSeconds)
-{
-	Super::Tick(DeltaSeconds);
-	AddMovementInput(GetActorForwardVector(), 1);
-}

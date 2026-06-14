@@ -39,18 +39,6 @@ bool UMiningToolComponent::StartMining()
     }
 
     ACharacter* Character = GetOwnerCharacter();
-    USkeletalMeshComponent* Mesh = GetOwnerMesh();
-
-    if (!Mesh || !MiningMontage)
-    {
-        return false;
-    }
-
-    UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
-    if (!AnimInstance)
-    {
-        return false;
-    }
 
     bIsMining = true;
 
@@ -62,6 +50,46 @@ bool UMiningToolComponent::StartMining()
         }
     }
 
+    // Static Mesh 机器人：不走蒙太奇，直接检测挖矿。
+    if (!bUseMiningMontage)
+    {
+        const bool bHit = TryMine();
+
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+            World->GetTimerManager().SetTimer(
+                EndMiningTimerHandle,
+                this,
+                &UMiningToolComponent::EndMining,
+                NonMontageMiningDuration,
+                false
+            );
+        }
+        else
+        {
+            EndMining();
+        }
+
+        return bHit;
+    }
+
+    // 人形角色：走蒙太奇 + AnimNotify。
+    USkeletalMeshComponent* Mesh = GetOwnerMesh();
+
+    if (!Mesh || !MiningMontage)
+    {
+        EndMining();
+        return false;
+    }
+
+    UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        EndMining();
+        return false;
+    }
+
     const float Duration = AnimInstance->Montage_Play(MiningMontage);
 
     if (Duration <= 0.0f)
@@ -70,14 +98,17 @@ bool UMiningToolComponent::StartMining()
         return false;
     }
 
-    GetWorld()->GetTimerManager().ClearTimer(EndMiningTimerHandle);
-    GetWorld()->GetTimerManager().SetTimer(
-        EndMiningTimerHandle,
-        this,
-        &UMiningToolComponent::EndMining,
-        Duration,
-        false
-    );
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+        World->GetTimerManager().SetTimer(
+            EndMiningTimerHandle,
+            this,
+            &UMiningToolComponent::EndMining,
+            Duration,
+            false
+        );
+    }
 
     return true;
 }
