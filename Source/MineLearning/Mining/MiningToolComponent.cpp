@@ -16,6 +16,11 @@ UMiningToolComponent::UMiningToolComponent()
     PrimaryComponentTick.bCanEverTick = false;
 }
 
+bool UMiningToolComponent::IsMining() const
+{
+    return bIsMining;
+}
+
 ACharacter* UMiningToolComponent::GetOwnerCharacter() const
 {
     return Cast<ACharacter>(GetOwner());
@@ -29,6 +34,80 @@ USkeletalMeshComponent* UMiningToolComponent::GetOwnerMesh() const
     }
 
     return GetOwner() ? GetOwner()->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+}
+
+FVector UMiningToolComponent::GetMiningHitCenter() const
+{
+    const AActor* Owner = GetOwner();
+    if (!Owner)
+    {
+        return FVector::ZeroVector;
+    }
+
+    const FVector Forward = Owner->GetActorForwardVector();
+    USkeletalMeshComponent* OwnerMesh = GetOwnerMesh();
+
+    if (bUseOwnerMeshSocket && OwnerMesh && OwnerMesh->DoesSocketExist(HitSocketName))
+    {
+        return OwnerMesh->GetSocketLocation(HitSocketName);
+    }
+
+    return Owner->GetActorLocation()
+        + Forward * StartForwardOffset
+        + FVector(0.0f, 0.0f, StartHeightOffset);
+}
+
+bool UMiningToolComponent::PlayMiningMontage()
+{
+    USkeletalMeshComponent* Mesh = GetOwnerMesh();
+    if (!Mesh || !MiningMontage)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[MiningTool] PlayMiningMontage=false: Mesh=%s Montage=%s Owner=%s"),
+            *GetNameSafe(Mesh),
+            *GetNameSafe(MiningMontage),
+            *GetNameSafe(GetOwner())
+        );
+        return false;
+    }
+
+    UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MiningTool] PlayMiningMontage=false: no AnimInstance Mesh=%s Owner=%s"), *GetNameSafe(Mesh), *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+    }
+
+    AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UMiningToolComponent::OnMiningMontageNotifyBegin);
+    AnimInstance->OnPlayMontageNotifyBegin.AddDynamic(this, &UMiningToolComponent::OnMiningMontageNotifyBegin);
+
+    const float Duration = AnimInstance->Montage_Play(MiningMontage);
+    if (Duration <= 0.0f)
+    {
+        AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UMiningToolComponent::OnMiningMontageNotifyBegin);
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("[MiningTool] PlayMiningMontage=false: Montage_Play Duration=%.2f Montage=%s Owner=%s"),
+            Duration,
+            *GetNameSafe(MiningMontage),
+            *GetNameSafe(GetOwner())
+        );
+        return false;
+    }
+
+    FOnMontageEnded EndDelegate;
+    EndDelegate.BindUObject(this, &UMiningToolComponent::OnMiningMontageEnded);
+    AnimInstance->Montage_SetEndDelegate(EndDelegate, MiningMontage);
+
+    return true;
 }
 
 bool UMiningToolComponent::StartMining()
@@ -50,7 +129,7 @@ bool UMiningToolComponent::StartMining()
         }
     }
 
-    // Static Mesh 机器人：不走蒙太奇，直接检测挖矿。
+    // 非 Montage 挖矿模式：动画由 AnimBP 读取 bIsMining 驱动，C++ 直接造成伤害。
     if (!bUseMiningMontage)
     {
         const bool bHit = TryMine();
@@ -74,40 +153,69 @@ bool UMiningToolComponent::StartMining()
         return bHit;
     }
 
-    // 人形角色：走蒙太奇 + AnimNotify。
-    USkeletalMeshComponent* Mesh = GetOwnerMesh();
-
-    if (!Mesh || !MiningMontage)
+    // Montage 模式：StartMining 只播放动作，实际命中由 MiningHitNotifyName 对应的 Montage Notify 触发。
+    if (!PlayMiningMontage())
     {
         EndMining();
         return false;
     }
 
-    UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
-    if (!AnimInstance)
+    return true;
+}
+
+bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
+{
+    if (!IsValid(TargetOre) || TargetOre->IsDestroyed())
     {
-        EndMining();
         return false;
     }
 
-    const float Duration = AnimInstance->Montage_Play(MiningMontage);
-
-    if (Duration <= 0.0f)
+    if (bIsMining)
     {
-        EndMining();
         return false;
     }
 
-    if (UWorld* World = GetWorld())
+    ACharacter* Character = GetOwnerCharacter();
+
+    bIsMining = true;
+    ActiveMiningTarget = TargetOre;
+
+    if (bLockMovementDuringMining && Character)
     {
-        World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
-        World->GetTimerManager().SetTimer(
-            EndMiningTimerHandle,
-            this,
-            &UMiningToolComponent::EndMining,
-            Duration,
-            false
-        );
+        if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
+        {
+            MoveComp->DisableMovement();
+        }
+    }
+
+    if (!bUseMiningMontage)
+    {
+        const bool bHit = TryMineTarget(TargetOre);
+
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+            World->GetTimerManager().SetTimer(
+                EndMiningTimerHandle,
+                this,
+                &UMiningToolComponent::EndMining,
+                NonMontageMiningDuration,
+                false
+            );
+        }
+        else
+        {
+            EndMining();
+        }
+
+        return bHit;
+    }
+
+    // Montage 模式：StartMiningTarget 只启动动作，真正伤害由 MiningHitNotifyName 对应的 Montage Notify 触发。
+    if (!PlayMiningMontage())
+    {
+        EndMining();
+        return false;
     }
 
     return true;
@@ -115,7 +223,16 @@ bool UMiningToolComponent::StartMining()
 
 void UMiningToolComponent::EndMining()
 {
+    if (USkeletalMeshComponent* Mesh = GetOwnerMesh())
+    {
+        if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+        {
+            AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UMiningToolComponent::OnMiningMontageNotifyBegin);
+        }
+    }
+
     bIsMining = false;
+    ActiveMiningTarget = nullptr;
 
     if (bLockMovementDuringMining)
     {
@@ -129,17 +246,43 @@ void UMiningToolComponent::EndMining()
     }
 }
 
+void UMiningToolComponent::OnMiningMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
+{
+    if (NotifyName != MiningHitNotifyName)
+    {
+        return;
+    }
+
+    HandleMiningHitNotify();
+}
+
+void UMiningToolComponent::OnMiningMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+    if (Montage != MiningMontage)
+    {
+        return;
+    }
+
+    EndMining();
+}
+
 void UMiningToolComponent::HandleMiningHitNotify()
 {
+    if (IsValid(ActiveMiningTarget) && !ActiveMiningTarget->IsDestroyed())
+    {
+        TryMineTarget(ActiveMiningTarget);
+        return;
+    }
+
     TryMine();
 }
 
-bool UMiningToolComponent::TryMine()
+bool UMiningToolComponent::TryMineTarget(AMineableOre* TargetOre)
 {
     UWorld* World = GetWorld();
     AActor* Owner = GetOwner();
 
-    if (!World || !Owner)
+    if (!World || !Owner || !IsValid(TargetOre) || TargetOre->IsDestroyed())
     {
         return false;
     }
@@ -153,22 +296,55 @@ bool UMiningToolComponent::TryMine()
 
     LastMineTime = Now;
 
-    FVector HitCenter = Owner->GetActorLocation();
+    const FVector HitCenter = GetMiningHitCenter();
+
+    if (bDrawDebug)
+    {
+        DrawDebugSphere(
+            World,
+            HitCenter,
+            TraceRadius,
+            16,
+            FColor::Green,
+            false,
+            0.5f,
+            0,
+            2.0f
+        );
+    }
+
+    FMiningHitRequest Request;
+    Request.MiningPower = MiningPower;
+    Request.ToolEfficiency = 1.0f;
+    Request.InstigatorActor = Owner;
+    Request.HitLocation = TargetOre->GetActorLocation();
+    Request.HitNormal = (Owner->GetActorLocation() - TargetOre->GetActorLocation()).GetSafeNormal();
+
+    return TargetOre->ApplyMiningHit(Request);
+}
+
+bool UMiningToolComponent::TryMine()
+{
+    UWorld* World = GetWorld();
+    AActor* Owner = GetOwner();
+
+    if (!World || !Owner)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MiningTool] TryMine=false: World=%s Owner=%s"), World ? TEXT("valid") : TEXT("null"), *GetNameSafe(Owner));
+        return false;
+    }
+
+    const double Now = World->GetTimeSeconds();
+
+    if (Now - LastMineTime < AttackInterval)
+    {
+        return false;
+    }
+
+    LastMineTime = Now;
+
+    const FVector HitCenter = GetMiningHitCenter();
     const FVector Forward = Owner->GetActorForwardVector();
-
-    USkeletalMeshComponent* OwnerMesh = GetOwnerMesh();
-
-    if (bUseOwnerMeshSocket && OwnerMesh && OwnerMesh->DoesSocketExist(HitSocketName))
-    {
-        HitCenter = OwnerMesh->GetSocketLocation(HitSocketName);
-    }
-    else
-    {
-        HitCenter =
-            Owner->GetActorLocation()
-            + Forward * StartForwardOffset
-            + FVector(0.0f, 0.0f, StartHeightOffset);
-    }
 
     FCollisionQueryParams Params;
     Params.AddIgnoredActor(Owner);

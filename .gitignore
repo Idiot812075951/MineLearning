@@ -50,3 +50,17 @@ DerivedDataCache/
 *.cache
 # vsconfig
 .vsconfig
+
+# Rider / JetBrains project plugin
+/Plugins/Developer/RiderLink/
+
+# Local generated review patch
+/MineLearning_CodeChanges*.patch
+
+# UE local/editor generated
+/Binaries/
+/Intermediate/
+/Saved/
+/DerivedDataCache/
+.vs/
+.idea/

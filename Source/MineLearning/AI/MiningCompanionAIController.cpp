@@ -1,10 +1,15 @@
-﻿#include "MiningCompanionAIController.h"
+#include "MiningCompanionAIController.h"
 
 #include "MiningCompanionCharacter.h"
-#include "Kismet/GameplayStatics.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "MineLearning/Mining/MineableOre.h"
 #include "MineLearning/Mining/MiningToolComponent.h"
+#include "MineLearning/Mining/ResourceCarryComponent.h"
+#include "MineLearning/Mining/ResourceDepot.h"
+#include "MineLearning/Mining/ResourcePickup.h"
 
 AMiningCompanionAIController::AMiningCompanionAIController()
 {
@@ -16,6 +21,8 @@ void AMiningCompanionAIController::BeginPlay()
 	Super::BeginPlay();
 
 	CacheCompanion();
+	FindDeliveryDepot();
+
 	State = EMiningCompanionState::Idle;
 }
 
@@ -33,6 +40,15 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 	switch (State)
 	{
 	case EMiningCompanionState::Idle:
+		if (IsCarryFull())
+		{
+			RequestReturnToDelivery();
+			break;
+		}
+		if (FindPickup())
+		{
+			break;
+		}
 		FindOre();
 		break;
 
@@ -40,8 +56,20 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 		UpdateMoveToOre(DeltaSeconds);
 		break;
 
+	case EMiningCompanionState::MoveToPickup:
+		UpdateMoveToPickup(DeltaSeconds);
+		break;
+
+	case EMiningCompanionState::Collecting:
+	case EMiningCompanionState::Depositing:
+		break;
+
 	case EMiningCompanionState::Mining:
 		UpdateMining(DeltaSeconds);
+		break;
+
+	case EMiningCompanionState::ReturningToDelivery:
+		UpdateReturningToDelivery(DeltaSeconds);
 		break;
 
 	default:
@@ -52,6 +80,31 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
 {
 	Super::OnMoveCompleted(RequestID, Result);
+
+	if (State == EMiningCompanionState::ReturningToDelivery)
+	{
+		if (Result.IsSuccess())
+		{
+			StartDepositAction();
+		}
+		else
+		{
+			RequestReturnToDelivery();
+		}
+		return;
+	}
+
+	if (State == EMiningCompanionState::MoveToPickup)
+	{
+		if (Result.IsSuccess())
+		{
+			StartCollectAction();
+			return;
+		}
+
+		ResetToIdle();
+		return;
+	}
 
 	if (State != EMiningCompanionState::MoveToOre)
 	{
@@ -64,14 +117,12 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 		return;
 	}
 
-	if (IsCloseEnoughToMine())
+	if (Result.IsSuccess())
 	{
 		EnterMiningState();
 		return;
 	}
 
-	// MoveTo 结束但还没到挖矿距离，说明这次路径没有到位。
-	// 先回 Idle，下一轮重新找目标，不在这里循环 spam MoveTo。
 	ResetToIdle();
 }
 
@@ -92,33 +143,253 @@ bool AMiningCompanionAIController::IsTargetOreValid() const
 		&& !TargetOre->IsDestroyed();
 }
 
-bool AMiningCompanionAIController::IsCloseEnoughToMine() const
+bool AMiningCompanionAIController::IsTargetPickupValid() const
 {
-	if (!Companion || !IsTargetOreValid())
+	return IsValid(TargetPickup)
+		&& !TargetPickup->IsActorBeingDestroyed()
+		&& TargetPickup->Amount > 0;
+}
+
+UResourceCarryComponent* AMiningCompanionAIController::GetCarryComponent() const
+{
+	return Companion ? Companion->GetResourceCarryComponent() : nullptr;
+}
+
+bool AMiningCompanionAIController::IsCarryFull() const
+{
+	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	return CarryComponent && CarryComponent->IsFull();
+}
+
+void AMiningCompanionAIController::FindDeliveryDepot()
+{
+	if (IsValid(DeliveryDepot) || !GetWorld())
+	{
+		return;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(
+		GetWorld(),
+		AResourceDepot::StaticClass(),
+		FoundActors
+	);
+
+	for (AActor* Actor : FoundActors)
+	{
+		AResourceDepot* Depot = Cast<AResourceDepot>(Actor);
+		if (IsValid(Depot) && !Depot->IsActorBeingDestroyed())
+		{
+			DeliveryDepot = Depot;
+			return;
+		}
+	}
+}
+
+bool AMiningCompanionAIController::TryCollectTargetPickup()
+{
+	if (!Companion || !IsTargetPickupValid())
 	{
 		return false;
 	}
 
-	const float Distance2D = FVector::Dist2D(
-		Companion->GetActorLocation(),
-		TargetOre->GetActorLocation()
-	);
+	return TargetPickup->TryCollect(Companion);
+}
 
-	return Distance2D <= MiningStartDistance;
+bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage)
+{
+	if (!Companion || !Montage)
+	{
+		return false;
+	}
+
+	USkeletalMeshComponent* Mesh = Companion->GetMesh();
+	if (!Mesh)
+	{
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
+	if (!AnimInstance)
+	{
+		return false;
+	}
+
+	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
+	AnimInstance->OnPlayMontageNotifyBegin.AddDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
+
+	const float Duration = AnimInstance->Montage_Play(Montage);
+	if (Duration <= 0.0f)
+	{
+		AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
+		return false;
+	}
+
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUObject(this, &AMiningCompanionAIController::OnActionMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
+	return true;
+}
+
+void AMiningCompanionAIController::StartCollectAction()
+{
+	if (!Companion || !IsTargetPickupValid())
+	{
+		ResetToIdle();
+		return;
+	}
+
+	StopCompanionMovement();
+	State = EMiningCompanionState::Collecting;
+
+	if (!PlayActionMontage(CollectMontage))
+	{
+		// 兼容路径：没有配置 CollectMontage 时，仍通过 ResourcePickup 自己的 TryCollect 完成拾取。
+		TryCollectTargetPickup();
+
+		if (IsCarryFull())
+		{
+			RequestReturnToDelivery();
+		}
+		else
+		{
+			ResetToIdle();
+		}
+	}
+}
+
+void AMiningCompanionAIController::StartDepositAction()
+{
+	UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	if (!Companion || !CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	{
+		ResetToIdle();
+		return;
+	}
+
+	StopCompanionMovement();
+	State = EMiningCompanionState::Depositing;
+
+	if (!PlayActionMontage(DepositMontage))
+	{
+		// 兼容路径：没有配置 DepositMontage 时，仍通过 ResourceDepot 完成交付。
+		DepositCarriedOre();
+		ResetToIdle();
+	}
+}
+
+void AMiningCompanionAIController::OnActionMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
+{
+	if (State == EMiningCompanionState::Collecting && NotifyName == CollectNotifyName)
+	{
+		TryCollectTargetPickup();
+		return;
+	}
+
+	if (State == EMiningCompanionState::Depositing && NotifyName == DepositNotifyName)
+	{
+		DepositCarriedOre();
+	}
+}
+
+void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (Companion)
+	{
+		if (USkeletalMeshComponent* Mesh = Companion->GetMesh())
+		{
+			if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+			{
+				AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
+			}
+		}
+	}
+
+	if (State == EMiningCompanionState::Collecting)
+	{
+		TargetPickup = nullptr;
+		if (IsCarryFull())
+		{
+			RequestReturnToDelivery();
+		}
+		else
+		{
+			ResetToIdle();
+		}
+		return;
+	}
+
+	if (State == EMiningCompanionState::Depositing)
+	{
+		ResetToIdle();
+	}
 }
 
 void AMiningCompanionAIController::ResetToIdle()
 {
 	StopMovement();
-
 	TargetOre = nullptr;
+	TargetPickup = nullptr;
 	State = EMiningCompanionState::Idle;
+}
+
+bool AMiningCompanionAIController::FindPickup()
+{
+	if (!Companion || !GetWorld() || IsCarryFull())
+	{
+		return false;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(
+		GetWorld(),
+		AResourcePickup::StaticClass(),
+		FoundActors
+	);
+
+	AResourcePickup* BestPickup = nullptr;
+	float BestDistanceSq = PickupSearchRadius * PickupSearchRadius;
+
+	const FVector MyLocation = Companion->GetActorLocation();
+
+	for (AActor* Actor : FoundActors)
+	{
+		AResourcePickup* Pickup = Cast<AResourcePickup>(Actor);
+		if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed() || Pickup->Amount <= 0)
+		{
+			continue;
+		}
+
+		const float DistanceSq = FVector::DistSquared(MyLocation, Pickup->GetActorLocation());
+		if (DistanceSq < BestDistanceSq)
+		{
+			BestDistanceSq = DistanceSq;
+			BestPickup = Pickup;
+		}
+	}
+
+	if (!BestPickup)
+	{
+		return false;
+	}
+
+	TargetPickup = BestPickup;
+	TargetOre = nullptr;
+	State = EMiningCompanionState::MoveToPickup;
+	RequestMoveToPickup();
+	return true;
 }
 
 void AMiningCompanionAIController::FindOre()
 {
 	if (!Companion || !GetWorld())
 	{
+		return;
+	}
+
+	if (IsCarryFull())
+	{
+		RequestReturnToDelivery();
 		return;
 	}
 
@@ -142,11 +413,7 @@ void AMiningCompanionAIController::FindOre()
 			continue;
 		}
 
-		const float DistanceSq = FVector::DistSquared(
-			MyLocation,
-			Ore->GetActorLocation()
-		);
-
+		const float DistanceSq = FVector::DistSquared(MyLocation, Ore->GetActorLocation());
 		if (DistanceSq < BestDistanceSq)
 		{
 			BestDistanceSq = DistanceSq;
@@ -160,13 +427,7 @@ void AMiningCompanionAIController::FindOre()
 	}
 
 	TargetOre = BestOre;
-
-	if (IsCloseEnoughToMine())
-	{
-		EnterMiningState();
-		return;
-	}
-
+	TargetPickup = nullptr;
 	State = EMiningCompanionState::MoveToOre;
 	RequestMoveToOre();
 }
@@ -179,95 +440,101 @@ void AMiningCompanionAIController::RequestMoveToOre()
 		return;
 	}
 
-	// 缓存本次移动目标，后面不要反复直接访问 TargetOre。
-	AMineableOre* MoveTarget = TargetOre;
-	if (!IsValid(MoveTarget) || MoveTarget->IsActorBeingDestroyed() || MoveTarget->IsDestroyed())
+	if (IsCarryFull())
 	{
-		ResetToIdle();
+		RequestReturnToDelivery();
 		return;
 	}
 
-	const FVector TargetLocation = MoveTarget->GetActorLocation();
-
 	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
-		MoveTarget,
-		MiningStartDistance,
-		false,  // 不把 Capsule / 目标碰撞半径算进到达距离
-		true,   // 使用 NavMesh 寻路
-		false,  // 不允许横向滑行
+		TargetOre,
+		MiningInteractRadius,
+		true,
+		true,
+		true,
 		nullptr,
-		false   // 不接受半截路径
+		true
 	);
-
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-			546564,
-			1.0f,
-			FColor::Red,
-			FString::Printf(
-				TEXT("MoveResult=%d Ore=%s"),
-				static_cast<int32>(MoveResult),
-				*TargetLocation.ToString()
-			)
-		);
-	}
 
 	if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		// 只在当前目标仍然是本次 MoveTarget 时重置，避免误清后续目标。
-		if (TargetOre == MoveTarget)
-		{
-			ResetToIdle();
-		}
+		ResetToIdle();
 		return;
 	}
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		if (TargetOre == MoveTarget && IsCloseEnoughToMine())
-		{
-			EnterMiningState();
-		}
-		else
-		{
-			ResetToIdle();
-		}
+		EnterMiningState();
 		return;
 	}
 
 	State = EMiningCompanionState::MoveToOre;
 }
-void AMiningCompanionAIController::UpdateMoveToOre(float DeltaSeconds)
+
+void AMiningCompanionAIController::RequestMoveToPickup()
 {
-	if (!IsTargetOreValid())
+	if (!Companion || !IsTargetPickupValid())
 	{
 		ResetToIdle();
 		return;
 	}
 
-	const float Distance2D = Companion
-		? FVector::Dist2D(Companion->GetActorLocation(), TargetOre->GetActorLocation())
-		: 999999.0f;
-
-	if (GEngine)
+	if (IsCarryFull())
 	{
-		GEngine->AddOnScreenDebugMessage(
-			1111,
-			0.0f,
-			FColor::Cyan,
-			FString::Printf(
-				TEXT("MoveToOre OreDist=%.1f Need<=%.1f MoveStatus=%d"),
-				Distance2D,
-				MiningStartDistance,
-				static_cast<int32>(GetMoveStatus())
-			)
-		);
+		RequestReturnToDelivery();
+		return;
 	}
 
-	if (IsCloseEnoughToMine())
+	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
+		TargetPickup,
+		PickupInteractRadius,
+		true,
+		true,
+		true,
+		nullptr,
+		true
+	);
+
+	if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		EnterMiningState();
+		ResetToIdle();
+		return;
+	}
+
+	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
+	{
+		StartCollectAction();
+		return;
+	}
+
+	State = EMiningCompanionState::MoveToPickup;
+}
+
+void AMiningCompanionAIController::UpdateMoveToPickup(float DeltaSeconds)
+{
+	if (!IsTargetPickupValid())
+	{
+		ResetToIdle();
+		return;
+	}
+
+	if (IsCarryFull())
+	{
+		RequestReturnToDelivery();
+		return;
+	}
+
+	if (GetMoveStatus() == EPathFollowingStatus::Idle)
+	{
+		ResetToIdle();
+	}
+}
+
+void AMiningCompanionAIController::UpdateMoveToOre(float DeltaSeconds)
+{
+	if (!IsTargetOreValid())
+	{
+		ResetToIdle();
 	}
 }
 
@@ -278,23 +545,26 @@ void AMiningCompanionAIController::UpdateMining(float DeltaSeconds)
 		return;
 	}
 
+	if (IsCarryFull())
+	{
+		RequestReturnToDelivery();
+		return;
+	}
+
+	if (FindPickup())
+	{
+		return;
+	}
+
 	if (!IsTargetOreValid())
 	{
 		ResetToIdle();
 		return;
 	}
 
-	if (!IsCloseEnoughToMine())
-	{
-		State = EMiningCompanionState::MoveToOre;
-		RequestMoveToOre();
-		return;
-	}
-
 	FaceTargetOre();
 
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-
 	if (Now - LastMiningTime < MiningInterval)
 	{
 		return;
@@ -302,23 +572,51 @@ void AMiningCompanionAIController::UpdateMining(float DeltaSeconds)
 
 	LastMiningTime = Now;
 
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-			2222,
-			0.0f,
-			FColor::Green,
-			TEXT("State Mining")
-		);
-	}
-
 	UMiningToolComponent* MiningComponent = Companion->GetMiningToolComponent();
 	if (!MiningComponent)
 	{
 		return;
 	}
 
-	MiningComponent->StartMining();
+	const bool bStartedMining = MiningComponent->StartMiningTarget(TargetOre);
+	if (!bStartedMining)
+	{
+		return;
+	}
+
+	if (IsCarryFull())
+	{
+		RequestReturnToDelivery();
+		return;
+	}
+}
+
+void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
+{
+	if (!Companion)
+	{
+		return;
+	}
+
+	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	{
+		ResetToIdle();
+		return;
+	}
+
+	if (const UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement())
+	{
+		if (MovementComponent->MovementMode == MOVE_None)
+		{
+			return;
+		}
+	}
+
+	if (GetMoveStatus() == EPathFollowingStatus::Idle)
+	{
+		RequestReturnToDelivery();
+	}
 }
 
 void AMiningCompanionAIController::EnterMiningState()
@@ -326,6 +624,90 @@ void AMiningCompanionAIController::EnterMiningState()
 	StopCompanionMovement();
 	FaceTargetOre();
 	State = EMiningCompanionState::Mining;
+}
+
+void AMiningCompanionAIController::RequestReturnToDelivery()
+{
+	if (!Companion)
+	{
+		return;
+	}
+
+	TargetOre = nullptr;
+	TargetPickup = nullptr;
+	State = EMiningCompanionState::ReturningToDelivery;
+
+	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	{
+		ResetToIdle();
+		return;
+	}
+
+	FindDeliveryDepot();
+	if (!IsValid(DeliveryDepot))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] No ResourceDepot found for delivery"));
+		return;
+	}
+
+	if (const UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement())
+	{
+		if (MovementComponent->MovementMode == MOVE_None)
+		{
+			return;
+		}
+	}
+
+	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
+		DeliveryDepot,
+		DeliveryAcceptanceRadius,
+		true,
+		true,
+		true,
+		nullptr,
+		true
+	);
+
+	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
+	{
+		StartDepositAction();
+	}
+	else if (MoveResult == EPathFollowingRequestResult::Failed)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] MoveTo ResourceDepot failed"));
+	}
+}
+
+void AMiningCompanionAIController::DepositCarriedOre()
+{
+	const bool bKeepDepositingState = State == EMiningCompanionState::Depositing;
+	UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	{
+		TargetOre = nullptr;
+		TargetPickup = nullptr;
+		if (!bKeepDepositingState)
+		{
+			State = EMiningCompanionState::Idle;
+		}
+		return;
+	}
+
+	FindDeliveryDepot();
+	if (!IsValid(DeliveryDepot))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: no ResourceDepot"));
+		return;
+	}
+
+	DeliveryDepot->DepositFromCarry(CarryComponent);
+	TargetOre = nullptr;
+	TargetPickup = nullptr;
+	if (!bKeepDepositingState)
+	{
+		State = EMiningCompanionState::Idle;
+	}
 }
 
 void AMiningCompanionAIController::FaceTargetOre()

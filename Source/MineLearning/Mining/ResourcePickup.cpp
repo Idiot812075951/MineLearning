@@ -1,6 +1,8 @@
-﻿#include "ResourcePickup.h"
-#include "Components/StaticMeshComponent.h"
+#include "ResourcePickup.h"
+
+#include "ResourceCarryComponent.h"
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 
 AResourcePickup::AResourcePickup()
 {
@@ -22,6 +24,10 @@ AResourcePickup::AResourcePickup()
 	PickupSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	PickupSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	PickupSphere->SetGenerateOverlapEvents(true);
+	PickupSphere->OnComponentBeginOverlap.AddDynamic(
+		this,
+		&AResourcePickup::OnPickupSphereBeginOverlap
+	);
 }
 
 void AResourcePickup::InitializeResource(EResourceType InType, int32 InAmount)
@@ -30,38 +36,49 @@ void AResourcePickup::InitializeResource(EResourceType InType, int32 InAmount)
 	Amount = InAmount;
 }
 
-void AResourcePickup::BeginPlay()
+void AResourcePickup::OnPickupSphereBeginOverlap(
+	UPrimitiveComponent* OverlappedComponent,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComp,
+	int32 OtherBodyIndex,
+	bool bFromSweep,
+	const FHitResult& SweepResult
+)
 {
-	Super::BeginPlay();
-	
-	if (PickupSphere)
-	{
-		PickupSphere->OnComponentBeginOverlap.AddDynamic(
-			this,
-			&AResourcePickup::OnPickupSphereBeginOverlap
-		);
-	}
+	TryCollect(OtherActor);
 }
 
-void AResourcePickup::OnPickupSphereBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor,
-                                                 UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+bool AResourcePickup::TryCollect(AActor* OtherActor)
 {
 	if (!OtherActor || OtherActor == this)
 	{
-		return;
+		return false;
 	}
 
-	// 第一版：只要 Pawn 碰到就拾取
-	APawn* Pawn = Cast<APawn>(OtherActor);
-	if (!Pawn)
+	if (Amount <= 0)
 	{
-		return;
+		Destroy();
+		return false;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("Picked resource. Type=%d Amount=%d"),
-		static_cast<int32>(ResourceType),
-		Amount
-	);
+	UResourceCarryComponent* CarryComponent = OtherActor->FindComponentByClass<UResourceCarryComponent>();
+	if (!CarryComponent)
+	{
+		return false;
+	}
 
-	Destroy();
+	const int32 AddedAmount = CarryComponent->AddOre(Amount);
+	if (AddedAmount <= 0)
+	{
+		return false;
+	}
+
+	Amount -= AddedAmount;
+
+	if (Amount <= 0)
+	{
+		Destroy();
+	}
+
+	return true;
 }

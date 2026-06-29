@@ -6,6 +6,7 @@
 #include "ResourcePickup.generated.h"
 
 class UStaticMeshComponent;
+class UResourceCarryComponent;
 class USphereComponent;
 
 UCLASS()
@@ -18,6 +19,8 @@ public:
 
 	void InitializeResource(EResourceType InType, int32 InAmount);
 
+	bool TryCollect(AActor* OtherActor);
+
 	UPROPERTY(VisibleAnywhere)
 	UStaticMeshComponent* Mesh;
 
@@ -29,29 +32,8 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 Amount = 1;
-	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float MiningPower = 20.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float MiningRange = 180.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float TraceRadius = 55.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float AttackInterval = 0.7f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
-	float StartForwardOffset = 60.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
-	float StartHeightOffset = 60.0f;
-	
-	
 protected:
-	virtual void BeginPlay() override;
-	
 	UFUNCTION()
 	void OnPickupSphereBeginOverlap(
 		UPrimitiveComponent* OverlappedComponent,
