@@ -44,7 +44,7 @@ protected:
 	UAnimMontage* MiningMontage = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
-	FName MiningHitNotifyName = TEXT("MiningHit");
+	FName MiningHitNotifyName = TEXT("Mine_End");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
 	bool bLockMovementDuringMining = true;
