@@ -32,12 +32,21 @@ class MINELEARNING_API AMiningCompanionAIController : public AAIController
 public:
 	AMiningCompanionAIController();
 
+	UFUNCTION(BlueprintCallable, Category="Mining AI|Debug", meta=(DevelopmentOnly))
+	void SetDebugPaused(bool bPaused);
+
+	UFUNCTION(BlueprintPure, Category="Mining AI|Debug", meta=(DevelopmentOnly))
+	bool IsDebugPaused() const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result) override;
 
 private:
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Mining AI|Debug", meta=(AllowPrivateAccess="true"))
+	bool bDebugPaused = false;
+
 	UPROPERTY()
 	AMiningCompanionCharacter* Companion = nullptr;
 

@@ -13,6 +13,9 @@ class AMineLearningGameMode : public AGameModeBase
 
 public:
 	AMineLearningGameMode();
+
+	UFUNCTION(BlueprintCallable, Category="Mining|Debug", meta=(DevelopmentOnly))
+	void SetAllMiningCompanionsDebugPaused(bool bPaused);
 };
 
 

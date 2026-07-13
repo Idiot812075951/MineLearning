@@ -17,6 +17,23 @@ int32 UResourceStorageComponent::AddOre(int32 Amount)
 	return Amount;
 }
 
+bool UResourceStorageComponent::CanConsumeOre(int32 Amount) const
+{
+	return Amount > 0 && StoredOreCount >= Amount;
+}
+
+bool UResourceStorageComponent::ConsumeOre(int32 Amount)
+{
+	if (!CanConsumeOre(Amount))
+	{
+		return false;
+	}
+
+	StoredOreCount -= Amount;
+	BroadcastStorageChanged();
+	return true;
+}
+
 void UResourceStorageComponent::BroadcastStorageChanged()
 {
 	OnStorageChanged.Broadcast(StoredOreCount);

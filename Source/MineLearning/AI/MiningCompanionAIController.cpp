@@ -16,6 +16,85 @@ AMiningCompanionAIController::AMiningCompanionAIController()
 	PrimaryActorTick.bCanEverTick = true;
 }
 
+void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
+{
+#if !UE_BUILD_SHIPPING
+	if (bDebugPaused == bPaused)
+	{
+		return;
+	}
+
+	CacheCompanion();
+
+	if (bPaused)
+	{
+		bDebugPaused = true;
+		StopMovement();
+
+		if (Companion)
+		{
+			UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement();
+			if (MovementComponent)
+			{
+				MovementComponent->StopMovementImmediately();
+			}
+
+			USkeletalMeshComponent* Mesh = Companion->GetMesh();
+			if (Mesh)
+			{
+				if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+				{
+					AnimInstance->StopAllMontages(0.0f);
+				}
+
+				if (MovementComponent)
+				{
+					MovementComponent->DisableMovement();
+				}
+
+				Mesh->bPauseAnims = true;
+			}
+			else if (MovementComponent)
+			{
+				MovementComponent->DisableMovement();
+			}
+		}
+
+		TargetOre = nullptr;
+		TargetPickup = nullptr;
+		State = EMiningCompanionState::Idle;
+		return;
+	}
+
+	if (Companion)
+	{
+		if (USkeletalMeshComponent* Mesh = Companion->GetMesh())
+		{
+			Mesh->bPauseAnims = false;
+		}
+
+		if (UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement())
+		{
+			MovementComponent->SetMovementMode(MOVE_Walking);
+		}
+	}
+
+	TargetOre = nullptr;
+	TargetPickup = nullptr;
+	State = EMiningCompanionState::Idle;
+	bDebugPaused = false;
+#endif
+}
+
+bool AMiningCompanionAIController::IsDebugPaused() const
+{
+#if !UE_BUILD_SHIPPING
+	return bDebugPaused;
+#else
+	return false;
+#endif
+}
+
 void AMiningCompanionAIController::BeginPlay()
 {
 	Super::BeginPlay();
@@ -28,6 +107,11 @@ void AMiningCompanionAIController::BeginPlay()
 
 void AMiningCompanionAIController::Tick(float DeltaSeconds)
 {
+	if (bDebugPaused)
+	{
+		return;
+	}
+
 	Super::Tick(DeltaSeconds);
 
 	CacheCompanion();
@@ -79,6 +163,11 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 
 void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result)
 {
+	if (bDebugPaused)
+	{
+		return;
+	}
+
 	Super::OnMoveCompleted(RequestID, Result);
 
 	if (State == EMiningCompanionState::ReturningToDelivery)
@@ -280,6 +369,11 @@ void AMiningCompanionAIController::StartDepositAction()
 
 void AMiningCompanionAIController::OnActionMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
 {
+	if (bDebugPaused)
+	{
+		return;
+	}
+
 	if (State == EMiningCompanionState::Collecting && NotifyName == CollectNotifyName)
 	{
 		TryCollectTargetPickup();
@@ -303,6 +397,11 @@ void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, b
 				AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
 			}
 		}
+	}
+
+	if (bDebugPaused)
+	{
+		return;
 	}
 
 	if (State == EMiningCompanionState::Collecting)

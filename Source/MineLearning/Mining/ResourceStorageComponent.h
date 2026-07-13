@@ -20,6 +20,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
 	int32 AddOre(int32 Amount);
 
+	UFUNCTION(BlueprintPure, Category="Mining|Storage")
+	bool CanConsumeOre(int32 Amount) const;
+
+	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
+	bool ConsumeOre(int32 Amount);
+
 	UPROPERTY(BlueprintAssignable, Category="Mining|Storage")
 	FOnStorageChangedSignature OnStorageChanged;
 
