@@ -17,14 +17,20 @@ public:
 	UFUNCTION(BlueprintPure, Category="Mining|Storage")
 	int32 GetStoredOreCount() const { return StoredOreCount; }
 
+	UFUNCTION(BlueprintPure, Category="Mining|Storage")
+	int32 GetAvailableOre() const;
+
 	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
 	int32 AddOre(int32 Amount);
 
-	UFUNCTION(BlueprintPure, Category="Mining|Storage")
-	bool CanConsumeOre(int32 Amount) const;
+	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
+	bool TryReserveOre(int32 Amount);
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
-	bool ConsumeOre(int32 Amount);
+	bool CommitReservedOre(int32 Amount);
+
+	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
+	bool ReleaseReservedOre(int32 Amount);
 
 	UPROPERTY(BlueprintAssignable, Category="Mining|Storage")
 	FOnStorageChangedSignature OnStorageChanged;
@@ -32,6 +38,9 @@ public:
 private:
 	UPROPERTY(VisibleAnywhere, Category="Mining|Storage")
 	int32 StoredOreCount = 0;
+
+	UPROPERTY(VisibleAnywhere, Category="Mining|Storage")
+	int32 ReservedOreCount = 0;
 
 	void BroadcastStorageChanged();
 };

@@ -20,6 +20,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Mining|Processor")
 	bool TryStartProcessing();
 
+	/** Stops the current batch and returns its reserved ore to the source storage. */
+	UFUNCTION(BlueprintCallable, Category="Mining|Processor")
+	void CancelProcessing();
+
 	UFUNCTION(BlueprintPure, Category="Mining|Processor")
 	bool IsProcessing() const { return bIsProcessing; }
 
@@ -57,14 +61,12 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Processor")
 	bool bIsProcessing = false;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Processor")
-	float ProcessingProgress = 0.0f;
-
 private:
 	UResourceStorageComponent* ResolveSourceStorage() const;
 	void BindSourceStorageChanged();
 	void UnbindSourceStorageChanged();
 	void CompleteProcessing();
+	void ReleaseCurrentBatchReservation();
 
 	UFUNCTION()
 	void OnSourceStorageChanged(int32 StoredOreCount);
@@ -74,4 +76,5 @@ private:
 
 	FTimerHandle ProcessingTimerHandle;
 	double ProcessingStartTime = 0.0;
+	int32 ReservedOreForCurrentBatch = 0;
 };

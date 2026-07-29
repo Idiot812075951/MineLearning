@@ -16,7 +16,7 @@ float AResourceProcessor::GetProcessingProgress() const
 {
 	if (!bIsProcessing)
 	{
-		return ProcessingProgress;
+		return 0.0f;
 	}
 
 	if (ProcessingTime <= 0.0f)
@@ -27,7 +27,7 @@ float AResourceProcessor::GetProcessingProgress() const
 	const UWorld* World = GetWorld();
 	if (!World)
 	{
-		return ProcessingProgress;
+		return 0.0f;
 	}
 
 	const float ElapsedTime = static_cast<float>(World->GetTimeSeconds() - ProcessingStartTime);
@@ -36,22 +36,7 @@ float AResourceProcessor::GetProcessingProgress() const
 
 float AResourceProcessor::GetDisplayProgress() const
 {
-	if (bIsProcessing)
-	{
-		return GetProcessingProgress();
-	}
-
-	const UResourceStorageComponent* StorageComponent = ResolveSourceStorage();
-	if (!StorageComponent || InputOrePerBatch <= 0)
-	{
-		return 0.0f;
-	}
-
-	return FMath::Clamp(
-		static_cast<float>(StorageComponent->GetStoredOreCount()) / static_cast<float>(InputOrePerBatch),
-		0.0f,
-		1.0f
-	);
+	return bIsProcessing ? GetProcessingProgress() : 0.0f;
 }
 
 void AResourceProcessor::BeginPlay()
@@ -73,12 +58,8 @@ void AResourceProcessor::BeginPlay()
 
 void AResourceProcessor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(ProcessingTimerHandle);
-	}
-
 	UnbindSourceStorageChanged();
+	CancelProcessing();
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -91,32 +72,23 @@ bool AResourceProcessor::TryStartProcessing()
 	}
 
 	UResourceStorageComponent* StorageComponent = ResolveSourceStorage();
-	if (!StorageComponent || !StorageComponent->CanConsumeOre(InputOrePerBatch))
+	if (!StorageComponent || !StorageComponent->TryReserveOre(InputOrePerBatch))
 	{
-		ProcessingProgress = 0.0f;
 		return false;
 	}
 
 	bIsProcessing = true;
-
-	if (!StorageComponent->ConsumeOre(InputOrePerBatch))
-	{
-		bIsProcessing = false;
-		ProcessingProgress = 0.0f;
-		return false;
-	}
-
-	OnProcessingStateChanged.Broadcast(true);
+	ReservedOreForCurrentBatch = InputOrePerBatch;
 
 	UWorld* World = GetWorld();
+	ProcessingStartTime = World ? World->GetTimeSeconds() : 0.0;
+	OnProcessingStateChanged.Broadcast(true);
+
 	if (!World)
 	{
 		CompleteProcessing();
 		return true;
 	}
-
-	ProcessingStartTime = World->GetTimeSeconds();
-	ProcessingProgress = 0.0f;
 
 	if (ProcessingTime <= 0.0f)
 	{
@@ -133,6 +105,25 @@ bool AResourceProcessor::TryStartProcessing()
 	);
 
 	return true;
+}
+
+void AResourceProcessor::CancelProcessing()
+{
+	const bool bWasProcessing = bIsProcessing;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ProcessingTimerHandle);
+	}
+
+	ReleaseCurrentBatchReservation();
+	bIsProcessing = false;
+	ProcessingStartTime = 0.0;
+
+	if (bWasProcessing)
+	{
+		OnProcessingStateChanged.Broadcast(false);
+	}
 }
 
 UResourceStorageComponent* AResourceProcessor::ResolveSourceStorage() const
@@ -181,9 +172,27 @@ void AResourceProcessor::OnSourceStorageChanged(int32 StoredOreCount)
 
 void AResourceProcessor::CompleteProcessing()
 {
+	UResourceStorageComponent* StorageComponent = ResolveSourceStorage();
+	const int32 ReservedOreForCompletedBatch = ReservedOreForCurrentBatch;
+	const bool bCommitted = StorageComponent
+		&& ReservedOreForCompletedBatch > 0
+		&& StorageComponent->CommitReservedOre(ReservedOreForCompletedBatch);
+
+	if (!bCommitted)
+	{
+		ReleaseCurrentBatchReservation();
+	}
+
+	ReservedOreForCurrentBatch = 0;
 	bIsProcessing = false;
-	ProcessingProgress = 1.0f;
+	ProcessingStartTime = 0.0;
 	OnProcessingStateChanged.Broadcast(false);
+
+	if (!bCommitted)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ResourceProcessor] Complete failed: unable to commit reserved ore Processor=%s"), *GetNameSafe(this));
+		return;
+	}
 
 	UGameInstance* GameInstance = GetGameInstance();
 	if (!GameInstance)
@@ -208,9 +217,21 @@ void AResourceProcessor::CompleteProcessing()
 
 	if (bAutoStart)
 	{
-		if (!TryStartProcessing())
-		{
-			ProcessingProgress = 0.0f;
-		}
+		TryStartProcessing();
 	}
+}
+
+void AResourceProcessor::ReleaseCurrentBatchReservation()
+{
+	if (ReservedOreForCurrentBatch <= 0)
+	{
+		return;
+	}
+
+	if (UResourceStorageComponent* StorageComponent = ResolveSourceStorage())
+	{
+		StorageComponent->ReleaseReservedOre(ReservedOreForCurrentBatch);
+	}
+
+	ReservedOreForCurrentBatch = 0;
 }
