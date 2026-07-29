@@ -4,6 +4,12 @@
 #include "Components/ActorComponent.h"
 #include "ResourceCarryComponent.generated.h"
 
+class UInstancedStaticMeshComponent;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class USkeletalMeshComponent;
+class UStaticMesh;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCarryChangedSignature, int32, Current, int32, Max);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -38,6 +44,15 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="Mining|Carry")
 	FOnCarryChangedSignature OnCarryChanged;
 
+protected:
+	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
+	virtual void BeginPlay() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 private:
 	UPROPERTY(VisibleAnywhere, Category="Mining|Carry")
 	int32 CurrentOreCount = 0;
@@ -45,5 +60,34 @@ private:
 	UPROPERTY(EditAnywhere, Category="Mining|Carry")
 	int32 MaxOreCount = 5;
 
+	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview")
+	UStaticMesh* PreviewResourceMesh = nullptr;
+
+	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview")
+	UMaterialInterface* PreviewResourceMaterial = nullptr;
+
+	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview")
+	FName PreviewSocketName = TEXT("S_CargoBin");
+
+	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview", meta=(MakeEditWidget=true))
+	TArray<FTransform> PreviewResourceTransforms;
+
+#if WITH_EDITORONLY_DATA
+	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview")
+	bool bShowFullPreviewInEditor = false;
+#endif
+
+	UPROPERTY(Transient)
+	UInstancedStaticMeshComponent* PreviewResourcesMesh = nullptr;
+
+	UPROPERTY(Transient)
+	UMaterialInstanceDynamic* PreviewResourceMaterialInstance = nullptr;
+
+	UPROPERTY(Transient)
+	UMaterialInterface* AppliedPreviewResourceMaterial = nullptr;
+
 	void BroadcastCarryChanged();
+	void RefreshPreviewResources();
+	bool ConfigurePreviewResourcesMesh();
+	USkeletalMeshComponent* FindOwnerSkeletalMesh() const;
 };
