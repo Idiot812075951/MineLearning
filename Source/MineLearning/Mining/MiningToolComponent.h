@@ -1,8 +1,9 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "Animation/AnimMontage.h"
 #include "Components/ActorComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "MiningTypes.h"
 #include "MiningToolComponent.generated.h"
 
@@ -11,6 +12,8 @@ class UAnimInstance;
 class USkeletalMeshComponent;
 
 struct FBranchingPointNotifyPayload;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMiningFinishedSignature, bool, bInterrupted);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class MINELEARNING_API UMiningToolComponent : public UActorComponent
@@ -38,6 +41,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Mining")
 	bool IsMining() const;
+
+	void CancelMining();
+
+	UPROPERTY(BlueprintAssignable, Category="Mining")
+	FOnMiningFinishedSignature OnMiningFinished;
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
@@ -92,9 +100,22 @@ private:
 
 	FTimerHandle EndMiningTimerHandle;
 
+	bool bStartedWithTarget = false;
+	bool bMovementAndRotationLocked = false;
+	bool bHadMovementComponent = false;
+	EMovementMode PreviousMovementMode = MOVE_Walking;
+	uint8 PreviousCustomMovementMode = 0;
+	bool bPreviousOrientRotationToMovement = false;
+	bool bPreviousUseControllerDesiredRotation = false;
+	bool bPreviousUseControllerRotationYaw = false;
+
 private:
 	void EndMining();
+	void FinishMining(bool bInterrupted, bool bBroadcastCompletion);
 	bool PlayMiningMontage();
+	bool ApplyMiningHitToTarget(AMineableOre* TargetOre);
+	void LockOwnerMovementAndRotation();
+	void RestoreOwnerMovementAndRotation();
 
 	UFUNCTION()
 	void OnMiningMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);

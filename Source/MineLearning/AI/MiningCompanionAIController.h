@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "AIController.h"
 #include "Animation/AnimMontage.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "MiningCompanionAIController.generated.h"
 
@@ -65,9 +66,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Mining AI")
 	float MiningInteractRadius = 135.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Mining AI")
-	float MiningInterval = 1.2f;
-
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Resource")
 	float PickupSearchRadius = 3000.0f;
 
@@ -77,6 +75,12 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery")
 	float DeliveryAcceptanceRadius = 120.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="1.0"))
+	float DeliveryRotationSpeed = 180.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="0.1"))
+	float DeliveryRotationTolerance = 1.0f;
+
 	UPROPERTY(EditInstanceOnly, Category = "Mining AI|Delivery")
 	AResourceDepot* DeliveryDepot = nullptr;
 
@@ -84,15 +88,19 @@ private:
 	UAnimMontage* CollectMontage = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
-	FName CollectNotifyName = TEXT("Collect");
+	FName CollectGrabNotifyName = TEXT("Notify_CollectGrab");
+
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
+	FName CollectReleaseNotifyName = TEXT("Notify_CollectRelease");
+
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
+	FName CollectSocketName = TEXT("S_ClawGrip");
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
 	UAnimMontage* DepositMontage = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
-	FName DepositNotifyName = TEXT("Deposit");
-
-	float LastMiningTime = -999.0f;
+	FName DepositNotifyName = TEXT("Notify_DeliverResource");
 
 private:
 	void CacheCompanion();
@@ -102,7 +110,6 @@ private:
 	void RequestMoveToOre();
 	void UpdateMoveToPickup(float DeltaSeconds);
 	void UpdateMoveToOre(float DeltaSeconds);
-	void UpdateMining(float DeltaSeconds);
 	void UpdateReturningToDelivery(float DeltaSeconds);
 
 	bool IsTargetOreValid() const;
@@ -114,17 +121,34 @@ private:
 	void RequestReturnToDelivery();
 	void DepositCarriedOre();
 	void FindDeliveryDepot();
+	FTransform GetDeliveryPointTransform() const;
+	void BeginDeliveryAlignment();
 	bool TryCollectTargetPickup();
 	void StartCollectAction();
 	void StartDepositAction();
 	bool PlayActionMontage(UAnimMontage* Montage);
+	void FaceTargetPickup();
+	void LockCollectMovementAndRotation();
+	void RestoreCollectMovementAndRotation();
+	void CancelTargetPickup();
 
 	UFUNCTION()
 	void OnActionMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
 
 	void OnActionMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
+	UFUNCTION()
+	void OnMiningFinished(bool bInterrupted);
+
 	void ResetToIdle();
 	void FaceTargetOre();
 	void StopCompanionMovement();
+
+	bool bCollectMovementLocked = false;
+	bool bCollectPreviousUseControllerRotationYaw = false;
+	bool bCollectPreviousOrientRotationToMovement = false;
+	bool bCollectPreviousUseControllerDesiredRotation = false;
+	TEnumAsByte<EMovementMode> CollectPreviousMovementMode = MOVE_Walking;
+	uint8 CollectPreviousCustomMovementMode = 0;
+	bool bAligningForDelivery = false;
 };

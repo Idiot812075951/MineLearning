@@ -1,4 +1,4 @@
-﻿#include "MiningToolComponent.h"
+#include "MiningToolComponent.h"
 
 #include "MineableOre.h"
 #include "Animation/AnimInstance.h"
@@ -19,6 +19,30 @@ UMiningToolComponent::UMiningToolComponent()
 bool UMiningToolComponent::IsMining() const
 {
     return bIsMining;
+}
+
+void UMiningToolComponent::CancelMining()
+{
+    if (!bIsMining && !bMovementAndRotationLocked)
+    {
+        return;
+    }
+
+    if (USkeletalMeshComponent* Mesh = GetOwnerMesh())
+    {
+        if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+        {
+            if (MiningMontage && AnimInstance->Montage_IsPlaying(MiningMontage))
+            {
+                AnimInstance->Montage_Stop(0.0f, MiningMontage);
+            }
+        }
+    }
+
+    if (bIsMining || bMovementAndRotationLocked)
+    {
+        FinishMining(true, true);
+    }
 }
 
 ACharacter* UMiningToolComponent::GetOwnerCharacter() const
@@ -117,17 +141,9 @@ bool UMiningToolComponent::StartMining()
         return false;
     }
 
-    ACharacter* Character = GetOwnerCharacter();
-
     bIsMining = true;
-
-    if (bLockMovementDuringMining && Character)
-    {
-        if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
-        {
-            MoveComp->DisableMovement();
-        }
-    }
+    bStartedWithTarget = false;
+    LockOwnerMovementAndRotation();
 
     // 非 Montage 挖矿模式：动画由 AnimBP 读取 bIsMining 驱动，C++ 直接造成伤害。
     if (!bUseMiningMontage)
@@ -156,7 +172,7 @@ bool UMiningToolComponent::StartMining()
     // Montage 模式：StartMining 只播放动作，实际命中由 MiningHitNotifyName 对应的 Montage Notify 触发。
     if (!PlayMiningMontage())
     {
-        EndMining();
+        FinishMining(true, false);
         return false;
     }
 
@@ -175,18 +191,10 @@ bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
         return false;
     }
 
-    ACharacter* Character = GetOwnerCharacter();
-
     bIsMining = true;
+    bStartedWithTarget = true;
     ActiveMiningTarget = TargetOre;
-
-    if (bLockMovementDuringMining && Character)
-    {
-        if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
-        {
-            MoveComp->DisableMovement();
-        }
-    }
+    LockOwnerMovementAndRotation();
 
     if (!bUseMiningMontage)
     {
@@ -214,7 +222,7 @@ bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
     // Montage 模式：StartMiningTarget 只启动动作，真正伤害由 MiningHitNotifyName 对应的 Montage Notify 触发。
     if (!PlayMiningMontage())
     {
-        EndMining();
+        FinishMining(true, false);
         return false;
     }
 
@@ -223,6 +231,18 @@ bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
 
 void UMiningToolComponent::EndMining()
 {
+    FinishMining(false, true);
+}
+
+void UMiningToolComponent::FinishMining(bool bInterrupted, bool bBroadcastCompletion)
+{
+    const bool bWasMining = bIsMining;
+
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(EndMiningTimerHandle);
+    }
+
     if (USkeletalMeshComponent* Mesh = GetOwnerMesh())
     {
         if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
@@ -232,18 +252,74 @@ void UMiningToolComponent::EndMining()
     }
 
     bIsMining = false;
+    bStartedWithTarget = false;
     ActiveMiningTarget = nullptr;
+    RestoreOwnerMovementAndRotation();
 
-    if (bLockMovementDuringMining)
+    if (bBroadcastCompletion && bWasMining)
     {
-        if (ACharacter* Character = GetOwnerCharacter())
+        OnMiningFinished.Broadcast(bInterrupted);
+    }
+}
+
+void UMiningToolComponent::LockOwnerMovementAndRotation()
+{
+    if (!bLockMovementDuringMining || bMovementAndRotationLocked)
+    {
+        return;
+    }
+
+    ACharacter* Character = GetOwnerCharacter();
+    if (!Character)
+    {
+        return;
+    }
+
+    bPreviousUseControllerRotationYaw = Character->bUseControllerRotationYaw;
+    Character->bUseControllerRotationYaw = false;
+
+    UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement();
+    bHadMovementComponent = MoveComp != nullptr;
+    if (MoveComp)
+    {
+        PreviousMovementMode = MoveComp->MovementMode;
+        PreviousCustomMovementMode = MoveComp->CustomMovementMode;
+        bPreviousOrientRotationToMovement = MoveComp->bOrientRotationToMovement;
+        bPreviousUseControllerDesiredRotation = MoveComp->bUseControllerDesiredRotation;
+
+        MoveComp->StopMovementImmediately();
+        MoveComp->bOrientRotationToMovement = false;
+        MoveComp->bUseControllerDesiredRotation = false;
+        MoveComp->DisableMovement();
+    }
+
+    bMovementAndRotationLocked = true;
+}
+
+void UMiningToolComponent::RestoreOwnerMovementAndRotation()
+{
+    if (!bMovementAndRotationLocked)
+    {
+        return;
+    }
+
+    if (ACharacter* Character = GetOwnerCharacter())
+    {
+        Character->bUseControllerRotationYaw = bPreviousUseControllerRotationYaw;
+
+        if (bHadMovementComponent)
         {
             if (UCharacterMovementComponent* MoveComp = Character->GetCharacterMovement())
             {
-                MoveComp->SetMovementMode(MOVE_Walking);
+                MoveComp->bOrientRotationToMovement = bPreviousOrientRotationToMovement;
+                MoveComp->bUseControllerDesiredRotation = bPreviousUseControllerDesiredRotation;
+                MoveComp->SetMovementMode(PreviousMovementMode, PreviousCustomMovementMode);
             }
         }
     }
+
+    bMovementAndRotationLocked = false;
+    bHadMovementComponent = false;
 }
 
 void UMiningToolComponent::OnMiningMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
@@ -263,14 +339,20 @@ void UMiningToolComponent::OnMiningMontageEnded(UAnimMontage* Montage, bool bInt
         return;
     }
 
-    EndMining();
+    FinishMining(bInterrupted, true);
 }
 
 void UMiningToolComponent::HandleMiningHitNotify()
 {
-    if (IsValid(ActiveMiningTarget) && !ActiveMiningTarget->IsDestroyed())
+    if (bStartedWithTarget)
     {
-        TryMineTarget(ActiveMiningTarget);
+        if (IsValid(ActiveMiningTarget) && !ActiveMiningTarget->IsDestroyed())
+        {
+            // The move request is the range gate. Once the action has started,
+            // each matching Montage Notify directly hits its assigned target.
+            ApplyMiningHitToTarget(ActiveMiningTarget);
+        }
+
         return;
     }
 
@@ -280,9 +362,7 @@ void UMiningToolComponent::HandleMiningHitNotify()
 bool UMiningToolComponent::TryMineTarget(AMineableOre* TargetOre)
 {
     UWorld* World = GetWorld();
-    AActor* Owner = GetOwner();
-
-    if (!World || !Owner || !IsValid(TargetOre) || TargetOre->IsDestroyed())
+    if (!World)
     {
         return false;
     }
@@ -295,22 +375,15 @@ bool UMiningToolComponent::TryMineTarget(AMineableOre* TargetOre)
     }
 
     LastMineTime = Now;
+    return ApplyMiningHitToTarget(TargetOre);
+}
 
-    const FVector HitCenter = GetMiningHitCenter();
-
-    if (bDrawDebug)
+bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
+{
+    AActor* Owner = GetOwner();
+    if (!Owner || !IsValid(TargetOre) || TargetOre->IsDestroyed())
     {
-        DrawDebugSphere(
-            World,
-            HitCenter,
-            TraceRadius,
-            16,
-            FColor::Green,
-            false,
-            0.5f,
-            0,
-            2.0f
-        );
+        return false;
     }
 
     FMiningHitRequest Request;

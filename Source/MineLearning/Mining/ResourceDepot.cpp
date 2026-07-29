@@ -14,6 +14,11 @@ AResourceDepot::AResourceDepot()
 	StorageComponent = CreateDefaultSubobject<UResourceStorageComponent>(TEXT("ResourceStorageComponent"));
 }
 
+FTransform AResourceDepot::GetDeliveryPointWorldTransform() const
+{
+	return DeliveryPoint * GetActorTransform();
+}
+
 int32 AResourceDepot::DepositFromCarry(UResourceCarryComponent* CarryComponent)
 {
 	if (!CarryComponent || !StorageComponent)

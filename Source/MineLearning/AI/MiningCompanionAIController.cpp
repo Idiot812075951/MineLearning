@@ -60,8 +60,10 @@ void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
 			}
 		}
 
+		CancelTargetPickup();
+		RestoreCollectMovementAndRotation();
 		TargetOre = nullptr;
-		TargetPickup = nullptr;
+		bAligningForDelivery = false;
 		State = EMiningCompanionState::Idle;
 		return;
 	}
@@ -81,6 +83,7 @@ void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
 
 	TargetOre = nullptr;
 	TargetPickup = nullptr;
+	bAligningForDelivery = false;
 	State = EMiningCompanionState::Idle;
 	bDebugPaused = false;
 #endif
@@ -146,10 +149,7 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 
 	case EMiningCompanionState::Collecting:
 	case EMiningCompanionState::Depositing:
-		break;
-
 	case EMiningCompanionState::Mining:
-		UpdateMining(DeltaSeconds);
 		break;
 
 	case EMiningCompanionState::ReturningToDelivery:
@@ -174,7 +174,7 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 	{
 		if (Result.IsSuccess())
 		{
-			StartDepositAction();
+			BeginDeliveryAlignment();
 		}
 		else
 		{
@@ -236,7 +236,8 @@ bool AMiningCompanionAIController::IsTargetPickupValid() const
 {
 	return IsValid(TargetPickup)
 		&& !TargetPickup->IsActorBeingDestroyed()
-		&& TargetPickup->Amount > 0;
+		&& TargetPickup->Amount > 0
+		&& TargetPickup->IsAvailableFor(Companion);
 }
 
 UResourceCarryComponent* AMiningCompanionAIController::GetCarryComponent() const
@@ -273,6 +274,25 @@ void AMiningCompanionAIController::FindDeliveryDepot()
 			return;
 		}
 	}
+}
+
+FTransform AMiningCompanionAIController::GetDeliveryPointTransform() const
+{
+	return IsValid(DeliveryDepot)
+		? DeliveryDepot->GetDeliveryPointWorldTransform()
+		: FTransform::Identity;
+}
+
+void AMiningCompanionAIController::BeginDeliveryAlignment()
+{
+	if (!Companion || !IsValid(DeliveryDepot))
+	{
+		ResetToIdle();
+		return;
+	}
+
+	StopCompanionMovement();
+	bAligningForDelivery = true;
 }
 
 bool AMiningCompanionAIController::TryCollectTargetPickup()
@@ -322,6 +342,11 @@ bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage)
 
 void AMiningCompanionAIController::StartCollectAction()
 {
+	if (State == EMiningCompanionState::Collecting)
+	{
+		return;
+	}
+
 	if (!Companion || !IsTargetPickupValid())
 	{
 		ResetToIdle();
@@ -329,21 +354,13 @@ void AMiningCompanionAIController::StartCollectAction()
 	}
 
 	StopCompanionMovement();
+	FaceTargetPickup();
+	LockCollectMovementAndRotation();
 	State = EMiningCompanionState::Collecting;
 
 	if (!PlayActionMontage(CollectMontage))
 	{
-		// 兼容路径：没有配置 CollectMontage 时，仍通过 ResourcePickup 自己的 TryCollect 完成拾取。
-		TryCollectTargetPickup();
-
-		if (IsCarryFull())
-		{
-			RequestReturnToDelivery();
-		}
-		else
-		{
-			ResetToIdle();
-		}
+		ResetToIdle();
 	}
 }
 
@@ -357,12 +374,13 @@ void AMiningCompanionAIController::StartDepositAction()
 	}
 
 	StopCompanionMovement();
+	LockCollectMovementAndRotation();
+	bAligningForDelivery = false;
 	State = EMiningCompanionState::Depositing;
 
 	if (!PlayActionMontage(DepositMontage))
 	{
-		// 兼容路径：没有配置 DepositMontage 时，仍通过 ResourceDepot 完成交付。
-		DepositCarriedOre();
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] DepositMontage is missing or failed to play"));
 		ResetToIdle();
 	}
 }
@@ -374,9 +392,51 @@ void AMiningCompanionAIController::OnActionMontageNotifyBegin(FName NotifyName, 
 		return;
 	}
 
-	if (State == EMiningCompanionState::Collecting && NotifyName == CollectNotifyName)
+	if (State == EMiningCompanionState::Collecting && NotifyName == CollectGrabNotifyName)
 	{
+		if (!IsTargetPickupValid())
+		{
+			CancelTargetPickup();
+
+			if (USkeletalMeshComponent* Mesh = Companion->GetMesh())
+			{
+				if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+				{
+					AnimInstance->Montage_Stop(0.1f, CollectMontage);
+				}
+			}
+			return;
+		}
+
+		if (!TargetPickup->AttachToCollector(Companion->GetMesh(), CollectSocketName))
+		{
+			CancelTargetPickup();
+
+			if (USkeletalMeshComponent* Mesh = Companion->GetMesh())
+			{
+				if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+				{
+					AnimInstance->Montage_Stop(0.1f, CollectMontage);
+				}
+			}
+			return;
+		}
+		return;
+	}
+
+	if (State == EMiningCompanionState::Collecting && NotifyName == CollectReleaseNotifyName)
+	{
+		AResourcePickup* Pickup = TargetPickup;
 		TryCollectTargetPickup();
+
+		// TryCollect destroys a fully consumed pickup. Any uncollected remainder
+		// or failed collection is detached and restored to the world.
+		if (IsValid(Pickup))
+		{
+			Pickup->CancelCollect(Companion);
+		}
+
+		TargetPickup = nullptr;
 		return;
 	}
 
@@ -399,14 +459,16 @@ void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, b
 		}
 	}
 
-	if (bDebugPaused)
-	{
-		return;
-	}
-
 	if (State == EMiningCompanionState::Collecting)
 	{
-		TargetPickup = nullptr;
+		CancelTargetPickup();
+		RestoreCollectMovementAndRotation();
+
+		if (bDebugPaused)
+		{
+			return;
+		}
+
 		if (IsCarryFull())
 		{
 			RequestReturnToDelivery();
@@ -418,8 +480,14 @@ void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, b
 		return;
 	}
 
+	if (bDebugPaused)
+	{
+		return;
+	}
+
 	if (State == EMiningCompanionState::Depositing)
 	{
+		RestoreCollectMovementAndRotation();
 		ResetToIdle();
 	}
 }
@@ -427,8 +495,10 @@ void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, b
 void AMiningCompanionAIController::ResetToIdle()
 {
 	StopMovement();
+	CancelTargetPickup();
+	RestoreCollectMovementAndRotation();
 	TargetOre = nullptr;
-	TargetPickup = nullptr;
+	bAligningForDelivery = false;
 	State = EMiningCompanionState::Idle;
 }
 
@@ -459,6 +529,11 @@ bool AMiningCompanionAIController::FindPickup()
 			continue;
 		}
 
+		if (!Pickup->IsAvailableFor(Companion))
+		{
+			continue;
+		}
+
 		const float DistanceSq = FVector::DistSquared(MyLocation, Pickup->GetActorLocation());
 		if (DistanceSq < BestDistanceSq)
 		{
@@ -468,6 +543,11 @@ bool AMiningCompanionAIController::FindPickup()
 	}
 
 	if (!BestPickup)
+	{
+		return false;
+	}
+
+	if (!BestPickup->TryReserve(Companion))
 	{
 		return false;
 	}
@@ -563,7 +643,12 @@ void AMiningCompanionAIController::RequestMoveToOre()
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		EnterMiningState();
+		// MoveToActor may complete synchronously and invoke OnMoveCompleted
+		// before returning AlreadyAtGoal. Do not enter the action twice.
+		if (State == EMiningCompanionState::MoveToOre)
+		{
+			EnterMiningState();
+		}
 		return;
 	}
 
@@ -602,7 +687,10 @@ void AMiningCompanionAIController::RequestMoveToPickup()
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		StartCollectAction();
+		if (State == EMiningCompanionState::MoveToPickup)
+		{
+			StartCollectAction();
+		}
 		return;
 	}
 
@@ -637,59 +725,6 @@ void AMiningCompanionAIController::UpdateMoveToOre(float DeltaSeconds)
 	}
 }
 
-void AMiningCompanionAIController::UpdateMining(float DeltaSeconds)
-{
-	if (!Companion)
-	{
-		return;
-	}
-
-	if (IsCarryFull())
-	{
-		RequestReturnToDelivery();
-		return;
-	}
-
-	if (FindPickup())
-	{
-		return;
-	}
-
-	if (!IsTargetOreValid())
-	{
-		ResetToIdle();
-		return;
-	}
-
-	FaceTargetOre();
-
-	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-	if (Now - LastMiningTime < MiningInterval)
-	{
-		return;
-	}
-
-	LastMiningTime = Now;
-
-	UMiningToolComponent* MiningComponent = Companion->GetMiningToolComponent();
-	if (!MiningComponent)
-	{
-		return;
-	}
-
-	const bool bStartedMining = MiningComponent->StartMiningTarget(TargetOre);
-	if (!bStartedMining)
-	{
-		return;
-	}
-
-	if (IsCarryFull())
-	{
-		RequestReturnToDelivery();
-		return;
-	}
-}
-
 void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 {
 	if (!Companion)
@@ -701,6 +736,41 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
 	{
 		ResetToIdle();
+		return;
+	}
+
+	if (bAligningForDelivery)
+	{
+		if (!IsValid(DeliveryDepot))
+		{
+			ResetToIdle();
+			return;
+		}
+
+		FRotator TargetRotation = GetDeliveryPointTransform().Rotator();
+		TargetRotation.Pitch = 0.0f;
+		TargetRotation.Roll = 0.0f;
+
+		const FRotator NewRotation = FMath::RInterpConstantTo(
+			Companion->GetActorRotation(),
+			TargetRotation,
+			DeltaSeconds,
+			DeliveryRotationSpeed
+		);
+		SetControlRotation(NewRotation);
+		Companion->SetActorRotation(NewRotation);
+
+		const float RemainingYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(
+			NewRotation.Yaw,
+			TargetRotation.Yaw
+		));
+		if (RemainingYaw <= DeliveryRotationTolerance)
+		{
+			SetControlRotation(TargetRotation);
+			Companion->SetActorRotation(TargetRotation);
+			bAligningForDelivery = false;
+			StartDepositAction();
+		}
 		return;
 	}
 
@@ -720,9 +790,56 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 
 void AMiningCompanionAIController::EnterMiningState()
 {
+	if (State == EMiningCompanionState::Mining)
+	{
+		return;
+	}
+
+	if (!Companion || !IsTargetOreValid())
+	{
+		ResetToIdle();
+		return;
+	}
+
 	StopCompanionMovement();
 	FaceTargetOre();
+
+	UMiningToolComponent* MiningComponent = Companion->GetMiningToolComponent();
+	if (!MiningComponent)
+	{
+		ResetToIdle();
+		return;
+	}
+
 	State = EMiningCompanionState::Mining;
+
+	MiningComponent->OnMiningFinished.RemoveDynamic(this, &AMiningCompanionAIController::OnMiningFinished);
+	MiningComponent->OnMiningFinished.AddDynamic(this, &AMiningCompanionAIController::OnMiningFinished);
+
+	if (!MiningComponent->StartMiningTarget(TargetOre))
+	{
+		MiningComponent->OnMiningFinished.RemoveDynamic(this, &AMiningCompanionAIController::OnMiningFinished);
+		MiningComponent->CancelMining();
+		ResetToIdle();
+	}
+}
+
+void AMiningCompanionAIController::OnMiningFinished(bool bInterrupted)
+{
+	if (Companion)
+	{
+		if (UMiningToolComponent* MiningComponent = Companion->GetMiningToolComponent())
+		{
+			MiningComponent->OnMiningFinished.RemoveDynamic(this, &AMiningCompanionAIController::OnMiningFinished);
+		}
+	}
+
+	if (bDebugPaused)
+	{
+		return;
+	}
+
+	ResetToIdle();
 }
 
 void AMiningCompanionAIController::RequestReturnToDelivery()
@@ -732,8 +849,10 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 		return;
 	}
 
+	CancelTargetPickup();
+	RestoreCollectMovementAndRotation();
 	TargetOre = nullptr;
-	TargetPickup = nullptr;
+	bAligningForDelivery = false;
 	State = EMiningCompanionState::ReturningToDelivery;
 
 	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
@@ -758,9 +877,10 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 		}
 	}
 
-	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
-		DeliveryDepot,
+	const EPathFollowingRequestResult::Type MoveResult = MoveToLocation(
+		GetDeliveryPointTransform().GetLocation(),
 		DeliveryAcceptanceRadius,
+		true,
 		true,
 		true,
 		true,
@@ -770,7 +890,10 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		StartDepositAction();
+		if (State == EMiningCompanionState::ReturningToDelivery && !bAligningForDelivery)
+		{
+			BeginDeliveryAlignment();
+		}
 	}
 	else if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
@@ -826,6 +949,77 @@ void AMiningCompanionAIController::FaceTargetOre()
 
 	Direction.Normalize();
 	Companion->SetActorRotation(Direction.Rotation());
+}
+
+void AMiningCompanionAIController::FaceTargetPickup()
+{
+	if (!Companion || !IsTargetPickupValid())
+	{
+		return;
+	}
+
+	FVector Direction = TargetPickup->GetActorLocation() - Companion->GetActorLocation();
+	Direction.Z = 0.0f;
+
+	if (!Direction.IsNearlyZero())
+	{
+		Companion->SetActorRotation(Direction.Rotation());
+	}
+}
+
+void AMiningCompanionAIController::LockCollectMovementAndRotation()
+{
+	if (!Companion || bCollectMovementLocked)
+	{
+		return;
+	}
+
+	bCollectPreviousUseControllerRotationYaw = Companion->bUseControllerRotationYaw;
+	Companion->bUseControllerRotationYaw = false;
+
+	if (UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement())
+	{
+		CollectPreviousMovementMode = MovementComponent->MovementMode;
+		CollectPreviousCustomMovementMode = MovementComponent->CustomMovementMode;
+		bCollectPreviousOrientRotationToMovement = MovementComponent->bOrientRotationToMovement;
+		bCollectPreviousUseControllerDesiredRotation = MovementComponent->bUseControllerDesiredRotation;
+
+		MovementComponent->StopMovementImmediately();
+		MovementComponent->bOrientRotationToMovement = false;
+		MovementComponent->bUseControllerDesiredRotation = false;
+		MovementComponent->DisableMovement();
+	}
+
+	bCollectMovementLocked = true;
+}
+
+void AMiningCompanionAIController::RestoreCollectMovementAndRotation()
+{
+	if (!Companion || !bCollectMovementLocked)
+	{
+		return;
+	}
+
+	Companion->bUseControllerRotationYaw = bCollectPreviousUseControllerRotationYaw;
+
+	if (UCharacterMovementComponent* MovementComponent = Companion->GetCharacterMovement())
+	{
+		MovementComponent->bOrientRotationToMovement = bCollectPreviousOrientRotationToMovement;
+		MovementComponent->bUseControllerDesiredRotation = bCollectPreviousUseControllerDesiredRotation;
+		MovementComponent->SetMovementMode(CollectPreviousMovementMode, CollectPreviousCustomMovementMode);
+	}
+
+	bCollectMovementLocked = false;
+}
+
+void AMiningCompanionAIController::CancelTargetPickup()
+{
+	if (IsValid(TargetPickup))
+	{
+		TargetPickup->CancelCollect(Companion);
+	}
+
+	TargetPickup = nullptr;
 }
 
 void AMiningCompanionAIController::StopCompanionMovement()

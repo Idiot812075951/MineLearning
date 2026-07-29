@@ -1,12 +1,14 @@
 #include "ResourcePickup.h"
 
 #include "ResourceCarryComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 
 AResourcePickup::AResourcePickup()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
@@ -24,10 +26,12 @@ AResourcePickup::AResourcePickup()
 	PickupSphere->SetCollisionResponseToAllChannels(ECR_Ignore);
 	PickupSphere->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	PickupSphere->SetGenerateOverlapEvents(true);
-	PickupSphere->OnComponentBeginOverlap.AddDynamic(
-		this,
-		&AResourcePickup::OnPickupSphereBeginOverlap
-	);
+}
+
+void AResourcePickup::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	UpdateAttachMovement(DeltaSeconds);
 }
 
 void AResourcePickup::InitializeResource(EResourceType InType, int32 InAmount)
@@ -36,21 +40,124 @@ void AResourcePickup::InitializeResource(EResourceType InType, int32 InAmount)
 	Amount = InAmount;
 }
 
-void AResourcePickup::OnPickupSphereBeginOverlap(
-	UPrimitiveComponent* OverlappedComponent,
-	AActor* OtherActor,
-	UPrimitiveComponent* OtherComp,
-	int32 OtherBodyIndex,
-	bool bFromSweep,
-	const FHitResult& SweepResult
-)
+bool AResourcePickup::TryReserve(AActor* Collector)
 {
-	TryCollect(OtherActor);
+	if (!IsAvailableFor(Collector))
+	{
+		return false;
+	}
+
+	ReservedCollector = Collector;
+	return true;
+}
+
+bool AResourcePickup::IsAvailableFor(AActor* Collector) const
+{
+	if (!IsValid(Collector) || Amount <= 0)
+	{
+		return false;
+	}
+
+	return !ReservedCollector.IsValid() || ReservedCollector.Get() == Collector;
+}
+
+void AResourcePickup::ReleaseReservation(AActor* Collector)
+{
+	if (ReservedCollector.Get() == Collector)
+	{
+		ReservedCollector.Reset();
+	}
+}
+
+bool AResourcePickup::AttachToCollector(USkeletalMeshComponent* CollectorMesh, FName SocketName)
+{
+	AActor* Collector = CollectorMesh ? CollectorMesh->GetOwner() : nullptr;
+	if (!CollectorMesh
+		|| !CollectorMesh->DoesSocketExist(SocketName)
+		|| !IsAvailableFor(Collector)
+		|| ReservedCollector.Get() != Collector)
+	{
+		return false;
+	}
+
+	PickupSphere->SetGenerateOverlapEvents(false);
+	PickupSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	Mesh->SetSimulatePhysics(false);
+	Mesh->SetEnableGravity(false);
+	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	if (AttachToComponent(CollectorMesh, FAttachmentTransformRules::KeepWorldTransform, SocketName))
+	{
+		SetActorTickEnabled(true);
+		return true;
+	}
+
+	CancelCollect(Collector);
+	return false;
+}
+
+void AResourcePickup::CancelCollect(AActor* Collector)
+{
+	if (ReservedCollector.IsValid() && ReservedCollector.Get() != Collector)
+	{
+		return;
+	}
+
+	SetActorTickEnabled(false);
+
+	if (GetAttachParentActor())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
+	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Mesh->SetEnableGravity(true);
+	Mesh->SetSimulatePhysics(true);
+
+	PickupSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	PickupSphere->SetGenerateOverlapEvents(true);
+
+	ReleaseReservation(Collector);
+}
+
+void AResourcePickup::UpdateAttachMovement(float DeltaSeconds)
+{
+	USceneComponent* Root = GetRootComponent();
+	USceneComponent* AttachParent = Root ? Root->GetAttachParent() : nullptr;
+	if (!Root || !AttachParent)
+	{
+		SetActorTickEnabled(false);
+		return;
+	}
+
+	const FTransform TargetTransform = AttachParent->GetSocketTransform(
+		Root->GetAttachSocketName(),
+		RTS_World
+	);
+
+	const FVector CurrentLocation = GetActorLocation();
+	const FVector TargetLocation = TargetTransform.GetLocation();
+	const float Distance = FVector::Distance(CurrentLocation, TargetLocation);
+	const float MoveStep = FMath::Max(AttachMoveSpeed, 1.0f) * DeltaSeconds;
+	const float Alpha = Distance > KINDA_SMALL_NUMBER
+		? FMath::Clamp(MoveStep / Distance, 0.0f, 1.0f)
+		: 1.0f;
+
+	const FVector NewLocation = FMath::Lerp(CurrentLocation, TargetLocation, Alpha);
+	const FQuat NewRotation = FQuat::Slerp(GetActorQuat(), TargetTransform.GetRotation(), Alpha);
+	SetActorLocationAndRotation(NewLocation, NewRotation);
+
+	if (Alpha >= 1.0f)
+	{
+		Root->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+		SetActorTickEnabled(false);
+	}
 }
 
 bool AResourcePickup::TryCollect(AActor* OtherActor)
 {
-	if (!OtherActor || OtherActor == this)
+	if (!OtherActor || OtherActor == this || !IsAvailableFor(OtherActor))
 	{
 		return false;
 	}
