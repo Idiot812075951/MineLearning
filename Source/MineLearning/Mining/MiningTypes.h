@@ -12,6 +12,13 @@ enum class EResourceType : uint8
 };
 
 UENUM(BlueprintType)
+enum class EOreDropTrigger : uint8
+{
+	OnMiningHit UMETA(DisplayName = "On Mining Hit"),
+	OnDepleted UMETA(DisplayName = "On Depleted")
+};
+
+UENUM(BlueprintType)
 enum class EMineableDamageStage : uint8
 {
 	Full,
@@ -43,7 +50,7 @@ struct FMiningHitRequest
 };
 
 USTRUCT(BlueprintType)
-struct FResourceDropConfig
+struct FOreDropRule
 {
 	GENERATED_BODY()
 
@@ -51,8 +58,14 @@ struct FResourceDropConfig
 	EResourceType ResourceType = EResourceType::Stone;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	int32 AmountPerDrop = 1;
+	EOreDropTrigger Trigger = EOreDropTrigger::OnMiningHit;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float DropChance = 0.35f;
+	float DropChance = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ClampMin="0"))
+	int32 MinAmount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta=(ClampMin="0"))
+	int32 MaxAmount = 1;
 };

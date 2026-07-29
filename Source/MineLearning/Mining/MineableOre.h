@@ -8,6 +8,12 @@
 class UStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class AResourcePickup;
+class AMineableOre;
+class UOreDefinitionDataAsset;
+class UWidgetComponent;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreDepletedSignature, AMineableOre*, DepletedOre);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnOreHealthChangedSignature, float, CurrentHealth, float, MaxHealth);
 
 UCLASS()
 class MINELEARNING_API AMineableOre : public AActor
@@ -20,14 +26,38 @@ public:
 	UFUNCTION(BlueprintCallable)
 	bool ApplyMiningHit(const FMiningHitRequest& Request);
 
+	UFUNCTION(BlueprintCallable, Category="Mining|Ore")
+	void SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition);
+
+	UFUNCTION(BlueprintPure, Category="Mining|Ore")
+	UOreDefinitionDataAsset* GetOreDefinition() const { return OreDefinition; }
+
 	UFUNCTION(BlueprintPure)
 	bool IsDestroyed() const { return CurrentHP <= 0.0f; }
+
+	UFUNCTION(BlueprintPure, Category="Mining|Stats")
+	float GetCurrentHealth() const { return CurrentHP; }
+
+	UFUNCTION(BlueprintPure, Category="Mining|Stats")
+	float GetMaxHealth() const { return MaxHP; }
+
+	UPROPERTY(BlueprintAssignable, Category="Mining|Ore")
+	FOnOreDepletedSignature OnOreDepleted;
+
+	UPROPERTY(BlueprintAssignable, Category="Mining|Ore")
+	FOnOreHealthChangedSignature OnOreHealthChanged;
 
 protected:
 	virtual void BeginPlay() override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UStaticMeshComponent* OreMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|UI")
+	UWidgetComponent* HealthBarWidgetComponent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore")
+	UOreDefinitionDataAsset* OreDefinition = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Stats")
 	float MaxHP = 100.0f;
@@ -37,15 +67,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Stats")
 	float Hardness = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Drop")
-	FResourceDropConfig DropConfig;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Drop")
-	TSubclassOf<AResourcePickup> ResourcePickupClass;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Drop")
-	int32 RemainingResourceAmount = 20;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Visual")
 	UMaterialInterface* BaseMaterial;
@@ -57,9 +78,13 @@ protected:
 	EMineableDamageStage CurrentStage = EMineableDamageStage::Full;
 
 private:
+	void InitializeStatsFromDefinition();
 	void ApplyDamageVisual();
 	void UpdateDamageStage();
-	void TryDropResource(const FVector& DropLocation);
+	void SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation);
+	void HandleDepleted();
 	void DestroyOre();
-	void SpawnResourceDropDirect(EResourceType Type, int32 Amount, const FVector& DropLocation);
+	bool SpawnResourceDropDirect(EResourceType Type, int32 Amount, const FVector& DropLocation);
+
+	bool bHasDepleted = false;
 };
