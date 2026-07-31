@@ -10,7 +10,6 @@ class UMaterialInstanceDynamic;
 class AResourcePickup;
 class AMineableOre;
 class UOreDefinitionDataAsset;
-class UWidgetComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreDepletedSignature, AMineableOre*, DepletedOre);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnOreHealthChangedSignature, float, CurrentHealth, float, MaxHealth);
@@ -52,9 +51,6 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UStaticMeshComponent* OreMesh;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|UI")
-	UWidgetComponent* HealthBarWidgetComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore")
 	UOreDefinitionDataAsset* OreDefinition = nullptr;

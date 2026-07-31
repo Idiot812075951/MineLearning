@@ -1,8 +1,6 @@
 #include "MineableOre.h"
-#include "Components/WidgetComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "OreDefinitionDataAsset.h"
-#include "OreHealthBarWidget.h"
 #include "ResourcePickup.h"
 
 AMineableOre::AMineableOre()
@@ -15,15 +13,6 @@ AMineableOre::AMineableOre()
     OreMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     OreMesh->SetCollisionObjectType(ECC_WorldStatic);
     OreMesh->SetCollisionResponseToAllChannels(ECR_Block);
-
-    HealthBarWidgetComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarWidget"));
-    HealthBarWidgetComponent->SetupAttachment(OreMesh);
-    HealthBarWidgetComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 130.0f));
-    HealthBarWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
-    HealthBarWidgetComponent->SetDrawSize(FVector2D(360.0f, 60.0f));
-    HealthBarWidgetComponent->SetPivot(FVector2D(0.5f, 0.5f));
-    HealthBarWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    HealthBarWidgetComponent->SetWidgetClass(UOreHealthBarWidget::StaticClass());
 }
 
 void AMineableOre::BeginPlay()
@@ -40,10 +29,6 @@ void AMineableOre::BeginPlay()
 
     ApplyDamageVisual();
 
-    if (UOreHealthBarWidget* HealthBarWidget = Cast<UOreHealthBarWidget>(HealthBarWidgetComponent->GetUserWidgetObject()))
-    {
-        HealthBarWidget->SetObservedOre(this);
-    }
 }
 
 void AMineableOre::SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition)
