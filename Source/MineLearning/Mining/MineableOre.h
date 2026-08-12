@@ -10,6 +10,7 @@ class UMaterialInstanceDynamic;
 class AResourcePickup;
 class AMineableOre;
 class UOreDefinitionDataAsset;
+class UResourceHitFeedbackComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreDepletedSignature, AMineableOre*, DepletedOre);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnOreHealthChangedSignature, float, CurrentHealth, float, MaxHealth);
@@ -24,6 +25,10 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	bool ApplyMiningHit(const FMiningHitRequest& Request);
+
+	/** Generic resource-layer fatal hit. Carries no attacker-specific semantics. */
+	UFUNCTION(BlueprintCallable)
+	bool ApplyFatalMiningHit(const FMiningHitRequest& Request);
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Ore")
 	void SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition);
@@ -51,6 +56,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UStaticMeshComponent* OreMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Visual")
+	TObjectPtr<UResourceHitFeedbackComponent> HitFeedbackComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore")
 	UOreDefinitionDataAsset* OreDefinition = nullptr;

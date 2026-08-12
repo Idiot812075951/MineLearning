@@ -2,6 +2,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "OreDefinitionDataAsset.h"
 #include "ResourcePickup.h"
+#include "ResourceHitFeedbackComponent.h"
 
 AMineableOre::AMineableOre()
 {
@@ -9,6 +10,8 @@ AMineableOre::AMineableOre()
 
     OreMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("OreMesh"));
     SetRootComponent(OreMesh);
+
+    HitFeedbackComponent = CreateDefaultSubobject<UResourceHitFeedbackComponent>(TEXT("HitFeedbackComponent"));
 
     OreMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     OreMesh->SetCollisionObjectType(ECC_WorldStatic);
@@ -67,6 +70,11 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
     CurrentHP = FMath::Clamp(CurrentHP - ActualDamage, 0.0f, MaxHP);
     OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
 
+    if (HitFeedbackComponent)
+    {
+        HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, ActualDamage);
+    }
+
     SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
     UpdateDamageStage();
     ApplyDamageVisual();
@@ -76,6 +84,27 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
         HandleDepleted();
     }
 
+    return true;
+}
+
+bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
+{
+    if (IsDestroyed())
+    {
+        return false;
+    }
+
+    CurrentHP = 0.0f;
+    OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
+    if (HitFeedbackComponent)
+    {
+        HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, MaxHP);
+        HitFeedbackComponent->PlayDestroyedFeedback(GetActorLocation(), Request.HitNormal);
+    }
+    SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+    UpdateDamageStage();
+    ApplyDamageVisual();
+    HandleDepleted();
     return true;
 }
 
