@@ -37,11 +37,15 @@ void UCompanionBarkComponent::BeginPlay()
 	BarkWidgetComponent->SetVisibility(false);
 }
 
-bool UCompanionBarkComponent::TrySpeak(const FText& Text, FLinearColor Color, bool bShowIcon)
+bool UCompanionBarkComponent::TrySpeak(
+	const FText& Text,
+	FLinearColor Color,
+	bool bShowIcon,
+	bool bIgnoreCooldown)
 {
 	(void)bShowIcon; // Compatibility only: Bark is text-only; result icons are world feedback.
 	UWorld* World = GetWorld();
-	if (!World || !BarkWidgetComponent || World->GetTimeSeconds() < NextSpeakTime)
+	if (!World || !BarkWidgetComponent || (!bIgnoreCooldown && World->GetTimeSeconds() < NextSpeakTime))
 	{
 		return false;
 	}

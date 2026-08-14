@@ -2,11 +2,14 @@
 
 #include "GunnerAIController.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequenceBase.h"
+#include "Components/ActorComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/TextBlock.h"
 #include "Components/WidgetComponent.h"
 #include "Components/Image.h"
 #include "DrawDebugHelpers.h"
@@ -23,6 +26,37 @@
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Blueprint/UserWidget.h"
+
+namespace
+{
+	const FName WeaponMagazineSocketComponentName(TEXT("WeaponMagazineSocket"));
+	const FName ReloadMagazineComponentName(TEXT("ReloadMagazineMesh"));
+
+	USceneComponent* FindGunnerSceneComponent(AActor* Actor, const FName ComponentName)
+	{
+		if (!Actor)
+		{
+			return nullptr;
+		}
+
+		TArray<UActorComponent*> Components;
+		Actor->GetComponents(Components);
+		for (UActorComponent* Component : Components)
+		{
+			if (Component && Component->GetFName() == ComponentName)
+			{
+				return Cast<USceneComponent>(Component);
+			}
+		}
+
+		return nullptr;
+	}
+
+	UStaticMeshComponent* FindGunnerMagazineComponent(AActor* Actor, const FName ComponentName)
+	{
+		return Cast<UStaticMeshComponent>(FindGunnerSceneComponent(Actor, ComponentName));
+	}
+}
 
 AGunnerCharacter::AGunnerCharacter()
 {
@@ -43,6 +77,10 @@ AGunnerCharacter::AGunnerCharacter()
 	WeaponMesh->SetupAttachment(GetMesh(), TEXT("WeaponSocket"));
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	MagazineMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MagazineMesh"));
+	MagazineMesh->SetupAttachment(WeaponMesh);
+	MagazineMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
 	MuzzlePoint = CreateDefaultSubobject<USceneComponent>(TEXT("MuzzlePoint"));
 	MuzzlePoint->SetupAttachment(WeaponMesh);
 	// SM_AK faces +X; its measured barrel tip is at X ~= 21.5 cm.
@@ -51,6 +89,27 @@ AGunnerCharacter::AGunnerCharacter()
 	MuzzlePoint->SetRelativeLocation(FVector(22.0f, -1.0f, 5.0f));
 
 	BarkComponent = CreateDefaultSubobject<UCompanionBarkComponent>(TEXT("BarkComponent"));
+
+	AmmoWidgetComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("AmmoWidget"));
+	AmmoWidgetComponent->SetupAttachment(GetRootComponent());
+	AmmoWidgetComponent->SetRelativeLocation(FVector(0.0f, 0.0f, 11.0f));
+	AmmoWidgetComponent->SetWidgetSpace(EWidgetSpace::Screen);
+	AmmoWidgetComponent->SetDrawSize(FVector2D(160.0f, 40.0f));
+	AmmoWidgetComponent->SetPivot(FVector2D(0.5f, 0.5f));
+	AmmoWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> WeaponBodyFinder(
+		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Body.SM_AK_Body"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> MagazineFinder(
+		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Magazine.SM_AK_Magazine"));
+	static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> ReloadFinder(
+		TEXT("/Game/Resource/Robot/Gunner/Gunner_CleanRig_v008_AKFire_3LianfaArmature_AK_Reload.Gunner_CleanRig_v008_AKFire_3LianfaArmature_AK_Reload"));
+	static ConstructorHelpers::FClassFinder<UUserWidget> AmmoWidgetFinder(
+		TEXT("/Game/UI/Companion/WBP_CompanionBark"));
+	WeaponMesh->SetStaticMesh(WeaponBodyFinder.Object);
+	MagazineMesh->SetStaticMesh(MagazineFinder.Object);
+	ReloadAnimation = ReloadFinder.Object;
+	AmmoWidgetComponent->SetWidgetClass(AmmoWidgetFinder.Class);
 
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> TracerFinder(TEXT("/Game/FX/Gunner/NS_GunnerProjectile.NS_GunnerProjectile"));
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> MuzzleFinder(TEXT("/Game/FX/Gunner/NS_GunnerMuzzle.NS_GunnerMuzzle"));
@@ -68,6 +127,16 @@ void AGunnerCharacter::BeginPlay()
 
 	MagazineSize = FMath::Max(MagazineSize, 1);
 	CurrentAmmo = MagazineSize;
+	AttachMagazineToWeapon();
+	RegisterReloadNotifyHandlers();
+	LogReloadNotifySetup();
+	UpdateAmmoDisplay();
+}
+
+void AGunnerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UnregisterReloadNotifyHandlers();
+	Super::EndPlay(EndPlayReason);
 }
 
 bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
@@ -92,6 +161,7 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 
 	NextAllowedFireTime = Now + FMath::Max(FireInterval, 0.01f);
 	--CurrentAmmo;
+	UpdateAmmoDisplay();
 
 	const EGunnerShotResult Result = RollShotResult();
 	const FVector MuzzleLocation = GetMuzzleLocation();
@@ -386,16 +456,230 @@ void AGunnerCharacter::BeginReload()
 	OnReloadStateChanged.Broadcast(true);
 	if (BarkComponent)
 	{
-		BarkComponent->TrySpeak(FText::FromString(TEXT("Reloading!")));
+		// Reload feedback must not be suppressed by a headshot bark on the final round.
+		BarkComponent->TrySpeak(FText::FromString(TEXT("Reloading!")), FLinearColor::White, false, true);
 	}
-	GetWorldTimerManager().SetTimer(ReloadTimerHandle, this, &AGunnerCharacter::CompleteReload, FMath::Max(ReloadDuration, 0.01f), false);
-	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload started (%.2fs)"), ReloadDuration);
+	if (PlayReloadAnimation())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload montage started (%.3fs)"), ReloadAnimation->GetPlayLength());
+		return;
+	}
+
+	// Keep the existing timer only as a missing-asset/AnimInstance fallback.
+	GetWorldTimerManager().SetTimer(
+		ReloadTimerHandle,
+		this,
+		&AGunnerCharacter::CompleteReload,
+		FMath::Max(ReloadDuration, 0.01f),
+		false);
+	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Reload animation unavailable; using %.2fs fallback"), ReloadDuration);
 }
 
 void AGunnerCharacter::CompleteReload()
 {
+	if (!bIsReloading)
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(ReloadTimerHandle);
+	AttachMagazineToWeapon();
 	CurrentAmmo = FMath::Max(MagazineSize, 1);
 	bIsReloading = false;
+	ActiveReloadMontage = nullptr;
+	UpdateAmmoDisplay();
 	OnReloadStateChanged.Broadcast(false);
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload complete Ammo=%d/%d"), CurrentAmmo, MagazineSize);
+}
+
+bool AGunnerCharacter::PlayReloadAnimation()
+{
+	if (!ReloadAnimation || !GetMesh())
+	{
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (!AnimInstance)
+	{
+		return false;
+	}
+
+	ActiveReloadMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
+		ReloadAnimation,
+		ReloadSlotName,
+		0.08f,
+		0.12f,
+		1.0f,
+		1,
+		-1.0f,
+		0.0f);
+	if (!ActiveReloadMontage)
+	{
+		return false;
+	}
+
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUObject(this, &AGunnerCharacter::HandleReloadMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(EndDelegate, ActiveReloadMontage);
+	return true;
+}
+
+void AGunnerCharacter::HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (Montage != ActiveReloadMontage || !bIsReloading)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload montage ended Interrupted=%s"), bInterrupted ? TEXT("true") : TEXT("false"));
+	CompleteReload();
+}
+
+void AGunnerCharacter::AttachMagazineToHand()
+{
+	if (!bIsReloading || !MagazineMesh || !GetMesh())
+	{
+		return;
+	}
+
+	UStaticMeshComponent* ReloadMagazineMesh = FindGunnerMagazineComponent(this, ReloadMagazineComponentName);
+	if (!ReloadMagazineMesh)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Gunner][Magazine] ReloadMagazineMesh is missing; cannot show reload-hand magazine"));
+		return;
+	}
+
+	// The gun magazine never leaves WeaponMagazineSocket.  The reload animation
+	// only swaps visibility to a second magazine that follows the existing hand socket.
+	MagazineMesh->SetVisibility(false, true);
+	MagazineMesh->SetHiddenInGame(true, true);
+	ReloadMagazineMesh->AttachToComponent(
+		GetMesh(),
+		FAttachmentTransformRules::SnapToTargetIncludingScale,
+		MagazineHandSocketName);
+	ReloadMagazineMesh->SetHiddenInGame(false, true);
+	ReloadMagazineMesh->SetVisibility(true, true);
+
+	UE_LOG(LogTemp, Log, TEXT("[Gunner][Magazine] Mag_ToHand: gun magazine hidden; hand magazine shown at %s"), *MagazineHandSocketName.ToString());
+}
+
+void AGunnerCharacter::AttachMagazineToWeapon()
+{
+	if (!MagazineMesh)
+	{
+		return;
+	}
+
+	USceneComponent* WeaponMagazineSocket = FindGunnerSceneComponent(this, WeaponMagazineSocketComponentName);
+	UStaticMeshComponent* ReloadMagazineMesh = FindGunnerMagazineComponent(this, ReloadMagazineComponentName);
+	if (!WeaponMagazineSocket || !ReloadMagazineMesh)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Gunner][Magazine] WeaponMagazineSocket=%s ReloadMagazineMesh=%s; cannot restore gun magazine"),
+			WeaponMagazineSocket ? TEXT("valid") : TEXT("missing"),
+			ReloadMagazineMesh ? TEXT("valid") : TEXT("missing"));
+		return;
+	}
+
+	// Defensive restoration only.  MagazineMesh is never attached to the hand.
+	MagazineMesh->AttachToComponent(WeaponMagazineSocket, FAttachmentTransformRules::SnapToTargetIncludingScale);
+	MagazineMesh->SetHiddenInGame(false, true);
+	MagazineMesh->SetVisibility(true, true);
+	ReloadMagazineMesh->SetVisibility(false, true);
+	ReloadMagazineMesh->SetHiddenInGame(true, true);
+
+	UE_LOG(LogTemp, Log, TEXT("[Gunner][Magazine] Mag_ToGun: gun magazine restored at WeaponMagazineSocket; hand magazine hidden"));
+}
+
+void AGunnerCharacter::UpdateAmmoDisplay()
+{
+	if (!AmmoWidgetComponent)
+	{
+		return;
+	}
+
+	AmmoWidgetComponent->InitWidget();
+	if (UUserWidget* Widget = AmmoWidgetComponent->GetUserWidgetObject())
+	{
+		if (UTextBlock* AmmoText = Cast<UTextBlock>(Widget->GetWidgetFromName(TEXT("BarkText"))))
+		{
+			AmmoText->SetText(FText::Format(
+				NSLOCTEXT("Gunner", "AmmoFormat", "{0}/{1}"),
+				FText::AsNumber(CurrentAmmo),
+				FText::AsNumber(MagazineSize)));
+			AmmoText->SetColorAndOpacity(FSlateColor(FLinearColor(0.92f, 0.95f, 1.0f, 1.0f)));
+			AmmoText->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+	}
+	AmmoWidgetComponent->SetVisibility(true);
+}
+
+void AGunnerCharacter::RegisterReloadNotifyHandlers()
+{
+	if (GetMesh())
+	{
+		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+		{
+			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
+			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
+		}
+	}
+}
+
+void AGunnerCharacter::UnregisterReloadNotifyHandlers()
+{
+	if (GetMesh())
+	{
+		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+		{
+			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
+			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
+		}
+	}
+}
+
+void AGunnerCharacter::LogReloadNotifySetup() const
+{
+	if (!ReloadAnimation)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Gunner] ReloadAnimation is missing"));
+		return;
+	}
+
+	bool bFoundToHand = false;
+	bool bFoundToGun = false;
+	for (const FAnimNotifyEvent& Notify : ReloadAnimation->Notifies)
+	{
+		if (Notify.NotifyName == TEXT("Mag_ToHand"))
+		{
+			bFoundToHand = true;
+			UE_LOG(LogTemp, Log, TEXT("[Gunner] Existing notify Mag_ToHand at %.3fs"), Notify.GetTime());
+		}
+		else if (Notify.NotifyName == TEXT("Mag_ToGun"))
+		{
+			bFoundToGun = true;
+			UE_LOG(LogTemp, Log, TEXT("[Gunner] Existing notify Mag_ToGun at %.3fs"), Notify.GetTime());
+		}
+	}
+
+	if (!bFoundToHand || !bFoundToGun)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Gunner] Reload notify validation failed ToHand=%s ToGun=%s"),
+			bFoundToHand ? TEXT("true") : TEXT("false"),
+			bFoundToGun ? TEXT("true") : TEXT("false"));
+	}
+}
+
+void AGunnerCharacter::AnimNotify_Mag_ToHand()
+{
+	AttachMagazineToHand();
+}
+
+void AGunnerCharacter::AnimNotify_Mag_ToGun()
+{
+	if (bIsReloading)
+	{
+		AttachMagazineToWeapon();
+		UE_LOG(LogTemp, Log, TEXT("[Gunner] Mag_ToGun -> WeaponMesh"));
+	}
 }

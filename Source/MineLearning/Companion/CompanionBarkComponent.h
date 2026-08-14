@@ -17,7 +17,11 @@ public:
 	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintCallable, Category="Companion|Bark")
-	bool TrySpeak(const FText& Text, FLinearColor Color = FLinearColor::White, bool bShowIcon = false);
+	bool TrySpeak(
+		const FText& Text,
+		FLinearColor Color = FLinearColor::White,
+		bool bShowIcon = false,
+		bool bIgnoreCooldown = false);
 
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Companion|Bark")

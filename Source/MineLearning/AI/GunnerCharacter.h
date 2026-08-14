@@ -5,9 +5,11 @@
 #include "GunnerCharacter.generated.h"
 
 class AMineableOre;
+class UAnimMontage;
 class UAnimSequenceBase;
 class USceneComponent;
 class UStaticMeshComponent;
+class UWidgetComponent;
 class UNiagaraSystem;
 class UCompanionBarkComponent;
 
@@ -38,6 +40,7 @@ public:
 	AGunnerCharacter();
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Requests exactly one shot. The AI owns the target; Gunner owns all shot details. */
 	UFUNCTION(BlueprintCallable, Category="Gunner|Combat")
@@ -48,6 +51,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
 	int32 GetCurrentAmmo() const { return CurrentAmmo; }
+
+	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
+	int32 GetMagazineSize() const { return MagazineSize; }
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
 	FVector GetMuzzleLocation() const;
@@ -62,6 +68,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
 	TObjectPtr<UStaticMeshComponent> WeaponMesh;
 
+	/** Independent magazine. It shares the weapon origin while inserted. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
+	TObjectPtr<UStaticMeshComponent> MagazineMesh;
+
 	/** Editable child of the AK mesh. Place this at the barrel tip. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
 	TObjectPtr<USceneComponent> MuzzlePoint;
@@ -69,11 +79,24 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Bark")
 	TObjectPtr<UCompanionBarkComponent> BarkComponent;
 
+	/** Persistent read-only ammo display. Weapon state remains owned by Gunner. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|UI")
+	TObjectPtr<UWidgetComponent> AmmoWidgetComponent;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
 	TObjectPtr<UAnimSequenceBase> FireAnimation;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
+	TObjectPtr<UAnimSequenceBase> ReloadAnimation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
 	FName FireSlotName = TEXT("DefaultSlot");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
+	FName ReloadSlotName = TEXT("DefaultSlot");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
+	FName MagazineHandSocketName = TEXT("Socket_Magazine_L");
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="1"))
 	int32 MagazineSize = 30;
@@ -146,6 +169,20 @@ private:
 	void SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation);
 	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
 	void BeginReload();
+	bool PlayReloadAnimation();
+	void HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+	void AttachMagazineToHand();
+	void AttachMagazineToWeapon();
+	void UpdateAmmoDisplay();
+	void RegisterReloadNotifyHandlers();
+	void UnregisterReloadNotifyHandlers();
+	void LogReloadNotifySetup() const;
+
+	UFUNCTION()
+	void AnimNotify_Mag_ToHand();
+
+	UFUNCTION()
+	void AnimNotify_Mag_ToGun();
 
 	UFUNCTION()
 	void CompleteReload();
@@ -153,4 +190,7 @@ private:
 	bool bIsReloading = false;
 	double NextAllowedFireTime = 0.0;
 	FTimerHandle ReloadTimerHandle;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> ActiveReloadMontage;
 };
