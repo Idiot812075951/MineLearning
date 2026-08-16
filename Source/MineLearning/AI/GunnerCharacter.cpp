@@ -3,7 +3,6 @@
 #include "GunnerAIController.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "Animation/AnimSequenceBase.h"
 #include "Components/ActorComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
@@ -13,6 +12,7 @@
 #include "Components/WidgetComponent.h"
 #include "Components/Image.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Camera/PlayerCameraManager.h"
@@ -102,17 +102,23 @@ AGunnerCharacter::AGunnerCharacter()
 		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Body.SM_AK_Body"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> MagazineFinder(
 		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Magazine.SM_AK_Magazine"));
-	static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> ReloadFinder(
-		TEXT("/Game/Resource/Robot/Gunner/Gunner_CleanRig_v008_AKFire_3LianfaArmature_AK_Reload.Gunner_CleanRig_v008_AKFire_3LianfaArmature_AK_Reload"));
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> FireMontageFinder(
+		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Fire.AM_Gunner_Fire"));
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> BurstMontageFinder(
+		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Burst_3Round.AM_Gunner_Burst_3Round"));
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ReloadMontageFinder(
+		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Reload.AM_Gunner_Reload"));
 	static ConstructorHelpers::FClassFinder<UUserWidget> AmmoWidgetFinder(
 		TEXT("/Game/UI/Companion/WBP_CompanionBark"));
 	WeaponMesh->SetStaticMesh(WeaponBodyFinder.Object);
 	MagazineMesh->SetStaticMesh(MagazineFinder.Object);
-	ReloadAnimation = ReloadFinder.Object;
+	FireMontage = FireMontageFinder.Object;
+	BurstFireMontage = BurstMontageFinder.Object;
+	ReloadMontage = ReloadMontageFinder.Object;
 	AmmoWidgetComponent->SetWidgetClass(AmmoWidgetFinder.Class);
 
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> TracerFinder(TEXT("/Game/FX/Gunner/NS_GunnerProjectile.NS_GunnerProjectile"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> MuzzleFinder(TEXT("/Game/FX/Gunner/NS_GunnerMuzzle.NS_GunnerMuzzle"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> MuzzleFinder(TEXT("/Game/FX/Gunner/NS_GunnerMuzzleFlash.NS_GunnerMuzzleFlash"));
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HeadshotFinder(TEXT("/Game/FX/Gunner/NS_GunnerHeadshot.NS_GunnerHeadshot"));
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> GoldenFinder(TEXT("/Game/FX/Gunner/NS_GunnerGoldenHeadshot.NS_GunnerGoldenHeadshot"));
 	TracerSystem = TracerFinder.Object;
@@ -128,8 +134,10 @@ void AGunnerCharacter::BeginPlay()
 	MagazineSize = FMath::Max(MagazineSize, 1);
 	CurrentAmmo = MagazineSize;
 	AttachMagazineToWeapon();
+#if WITH_EDITOR
+	EnsureBurstMontageNotifies();
+#endif
 	RegisterReloadNotifyHandlers();
-	LogReloadNotifySetup();
 	UpdateAmmoDisplay();
 }
 
@@ -142,7 +150,7 @@ void AGunnerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 {
 	UWorld* World = GetWorld();
-	if (!World || !IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed() || bIsReloading)
+	if (!World || !IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed() || bIsReloading || bBurstInProgress)
 	{
 		return false;
 	}
@@ -160,10 +168,69 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 	}
 
 	NextAllowedFireTime = Now + FMath::Max(FireInterval, 0.01f);
+	// Each attack is independently a 50/50 point-shot or three-round burst.
+	// A burst is never selected when it cannot spend all three rounds.
+	const bool bUseBurst = CurrentAmmo >= 3 && FMath::FRand() < BurstChance;
+
+	if (!bUseBurst)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Gunner] AttackMode=Single Ammo=%d/%d Target=%s"),
+			CurrentAmmo, MagazineSize, *GetNameSafe(TargetOre));
+		ResolveShot(TargetOre, false);
+		PlayFireMontage();
+		return true;
+	}
+
+	bBurstInProgress = true;
+	BurstRoundsResolved = 0;
+	BurstTargetOre = TargetOre;
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] AttackMode=Burst queued Ammo=%d/%d Target=%s NotifyFrames=2,6,10"),
+		CurrentAmmo, MagazineSize, *GetNameSafe(TargetOre));
+	if (!PlayBurstFireMontage())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Gunner] Burst Montage unavailable; resolving the three rounds immediately"));
+		while (bBurstInProgress && BurstRoundsResolved < 3)
+		{
+			AnimNotify_GunnerBurstShot();
+		}
+	}
+	else
+	{
+		// Resolve exactly on source-animation frames 2/6/10 (24 fps).  The Montage
+		// asset can lose its editor-authored named notifies, so gameplay must not
+		// depend on those events to spawn projectiles or muzzle effects.
+		bBurstTimingDriven = true;
+		World->GetTimerManager().SetTimer(
+			BurstRoundTimerHandle,
+			this,
+			&AGunnerCharacter::ResolveBurstTimedShot,
+			4.0f / 24.0f,
+			true,
+			2.0f / 24.0f);
+
+		// This is still a final recovery guard for an interrupted or disabled world timer.
+		World->GetTimerManager().SetTimer(
+			BurstSafetyTimerHandle,
+			this,
+			&AGunnerCharacter::ResolveOutstandingBurstShots,
+			FMath::Max(BurstFireMontage->GetPlayLength() + MontageSafetyPadding, 0.01f),
+			false);
+	}
+
+	return true;
+}
+
+void AGunnerCharacter::ResolveShot(AMineableOre* TargetOre, bool bUseBurstAccuracy, int32 BurstRoundIndex)
+{
+	if (!IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed() || CurrentAmmo <= 0)
+	{
+		return;
+	}
+
 	--CurrentAmmo;
 	UpdateAmmoDisplay();
 
-	const EGunnerShotResult Result = RollShotResult();
+	const EGunnerShotResult Result = RollShotResult(bUseBurstAccuracy);
 	const FVector MuzzleLocation = GetMuzzleLocation();
 	const FVector TargetLocation = CalculateShotTarget(TargetOre, Result);
 	float AppliedDamage = 0.0f;
@@ -192,7 +259,6 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 		}
 	}
 
-	PlayFireAnimation();
 	DrawDefaultShotVisual(Result, MuzzleLocation, TargetLocation);
 	PlayProductionShotVisual(Result, MuzzleLocation, TargetLocation);
 	SpawnHeadshotWorldFeedback(Result, TargetLocation);
@@ -209,17 +275,26 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 		{
 			BarkComponent->TrySpeak(FText::FromString(TEXT("HEADSHOT!")));
 		}
+		else if (Result == EGunnerShotResult::Miss)
+		{
+			BarkComponent->TrySpeak(FText::FromString(TEXT("I MISSED!")), FLinearColor(1.0f, 0.4f, 0.08f), false, true);
+		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Gunner] Shot=%s Ammo=%d/%d Damage=%.1f Target=%s"),
-		*UEnum::GetValueAsString(Result), CurrentAmmo, MagazineSize, AppliedDamage, *GetNameSafe(TargetOre));
+	const FString Mode = bUseBurstAccuracy
+		? FString::Printf(TEXT("Burst %d/3"), BurstRoundIndex)
+		: TEXT("Single");
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] %s Result=%s Ammo=%d/%d Damage=%.1f Target=%s"),
+		*Mode, *UEnum::GetValueAsString(Result), CurrentAmmo, MagazineSize, AppliedDamage, *GetNameSafe(TargetOre));
 
 	if (CurrentAmmo <= 0)
 	{
-		BeginReload();
+		// A burst finishes its current animation before the normal reload flow starts.
+		if (!bBurstInProgress)
+		{
+			BeginReload();
+		}
 	}
-
-	return true;
 }
 
 void AGunnerCharacter::SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation)
@@ -297,11 +372,16 @@ FVector AGunnerCharacter::GetMuzzleLocation() const
 	return MuzzlePoint ? MuzzlePoint->GetComponentLocation() : GetActorLocation();
 }
 
-EGunnerShotResult AGunnerCharacter::RollShotResult() const
+EGunnerShotResult AGunnerCharacter::RollShotResult(bool bUseBurstAccuracy) const
 {
-	const float Golden = FMath::Max(GoldenHeadshotChance, 0.0f);
-	const float Head = FMath::Max(HeadshotChance, 0.0f);
-	const float Body = FMath::Max(BodyShotChance, 0.0f);
+	const float AccuracyScale = bUseBurstAccuracy ? 0.5f : 1.0f;
+	const float BaseGolden = FMath::Max(GoldenHeadshotChance, 0.0f);
+	const float BaseHead = FMath::Max(HeadshotChance, 0.0f);
+	const float Golden = BaseGolden * AccuracyScale;
+	const float Head = BaseHead * AccuracyScale;
+	// The reduced burst headshot chance becomes an ordinary body shot, preserving
+	// the configured miss chance and making each special-hit probability exactly half.
+	const float Body = FMath::Max(BodyShotChance + (BaseGolden - Golden) + (BaseHead - Head), 0.0f);
 	const float Miss = FMath::Max(MissChance, 0.0f);
 	const float Total = Golden + Head + Body + Miss;
 
@@ -358,24 +438,106 @@ FVector AGunnerCharacter::CalculateShotTarget(const AMineableOre* TargetOre, EGu
 		+ FVector(0.0f, 0.0f, FMath::FRandRange(-0.35f, 0.75f) * Extent.Z);
 }
 
-void AGunnerCharacter::PlayFireAnimation()
+void AGunnerCharacter::PlayFireMontage()
 {
-	if (!FireAnimation || !GetMesh())
+	if (!FireMontage || !GetMesh())
 	{
 		return;
 	}
 
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
-		AnimInstance->PlaySlotAnimationAsDynamicMontage(
-			FireAnimation,
-			FireSlotName,
-			0.05f,
-			0.08f,
-			1.0f,
-			1,
-			-1.0f,
-			0.0f);
+		AnimInstance->Montage_Play(FireMontage);
+	}
+}
+
+bool AGunnerCharacter::PlayBurstFireMontage()
+{
+	if (!BurstFireMontage || !GetMesh())
+	{
+		return false;
+	}
+
+	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+	{
+		return AnimInstance->Montage_Play(BurstFireMontage) > 0.0f;
+	}
+
+	return false;
+}
+
+#if WITH_EDITOR
+void AGunnerCharacter::EnsureBurstMontageNotifies()
+{
+	if (!BurstFireMontage)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Gunner] Burst Montage notify setup failed: Montage is missing"));
+		return;
+	}
+
+	// These three moments correspond to source-animation frames 2, 6, and 10
+	// at its fixed 24 fps import rate. They must live on the Montage itself:
+	// source-sequence named notifies are not propagated by this Montage asset.
+	constexpr float NotifyTimes[] = { 2.0f / 24.0f, 6.0f / 24.0f, 10.0f / 24.0f };
+	int32 AddedCount = 0;
+	for (const float NotifyTime : NotifyTimes)
+	{
+		const bool bAlreadyExists = BurstFireMontage->Notifies.ContainsByPredicate(
+			[NotifyTime](const FAnimNotifyEvent& Notify)
+			{
+				return Notify.NotifyName == TEXT("GunnerBurstShot")
+					&& FMath::IsNearlyEqual(Notify.GetTime(), NotifyTime, KINDA_SMALL_NUMBER);
+			});
+		if (bAlreadyExists)
+		{
+			continue;
+		}
+
+		FAnimNotifyEvent& NewNotify = BurstFireMontage->Notifies.AddDefaulted_GetRef();
+		NewNotify.NotifyName = TEXT("GunnerBurstShot");
+		NewNotify.Link(BurstFireMontage, NotifyTime);
+		++AddedCount;
+	}
+
+	if (AddedCount > 0)
+	{
+		BurstFireMontage->MarkPackageDirty();
+		UE_LOG(LogTemp, Log, TEXT("[Gunner] Added %d persistent GunnerBurstShot Montage notifies at frames 2, 6, 10"), AddedCount);
+	}
+}
+#endif
+
+void AGunnerCharacter::EndBurst(const TCHAR* Reason)
+{
+	if (!bBurstInProgress)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] Burst complete Rounds=%d Reason=%s Ammo=%d/%d"),
+		BurstRoundsResolved, Reason, CurrentAmmo, MagazineSize);
+	GetWorldTimerManager().ClearTimer(BurstRoundTimerHandle);
+	GetWorldTimerManager().ClearTimer(BurstSafetyTimerHandle);
+	bBurstTimingDriven = false;
+	bBurstInProgress = false;
+	BurstTargetOre.Reset();
+	if (CurrentAmmo <= 0)
+	{
+		BeginReload();
+	}
+}
+
+void AGunnerCharacter::ResolveOutstandingBurstShots()
+{
+	if (!bBurstInProgress)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Burst ended with %d unresolved round(s); resolving safely"), 3 - BurstRoundsResolved);
+	while (bBurstInProgress && BurstRoundsResolved < 3)
+	{
+		ResolveBurstRound(TEXT("safety fallback"));
 	}
 }
 
@@ -408,7 +570,9 @@ void AGunnerCharacter::PlayProductionShotVisual(EGunnerShotResult Result, const 
 	const FRotator Rotation = Direction.Rotation();
 	if (MuzzleFlashSystem)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, MuzzleFlashSystem, Start, Rotation, FVector(0.45f), true, true);
+		// The dedicated flash is a short, bright sprite burst. Keep it large enough
+		// to read clearly at normal gameplay distance without turning into a jet.
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, MuzzleFlashSystem, Start, Rotation, FVector(1.5f), true, true);
 	}
 
 	if (TracerSystem)
@@ -459,9 +623,15 @@ void AGunnerCharacter::BeginReload()
 		// Reload feedback must not be suppressed by a headshot bark on the final round.
 		BarkComponent->TrySpeak(FText::FromString(TEXT("Reloading!")), FLinearColor::White, false, true);
 	}
-	if (PlayReloadAnimation())
+	if (PlayReloadMontage())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload montage started (%.3fs)"), ReloadAnimation->GetPlayLength());
+		GetWorldTimerManager().SetTimer(
+			ReloadTimerHandle,
+			this,
+			&AGunnerCharacter::ForceCompleteReload,
+			FMath::Max(ReloadMontage->GetPlayLength() + MontageSafetyPadding, 0.01f),
+			false);
+		UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload Montage started (%.3fs)"), ReloadMontage->GetPlayLength());
 		return;
 	}
 
@@ -492,9 +662,9 @@ void AGunnerCharacter::CompleteReload()
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload complete Ammo=%d/%d"), CurrentAmmo, MagazineSize);
 }
 
-bool AGunnerCharacter::PlayReloadAnimation()
+bool AGunnerCharacter::PlayReloadMontage()
 {
-	if (!ReloadAnimation || !GetMesh())
+	if (!ReloadMontage || !GetMesh())
 	{
 		return false;
 	}
@@ -505,17 +675,10 @@ bool AGunnerCharacter::PlayReloadAnimation()
 		return false;
 	}
 
-	ActiveReloadMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(
-		ReloadAnimation,
-		ReloadSlotName,
-		0.08f,
-		0.12f,
-		1.0f,
-		1,
-		-1.0f,
-		0.0f);
-	if (!ActiveReloadMontage)
+	ActiveReloadMontage = ReloadMontage;
+	if (AnimInstance->Montage_Play(ActiveReloadMontage) <= 0.0f)
 	{
+		ActiveReloadMontage = nullptr;
 		return false;
 	}
 
@@ -523,6 +686,24 @@ bool AGunnerCharacter::PlayReloadAnimation()
 	EndDelegate.BindUObject(this, &AGunnerCharacter::HandleReloadMontageEnded);
 	AnimInstance->Montage_SetEndDelegate(EndDelegate, ActiveReloadMontage);
 	return true;
+}
+
+void AGunnerCharacter::ForceCompleteReload()
+{
+	if (!bIsReloading)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Reload Montage timeout; forcing state recovery"));
+	if (ActiveReloadMontage && GetMesh())
+	{
+		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+		{
+			AnimInstance->Montage_Stop(0.05f, ActiveReloadMontage);
+		}
+	}
+	CompleteReload();
 }
 
 void AGunnerCharacter::HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted)
@@ -622,6 +803,7 @@ void AGunnerCharacter::RegisterReloadNotifyHandlers()
 		{
 			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
 			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
+			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_GunnerBurstShot));
 		}
 	}
 }
@@ -634,39 +816,8 @@ void AGunnerCharacter::UnregisterReloadNotifyHandlers()
 		{
 			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
 			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
+			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_GunnerBurstShot));
 		}
-	}
-}
-
-void AGunnerCharacter::LogReloadNotifySetup() const
-{
-	if (!ReloadAnimation)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[Gunner] ReloadAnimation is missing"));
-		return;
-	}
-
-	bool bFoundToHand = false;
-	bool bFoundToGun = false;
-	for (const FAnimNotifyEvent& Notify : ReloadAnimation->Notifies)
-	{
-		if (Notify.NotifyName == TEXT("Mag_ToHand"))
-		{
-			bFoundToHand = true;
-			UE_LOG(LogTemp, Log, TEXT("[Gunner] Existing notify Mag_ToHand at %.3fs"), Notify.GetTime());
-		}
-		else if (Notify.NotifyName == TEXT("Mag_ToGun"))
-		{
-			bFoundToGun = true;
-			UE_LOG(LogTemp, Log, TEXT("[Gunner] Existing notify Mag_ToGun at %.3fs"), Notify.GetTime());
-		}
-	}
-
-	if (!bFoundToHand || !bFoundToGun)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[Gunner] Reload notify validation failed ToHand=%s ToGun=%s"),
-			bFoundToHand ? TEXT("true") : TEXT("false"),
-			bFoundToGun ? TEXT("true") : TEXT("false"));
 	}
 }
 
@@ -681,5 +832,48 @@ void AGunnerCharacter::AnimNotify_Mag_ToGun()
 	{
 		AttachMagazineToWeapon();
 		UE_LOG(LogTemp, Log, TEXT("[Gunner] Mag_ToGun -> WeaponMesh"));
+	}
+}
+
+void AGunnerCharacter::AnimNotify_GunnerBurstShot()
+{
+	if (bBurstTimingDriven)
+	{
+		// Timed resolution is authoritative. Ignore a duplicate named notify if
+		// the asset is later repaired or reimported with one.
+		UE_LOG(LogTemp, Verbose, TEXT("[Gunner] Ignored duplicate GunnerBurstShot notify during timer-driven burst"));
+		return;
+	}
+
+	ResolveBurstRound(TEXT("animation notify"));
+}
+
+void AGunnerCharacter::ResolveBurstTimedShot()
+{
+	ResolveBurstRound(TEXT("animation timing"));
+}
+
+void AGunnerCharacter::ResolveBurstRound(const TCHAR* Trigger)
+{
+	if (!bBurstInProgress)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[Gunner] Ignored burst round (%s): no active burst"), Trigger);
+		return;
+	}
+
+	AMineableOre* TargetOre = BurstTargetOre.Get();
+	if (!IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed())
+	{
+		EndBurst(TEXT("target no longer valid"));
+		return;
+	}
+
+	++BurstRoundsResolved;
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] Burst %s received Round=%d/3"), Trigger, BurstRoundsResolved);
+	ResolveShot(TargetOre, true, BurstRoundsResolved);
+
+	if (BurstRoundsResolved >= 3 || CurrentAmmo <= 0)
+	{
+		EndBurst(BurstRoundsResolved >= 3 ? TEXT("all burst rounds resolved") : TEXT("magazine exhausted"));
 	}
 }

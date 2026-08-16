@@ -6,7 +6,6 @@
 
 class AMineableOre;
 class UAnimMontage;
-class UAnimSequenceBase;
 class USceneComponent;
 class UStaticMeshComponent;
 class UWidgetComponent;
@@ -42,7 +41,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** Requests exactly one shot. The AI owns the target; Gunner owns all shot details. */
+	/** Requests a point shot or a three-round burst, chosen per attack. */
 	UFUNCTION(BlueprintCallable, Category="Gunner|Combat")
 	bool TryFireAtOre(AMineableOre* TargetOre);
 
@@ -83,48 +82,55 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|UI")
 	TObjectPtr<UWidgetComponent> AmmoWidgetComponent;
 
+	/** Persistent Montage assets. Do not replace these with transient dynamic montages. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
-	TObjectPtr<UAnimSequenceBase> FireAnimation;
+	TObjectPtr<UAnimMontage> FireMontage;
+
+	/** Three-round fire Montage. Gameplay resolves its rounds at the matching animation frames. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
+	TObjectPtr<UAnimMontage> BurstFireMontage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
-	TObjectPtr<UAnimSequenceBase> ReloadAnimation;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
-	FName FireSlotName = TEXT("DefaultSlot");
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
-	FName ReloadSlotName = TEXT("DefaultSlot");
+	TObjectPtr<UAnimMontage> ReloadMontage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
 	FName MagazineHandSocketName = TEXT("Socket_Magazine_L");
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="1"))
-	int32 MagazineSize = 30;
+	int32 MagazineSize = 10;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Gunner|Combat")
-	int32 CurrentAmmo = 30;
+	int32 CurrentAmmo = 10;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.01"))
 	float FireInterval = 0.7f;
 
+	/** Burst chance when at least three rounds remain; otherwise Gunner always point-fires. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0", ClampMax="1.0"))
+	float BurstChance = 0.5f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.01"))
 	float ReloadDuration = 2.0f;
 
+	/** Guarantees recovery if an AnimBP/slot interrupts a reload Montage. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
+	float MontageSafetyPadding = 0.25f;
+
 	/** Damage before the ore's existing hardness calculation. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
-	float BaseDamage = 20.0f;
+	float BaseDamage = 10.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
 	float HeadshotDamageMultiplier = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
-	float HeadshotChance = 0.2f;
+	float HeadshotChance = 0.20f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float GoldenHeadshotChance = 0.05f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
-	float BodyShotChance = 0.7f;
+	float BodyShotChance = 0.65f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float MissChance = 0.1f;
@@ -162,21 +168,30 @@ protected:
 	void PlayShotVisuals(EGunnerShotResult Result, FVector MuzzleLocation, FVector TargetLocation);
 
 private:
-	EGunnerShotResult RollShotResult() const;
+	EGunnerShotResult RollShotResult(bool bUseBurstAccuracy) const;
 	FVector CalculateShotTarget(const AMineableOre* TargetOre, EGunnerShotResult Result) const;
-	void PlayFireAnimation();
+	void PlayFireMontage();
+	bool PlayBurstFireMontage();
+	void ResolveShot(AMineableOre* TargetOre, bool bUseBurstAccuracy, int32 BurstRoundIndex = 0);
+	void EndBurst(const TCHAR* Reason);
+	void ResolveBurstRound(const TCHAR* Trigger);
+	void ResolveBurstTimedShot();
+	void ResolveOutstandingBurstShots();
 	void PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
 	void SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation);
 	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
 	void BeginReload();
-	bool PlayReloadAnimation();
+	bool PlayReloadMontage();
 	void HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+	void ForceCompleteReload();
 	void AttachMagazineToHand();
 	void AttachMagazineToWeapon();
 	void UpdateAmmoDisplay();
 	void RegisterReloadNotifyHandlers();
 	void UnregisterReloadNotifyHandlers();
-	void LogReloadNotifySetup() const;
+#if WITH_EDITOR
+	void EnsureBurstMontageNotifies();
+#endif
 
 	UFUNCTION()
 	void AnimNotify_Mag_ToHand();
@@ -184,12 +199,23 @@ private:
 	UFUNCTION()
 	void AnimNotify_Mag_ToGun();
 
+	/** Called by each GunnerBurstShot notify on the three-round animation. */
+	UFUNCTION()
+	void AnimNotify_GunnerBurstShot();
+
 	UFUNCTION()
 	void CompleteReload();
 
 	bool bIsReloading = false;
+	bool bBurstInProgress = false;
+	/** The Montage has no reliable persisted notify track, so bursts are timed from its 24 fps source frames. */
+	bool bBurstTimingDriven = false;
+	int32 BurstRoundsResolved = 0;
+	TWeakObjectPtr<AMineableOre> BurstTargetOre;
 	double NextAllowedFireTime = 0.0;
 	FTimerHandle ReloadTimerHandle;
+	FTimerHandle BurstRoundTimerHandle;
+	FTimerHandle BurstSafetyTimerHandle;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> ActiveReloadMontage;
