@@ -76,6 +76,16 @@ int32 UResourceCarryComponent::AddOre(int32 Amount)
 	return AddAmount;
 }
 
+int32 UResourceCarryComponent::AddOreWithVisual(int32 Amount, UStaticMesh* InResourceMesh)
+{
+	if (CanAddOre(Amount) && CurrentOreCount == 0 && IsValid(InResourceMesh))
+	{
+		CarriedResourceMesh = InResourceMesh;
+	}
+
+	return AddOre(Amount);
+}
+
 int32 UResourceCarryComponent::TakeAllOre()
 {
 	const int32 TakenAmount = CurrentOreCount;
@@ -85,6 +95,7 @@ int32 UResourceCarryComponent::TakeAllOre()
 	}
 
 	CurrentOreCount = 0;
+	CarriedResourceMesh = nullptr;
 	BroadcastCarryChanged();
 	return TakenAmount;
 }
@@ -93,11 +104,13 @@ void UResourceCarryComponent::ClearOre()
 {
 	if (CurrentOreCount <= 0)
 	{
+		CarriedResourceMesh = nullptr;
 		RefreshPreviewResources();
 		return;
 	}
 
 	CurrentOreCount = 0;
+	CarriedResourceMesh = nullptr;
 	BroadcastCarryChanged();
 }
 
@@ -153,9 +166,10 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	UWorld* World = GetWorld();
 	AActor* Owner = GetOwner();
 	USkeletalMeshComponent* OwnerMesh = FindOwnerSkeletalMesh();
+	UStaticMesh* ResourceMesh = GetPreviewResourceMesh();
 	if (!World
 		|| !Owner
-		|| !PreviewResourceMesh
+		|| !ResourceMesh
 		|| PreviewSocketName.IsNone()
 		|| PreviewResourceTransforms.IsEmpty()
 		|| !OwnerMesh
@@ -194,15 +208,15 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	{
 		PreviewResourcesMesh->AttachToComponent(
 			OwnerMesh,
-			FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+			FAttachmentTransformRules::SnapToTargetIncludingScale,
 			PreviewSocketName
 		);
 	}
 
-	if (PreviewResourcesMesh->GetStaticMesh() != PreviewResourceMesh)
+	if (PreviewResourcesMesh->GetStaticMesh() != ResourceMesh)
 	{
-		PreviewResourcesMesh->SetStaticMesh(PreviewResourceMesh);
-		PreviewResourcesMesh->SetMaterial(0, PreviewResourceMesh->GetMaterial(0));
+		PreviewResourcesMesh->SetStaticMesh(ResourceMesh);
+		PreviewResourcesMesh->SetMaterial(0, ResourceMesh->GetMaterial(0));
 		PreviewResourceMaterialInstance = nullptr;
 		AppliedPreviewResourceMaterial = nullptr;
 	}
@@ -222,12 +236,17 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	}
 	else if (PreviewResourceMaterialInstance || AppliedPreviewResourceMaterial)
 	{
-		PreviewResourcesMesh->SetMaterial(0, PreviewResourceMesh->GetMaterial(0));
+		PreviewResourcesMesh->SetMaterial(0, ResourceMesh->GetMaterial(0));
 		PreviewResourceMaterialInstance = nullptr;
 		AppliedPreviewResourceMaterial = nullptr;
 	}
 
 	return true;
+}
+
+UStaticMesh* UResourceCarryComponent::GetPreviewResourceMesh() const
+{
+	return IsValid(CarriedResourceMesh) ? CarriedResourceMesh.Get() : PreviewResourceMesh;
 }
 
 USkeletalMeshComponent* UResourceCarryComponent::FindOwnerSkeletalMesh() const

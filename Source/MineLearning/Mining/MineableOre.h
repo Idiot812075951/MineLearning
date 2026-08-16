@@ -11,6 +11,7 @@ class AResourcePickup;
 class AMineableOre;
 class UOreDefinitionDataAsset;
 class UResourceHitFeedbackComponent;
+class UOreVisualComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreDepletedSignature, AMineableOre*, DepletedOre);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnOreHealthChangedSignature, float, CurrentHealth, float, MaxHealth);
@@ -45,6 +46,13 @@ public:
 	UFUNCTION(BlueprintPure, Category="Mining|Stats")
 	float GetMaxHealth() const { return MaxHP; }
 
+	/** Business-owned mining stage: 0 is intact, then increments once per settled break threshold. */
+	UFUNCTION(BlueprintPure, Category="Mining|Stage")
+	int32 GetCurrentMiningStageIndex() const { return CurrentMiningStageIndex; }
+
+	UFUNCTION(BlueprintPure, Category="Mining|Visual")
+	UStaticMeshComponent* GetOreMesh() const { return OreMesh; }
+
 	UPROPERTY(BlueprintAssignable, Category="Mining|Ore")
 	FOnOreDepletedSignature OnOreDepleted;
 
@@ -59,6 +67,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Visual")
 	TObjectPtr<UResourceHitFeedbackComponent> HitFeedbackComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Visual")
+	TObjectPtr<UOreVisualComponent> OreVisualComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore")
 	UOreDefinitionDataAsset* OreDefinition = nullptr;
@@ -86,9 +97,16 @@ private:
 	void ApplyDamageVisual();
 	void UpdateDamageStage();
 	void SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation);
+	bool ProcessStageBreaks(float PreviousHealth, const FVector& DropLocation);
+	bool UsesStageBreakResourceDrops() const;
+	const TArray<float>& GetBreakThresholds() const;
+	EResourceType GetStageDropResourceType() const;
+	void SpawnStageResourceDrops(const FVector& DropLocation);
 	void HandleDepleted();
 	void DestroyOre();
 	bool SpawnResourceDropDirect(EResourceType Type, int32 Amount, const FVector& DropLocation);
 
 	bool bHasDepleted = false;
+	int32 CurrentMiningStageIndex = 0;
+	TSet<int32> SettledBreakThresholdIndices;
 };

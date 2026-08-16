@@ -34,10 +34,42 @@ void AResourcePickup::Tick(float DeltaSeconds)
 	UpdateAttachMovement(DeltaSeconds);
 }
 
-void AResourcePickup::InitializeResource(EResourceType InType, int32 InAmount)
+void AResourcePickup::InitializeResource(
+	EResourceType InType,
+	int32 InAmount,
+	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
+	float InDropMeshScale
+)
 {
 	ResourceType = InType;
 	Amount = InAmount;
+	SelectDropMesh(InDropMeshes, InDropMeshScale);
+}
+
+void AResourcePickup::SelectDropMesh(
+	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
+	float InDropMeshScale
+)
+{
+	TArray<UStaticMesh*> ValidMeshes;
+	ValidMeshes.Reserve(InDropMeshes.Num());
+	for (UStaticMesh* DropMesh : InDropMeshes)
+	{
+		if (IsValid(DropMesh))
+		{
+			ValidMeshes.Add(DropMesh);
+		}
+	}
+
+	if (ValidMeshes.IsEmpty())
+	{
+		SelectedDropMesh = nullptr;
+		return;
+	}
+
+	SelectedDropMesh = ValidMeshes[FMath::RandRange(0, ValidMeshes.Num() - 1)];
+	Mesh->SetStaticMesh(SelectedDropMesh);
+	Mesh->SetRelativeScale3D(FVector(FMath::Max(InDropMeshScale, 0.01f)));
 }
 
 bool AResourcePickup::TryReserve(AActor* Collector)
@@ -174,7 +206,7 @@ bool AResourcePickup::TryCollect(AActor* OtherActor)
 		return false;
 	}
 
-	const int32 AddedAmount = CarryComponent->AddOre(Amount);
+	const int32 AddedAmount = CarryComponent->AddOreWithVisual(Amount, SelectedDropMesh);
 	if (AddedAmount <= 0)
 	{
 		return false;

@@ -9,6 +9,7 @@ class UStaticMeshComponent;
 class UResourceCarryComponent;
 class USphereComponent;
 class USkeletalMeshComponent;
+class UStaticMesh;
 
 UCLASS()
 class MINELEARNING_API AResourcePickup : public AActor
@@ -20,7 +21,12 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
-	void InitializeResource(EResourceType InType, int32 InAmount);
+	void InitializeResource(
+		EResourceType InType,
+		int32 InAmount,
+		const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
+		float InDropMeshScale
+	);
 
 	bool TryCollect(AActor* OtherActor);
 
@@ -42,10 +48,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 Amount = 1;
 
+	/** The visual chosen for this pickup. It is passed to the collector's cargo preview. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Pickup")
+	TObjectPtr<UStaticMesh> SelectedDropMesh = nullptr;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Pickup", meta=(ClampMin="1.0"))
 	float AttachMoveSpeed = 600.0f;
 
 private:
+	void SelectDropMesh(const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes, float InDropMeshScale);
 	void UpdateAttachMovement(float DeltaSeconds);
 
 	UPROPERTY()

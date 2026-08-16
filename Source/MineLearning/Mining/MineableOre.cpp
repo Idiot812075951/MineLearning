@@ -1,8 +1,11 @@
 #include "MineableOre.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/World.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "OreDefinitionDataAsset.h"
 #include "ResourcePickup.h"
 #include "ResourceHitFeedbackComponent.h"
+#include "OreVisualComponent.h"
 
 AMineableOre::AMineableOre()
 {
@@ -12,6 +15,7 @@ AMineableOre::AMineableOre()
     SetRootComponent(OreMesh);
 
     HitFeedbackComponent = CreateDefaultSubobject<UResourceHitFeedbackComponent>(TEXT("HitFeedbackComponent"));
+    OreVisualComponent = CreateDefaultSubobject<UOreVisualComponent>(TEXT("OreVisualComponent"));
 
     OreMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     OreMesh->SetCollisionObjectType(ECC_WorldStatic);
@@ -55,6 +59,8 @@ void AMineableOre::InitializeStatsFromDefinition()
 
     CurrentHP = MaxHP;
     bHasDepleted = false;
+	CurrentMiningStageIndex = 0;
+	SettledBreakThresholdIndices.Reset();
     OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
 }
 
@@ -65,17 +71,25 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
         return false;
     }
 
-    const float ActualDamage = (Request.MiningPower * Request.ToolEfficiency) / FMath::Max(Hardness, 0.01f);
+	const float PreviousHealth = CurrentHP;
+	const float ActualDamage = (Request.MiningPower * Request.ToolEfficiency) / FMath::Max(Hardness, 0.01f);
 
-    CurrentHP = FMath::Clamp(CurrentHP - ActualDamage, 0.0f, MaxHP);
-    OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
+	CurrentHP = FMath::Clamp(CurrentHP - ActualDamage, 0.0f, MaxHP);
+	const bool bStageBreak = ProcessStageBreaks(PreviousHealth, Request.HitLocation);
+	UE_LOG(LogTemp, Log, TEXT("OreVisual: Route=%s HP=%.1f/%.1f NormalHitFX=%s"),
+		bStageBreak ? TEXT("StageBreak") : TEXT("Hit"), CurrentHP, MaxHP,
+		bStageBreak ? TEXT("Skipped") : TEXT("Play"));
+	OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
 
-    if (HitFeedbackComponent)
-    {
-        HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, ActualDamage);
+	if (!bStageBreak && HitFeedbackComponent)
+	{
+		HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, ActualDamage);
     }
 
-    SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+	if (!UsesStageBreakResourceDrops())
+	{
+		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+	}
     UpdateDamageStage();
     ApplyDamageVisual();
 
@@ -94,14 +108,19 @@ bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
         return false;
     }
 
+	const float PreviousHealth = CurrentHP;
     CurrentHP = 0.0f;
+	ProcessStageBreaks(PreviousHealth, Request.HitLocation);
     OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
     if (HitFeedbackComponent)
     {
         HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, MaxHP);
         HitFeedbackComponent->PlayDestroyedFeedback(GetActorLocation(), Request.HitNormal);
     }
-    SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+	if (!UsesStageBreakResourceDrops())
+	{
+		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+	}
     UpdateDamageStage();
     ApplyDamageVisual();
     HandleDepleted();
@@ -143,9 +162,6 @@ void AMineableOre::ApplyDamageVisual()
         DynamicMaterial->SetScalarParameterValue(TEXT("DamageAmount"), DamageRatio);
     }
 
-    // 占位表现：越受损越缩小一点点，别太夸张
-    const float Scale = FMath::Lerp(1.0f, 0.5f, DamageRatio);
-    OreMesh->SetWorldScale3D(FVector(Scale));
 }
 
 void AMineableOre::SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation)
@@ -178,6 +194,91 @@ void AMineableOre::SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& 
             SpawnResourceDropDirect(DropRule.ResourceType, DropAmount, DropLocation);
         }
     }
+}
+
+bool AMineableOre::ProcessStageBreaks(float PreviousHealth, const FVector& DropLocation)
+{
+	if (!UsesStageBreakResourceDrops())
+	{
+		return false;
+	}
+
+	const float PreviousRatio = FMath::Clamp(PreviousHealth / FMath::Max(MaxHP, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	const float CurrentRatio = FMath::Clamp(CurrentHP / FMath::Max(MaxHP, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	TArray<int32> NewlyCrossedIndices;
+	const TArray<float>& BreakThresholds = GetBreakThresholds();
+	for (int32 Index = 0; Index < BreakThresholds.Num(); ++Index)
+	{
+		const float Threshold = FMath::Clamp(BreakThresholds[Index], 0.0f, 1.0f);
+		if (!SettledBreakThresholdIndices.Contains(Index)
+			&& PreviousRatio > Threshold + KINDA_SMALL_NUMBER
+			&& CurrentRatio <= Threshold + KINDA_SMALL_NUMBER)
+		{
+			NewlyCrossedIndices.Add(Index);
+		}
+	}
+
+	NewlyCrossedIndices.Sort([this](const int32 Left, const int32 Right)
+	{
+		const TArray<float>& BreakThresholds = GetBreakThresholds();
+		return BreakThresholds[Left] > BreakThresholds[Right];
+	});
+
+	for (const int32 Index : NewlyCrossedIndices)
+	{
+		SettledBreakThresholdIndices.Add(Index);
+		++CurrentMiningStageIndex;
+		SpawnStageResourceDrops(DropLocation);
+	}
+
+	return !NewlyCrossedIndices.IsEmpty();
+}
+
+bool AMineableOre::UsesStageBreakResourceDrops() const
+{
+	return OreDefinition
+		&& OreDefinition->ResourcePickupClass
+		&& !GetBreakThresholds().IsEmpty();
+}
+
+const TArray<float>& AMineableOre::GetBreakThresholds() const
+{
+	static const TArray<float> DefaultBreakThresholds = { 0.8f, 0.6f, 0.4f, 0.2f, 0.0f };
+	return OreDefinition && !OreDefinition->BreakThresholds.IsEmpty()
+		? OreDefinition->BreakThresholds
+		: DefaultBreakThresholds;
+}
+
+EResourceType AMineableOre::GetStageDropResourceType() const
+{
+	if (OreDefinition)
+	{
+		for (const FOreDropRule& DropRule : OreDefinition->DropRules)
+		{
+			if (DropRule.Trigger == EOreDropTrigger::OnMiningHit)
+			{
+				return DropRule.ResourceType;
+			}
+		}
+	}
+
+	return EResourceType::Stone;
+}
+
+void AMineableOre::SpawnStageResourceDrops(const FVector& DropLocation)
+{
+	if (!OreDefinition)
+	{
+		return;
+	}
+
+	// Future technology modifiers belong here, after the fixed stage payout is read.
+	const int32 FinalAmount = FMath::Max(OreDefinition->ResourcePerStage, 0);
+	const EResourceType ResourceType = GetStageDropResourceType();
+	for (int32 PickupIndex = 0; PickupIndex < FinalAmount; ++PickupIndex)
+	{
+		SpawnResourceDropDirect(ResourceType, 1, DropLocation);
+	}
 }
 
 void AMineableOre::HandleDepleted()
@@ -220,7 +321,12 @@ bool AMineableOre::SpawnResourceDropDirect(EResourceType Type, int32 Amount, con
 
     if (Pickup)
     {
-        Pickup->InitializeResource(Type, Amount);
+        Pickup->InitializeResource(
+            Type,
+            Amount,
+            OreDefinition->DropMeshes,
+            OreDefinition->DropMeshScale
+        );
         return true;
     }
 

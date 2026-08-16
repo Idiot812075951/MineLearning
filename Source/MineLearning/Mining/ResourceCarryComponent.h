@@ -35,6 +35,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Mining|Carry")
 	int32 AddOre(int32 Amount);
 
+	/** Adds ore and, when the cargo bin was empty, uses the pickup's selected visual for its preview instances. */
+	int32 AddOreWithVisual(int32 Amount, UStaticMesh* InResourceMesh);
+
 	UFUNCTION(BlueprintCallable, Category="Mining|Carry")
 	int32 TakeAllOre();
 
@@ -86,8 +89,13 @@ private:
 	UPROPERTY(Transient)
 	UMaterialInterface* AppliedPreviewResourceMaterial = nullptr;
 
+	/** The visual selected by the first pickup in the current cargo load. */
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMesh> CarriedResourceMesh = nullptr;
+
 	void BroadcastCarryChanged();
 	void RefreshPreviewResources();
 	bool ConfigurePreviewResourcesMesh();
+	UStaticMesh* GetPreviewResourceMesh() const;
 	USkeletalMeshComponent* FindOwnerSkeletalMesh() const;
 };
