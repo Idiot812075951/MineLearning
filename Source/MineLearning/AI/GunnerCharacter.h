@@ -5,6 +5,7 @@
 #include "GunnerCharacter.generated.h"
 
 class AMineableOre;
+class UAnimInstance;
 class UAnimMontage;
 class USceneComponent;
 class UStaticMeshComponent;
@@ -170,7 +171,7 @@ protected:
 private:
 	EGunnerShotResult RollShotResult(bool bUseBurstAccuracy) const;
 	FVector CalculateShotTarget(const AMineableOre* TargetOre, EGunnerShotResult Result) const;
-	void PlayFireMontage();
+	float PlayFireMontage();
 	bool PlayBurstFireMontage();
 	void ResolveShot(AMineableOre* TargetOre, bool bUseBurstAccuracy, int32 BurstRoundIndex = 0);
 	void EndBurst(const TCHAR* Reason);
@@ -181,6 +182,7 @@ private:
 	void SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation);
 	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
 	void BeginReload();
+	void QueueReloadAfterSingleShot(float ShotMontageDuration);
 	bool PlayReloadMontage();
 	void HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 	void ForceCompleteReload();
@@ -189,9 +191,6 @@ private:
 	void UpdateAmmoDisplay();
 	void RegisterReloadNotifyHandlers();
 	void UnregisterReloadNotifyHandlers();
-#if WITH_EDITOR
-	void EnsureBurstMontageNotifies();
-#endif
 
 	UFUNCTION()
 	void AnimNotify_Mag_ToHand();
@@ -199,23 +198,20 @@ private:
 	UFUNCTION()
 	void AnimNotify_Mag_ToGun();
 
-	/** Called by each GunnerBurstShot notify on the three-round animation. */
-	UFUNCTION()
-	void AnimNotify_GunnerBurstShot();
-
 	UFUNCTION()
 	void CompleteReload();
 
 	bool bIsReloading = false;
+	bool bReloadPending = false;
 	bool bBurstInProgress = false;
-	/** The Montage has no reliable persisted notify track, so bursts are timed from its 24 fps source frames. */
-	bool bBurstTimingDriven = false;
 	int32 BurstRoundsResolved = 0;
 	TWeakObjectPtr<AMineableOre> BurstTargetOre;
 	double NextAllowedFireTime = 0.0;
 	FTimerHandle ReloadTimerHandle;
+	FTimerHandle PendingReloadTimerHandle;
 	FTimerHandle BurstRoundTimerHandle;
 	FTimerHandle BurstSafetyTimerHandle;
+	TWeakObjectPtr<UAnimInstance> ReloadNotifyAnimInstance;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> ActiveReloadMontage;

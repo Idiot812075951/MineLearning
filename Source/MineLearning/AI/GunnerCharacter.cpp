@@ -99,17 +99,17 @@ AGunnerCharacter::AGunnerCharacter()
 	AmmoWidgetComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> WeaponBodyFinder(
-		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Body.SM_AK_Body"));
+		TEXT("/Game/MineLearning/Characters/Gunner/Weapons/AK/Meshes/SM_AK_Body.SM_AK_Body"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> MagazineFinder(
-		TEXT("/Game/Resource/Robot/Gunner/AK/SM_AK_Magazine.SM_AK_Magazine"));
+		TEXT("/Game/MineLearning/Characters/Gunner/Weapons/AK/Meshes/SM_AK_Magazine.SM_AK_Magazine"));
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> FireMontageFinder(
-		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Fire.AM_Gunner_Fire"));
+		TEXT("/Game/MineLearning/Characters/Gunner/Animations/AM_Gunner_Fire.AM_Gunner_Fire"));
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> BurstMontageFinder(
-		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Burst_3Round.AM_Gunner_Burst_3Round"));
+		TEXT("/Game/MineLearning/Characters/Gunner/Animations/AM_Gunner_Burst_3Round.AM_Gunner_Burst_3Round"));
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> ReloadMontageFinder(
-		TEXT("/Game/Resource/Robot/Gunner/AM_Gunner_Reload.AM_Gunner_Reload"));
+		TEXT("/Game/MineLearning/Characters/Gunner/Animations/AM_Gunner_Reload.AM_Gunner_Reload"));
 	static ConstructorHelpers::FClassFinder<UUserWidget> AmmoWidgetFinder(
-		TEXT("/Game/UI/Companion/WBP_CompanionBark"));
+		TEXT("/Game/MineLearning/UI/Companion/WBP_CompanionBark"));
 	WeaponMesh->SetStaticMesh(WeaponBodyFinder.Object);
 	MagazineMesh->SetStaticMesh(MagazineFinder.Object);
 	FireMontage = FireMontageFinder.Object;
@@ -117,10 +117,10 @@ AGunnerCharacter::AGunnerCharacter()
 	ReloadMontage = ReloadMontageFinder.Object;
 	AmmoWidgetComponent->SetWidgetClass(AmmoWidgetFinder.Class);
 
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> TracerFinder(TEXT("/Game/FX/Gunner/NS_GunnerProjectile.NS_GunnerProjectile"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> MuzzleFinder(TEXT("/Game/FX/Gunner/NS_GunnerMuzzleFlash.NS_GunnerMuzzleFlash"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HeadshotFinder(TEXT("/Game/FX/Gunner/NS_GunnerHeadshot.NS_GunnerHeadshot"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> GoldenFinder(TEXT("/Game/FX/Gunner/NS_GunnerGoldenHeadshot.NS_GunnerGoldenHeadshot"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> TracerFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerProjectile.NS_GunnerProjectile"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> MuzzleFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerMuzzleFlash.NS_GunnerMuzzleFlash"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HeadshotFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerHeadshot.NS_GunnerHeadshot"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> GoldenFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerGoldenHeadshot.NS_GunnerGoldenHeadshot"));
 	TracerSystem = TracerFinder.Object;
 	MuzzleFlashSystem = MuzzleFinder.Object;
 	HeadshotSystem = HeadshotFinder.Object;
@@ -134,15 +134,14 @@ void AGunnerCharacter::BeginPlay()
 	MagazineSize = FMath::Max(MagazineSize, 1);
 	CurrentAmmo = MagazineSize;
 	AttachMagazineToWeapon();
-#if WITH_EDITOR
-	EnsureBurstMontageNotifies();
-#endif
 	RegisterReloadNotifyHandlers();
 	UpdateAmmoDisplay();
 }
 
 void AGunnerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	GetWorldTimerManager().ClearTimer(PendingReloadTimerHandle);
+	bReloadPending = false;
 	UnregisterReloadNotifyHandlers();
 	Super::EndPlay(EndPlayReason);
 }
@@ -150,7 +149,7 @@ void AGunnerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 {
 	UWorld* World = GetWorld();
-	if (!World || !IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed() || bIsReloading || bBurstInProgress)
+	if (!World || !IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed() || bIsReloading || bReloadPending || bBurstInProgress)
 	{
 		return false;
 	}
@@ -177,7 +176,11 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 		UE_LOG(LogTemp, Log, TEXT("[Gunner] AttackMode=Single Ammo=%d/%d Target=%s"),
 			CurrentAmmo, MagazineSize, *GetNameSafe(TargetOre));
 		ResolveShot(TargetOre, false);
-		PlayFireMontage();
+		const float ShotMontageDuration = PlayFireMontage();
+		if (CurrentAmmo <= 0)
+		{
+			QueueReloadAfterSingleShot(ShotMontageDuration);
+		}
 		return true;
 	}
 
@@ -191,7 +194,7 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 		UE_LOG(LogTemp, Warning, TEXT("[Gunner] Burst Montage unavailable; resolving the three rounds immediately"));
 		while (bBurstInProgress && BurstRoundsResolved < 3)
 		{
-			AnimNotify_GunnerBurstShot();
+			ResolveBurstRound(TEXT("missing montage fallback"));
 		}
 	}
 	else
@@ -199,7 +202,6 @@ bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 		// Resolve exactly on source-animation frames 2/6/10 (24 fps).  The Montage
 		// asset can lose its editor-authored named notifies, so gameplay must not
 		// depend on those events to spawn projectiles or muzzle effects.
-		bBurstTimingDriven = true;
 		World->GetTimerManager().SetTimer(
 			BurstRoundTimerHandle,
 			this,
@@ -287,14 +289,6 @@ void AGunnerCharacter::ResolveShot(AMineableOre* TargetOre, bool bUseBurstAccura
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] %s Result=%s Ammo=%d/%d Damage=%.1f Target=%s"),
 		*Mode, *UEnum::GetValueAsString(Result), CurrentAmmo, MagazineSize, AppliedDamage, *GetNameSafe(TargetOre));
 
-	if (CurrentAmmo <= 0)
-	{
-		// A burst finishes its current animation before the normal reload flow starts.
-		if (!bBurstInProgress)
-		{
-			BeginReload();
-		}
-	}
 }
 
 void AGunnerCharacter::SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation)
@@ -305,7 +299,7 @@ void AGunnerCharacter::SpawnHeadshotWorldFeedback(EGunnerShotResult Result, cons
 	}
 
 	UClass* FeedbackWidgetClass = LoadClass<UUserWidget>(
-		nullptr, TEXT("/Game/UI/Gunner/WBP_GunnerHeadshotWorldFeedback.WBP_GunnerHeadshotWorldFeedback_C"));
+		nullptr, TEXT("/Game/MineLearning/UI/Gunner/WBP_GunnerHeadshotWorldFeedback.WBP_GunnerHeadshotWorldFeedback_C"));
 	if (!FeedbackWidgetClass)
 	{
 		return;
@@ -341,8 +335,8 @@ void AGunnerCharacter::SpawnHeadshotWorldFeedback(EGunnerShotResult Result, cons
 		{
 			const bool bGolden = Result == EGunnerShotResult::GoldenHeadshot;
 			const TCHAR* TexturePath = bGolden
-				? TEXT("/Game/UI/Gunner/T_GunnerGoldenHeadshot.T_GunnerGoldenHeadshot")
-				: TEXT("/Game/UI/Gunner/T_GunnerSilverHeadshot.T_GunnerSilverHeadshot");
+				? TEXT("/Game/MineLearning/UI/Gunner/T_GunnerGoldenHeadshot.T_GunnerGoldenHeadshot")
+				: TEXT("/Game/MineLearning/UI/Gunner/T_GunnerSilverHeadshot.T_GunnerSilverHeadshot");
 			if (UTexture2D* BadgeTexture = LoadObject<UTexture2D>(nullptr, TexturePath))
 			{
 				BadgeImage->SetBrushFromTexture(BadgeTexture, true);
@@ -438,17 +432,19 @@ FVector AGunnerCharacter::CalculateShotTarget(const AMineableOre* TargetOre, EGu
 		+ FVector(0.0f, 0.0f, FMath::FRandRange(-0.35f, 0.75f) * Extent.Z);
 }
 
-void AGunnerCharacter::PlayFireMontage()
+float AGunnerCharacter::PlayFireMontage()
 {
 	if (!FireMontage || !GetMesh())
 	{
-		return;
+		return 0.0f;
 	}
 
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
-		AnimInstance->Montage_Play(FireMontage);
+		return AnimInstance->Montage_Play(FireMontage);
 	}
+
+	return 0.0f;
 }
 
 bool AGunnerCharacter::PlayBurstFireMontage()
@@ -466,47 +462,6 @@ bool AGunnerCharacter::PlayBurstFireMontage()
 	return false;
 }
 
-#if WITH_EDITOR
-void AGunnerCharacter::EnsureBurstMontageNotifies()
-{
-	if (!BurstFireMontage)
-	{
-		UE_LOG(LogTemp, Error, TEXT("[Gunner] Burst Montage notify setup failed: Montage is missing"));
-		return;
-	}
-
-	// These three moments correspond to source-animation frames 2, 6, and 10
-	// at its fixed 24 fps import rate. They must live on the Montage itself:
-	// source-sequence named notifies are not propagated by this Montage asset.
-	constexpr float NotifyTimes[] = { 2.0f / 24.0f, 6.0f / 24.0f, 10.0f / 24.0f };
-	int32 AddedCount = 0;
-	for (const float NotifyTime : NotifyTimes)
-	{
-		const bool bAlreadyExists = BurstFireMontage->Notifies.ContainsByPredicate(
-			[NotifyTime](const FAnimNotifyEvent& Notify)
-			{
-				return Notify.NotifyName == TEXT("GunnerBurstShot")
-					&& FMath::IsNearlyEqual(Notify.GetTime(), NotifyTime, KINDA_SMALL_NUMBER);
-			});
-		if (bAlreadyExists)
-		{
-			continue;
-		}
-
-		FAnimNotifyEvent& NewNotify = BurstFireMontage->Notifies.AddDefaulted_GetRef();
-		NewNotify.NotifyName = TEXT("GunnerBurstShot");
-		NewNotify.Link(BurstFireMontage, NotifyTime);
-		++AddedCount;
-	}
-
-	if (AddedCount > 0)
-	{
-		BurstFireMontage->MarkPackageDirty();
-		UE_LOG(LogTemp, Log, TEXT("[Gunner] Added %d persistent GunnerBurstShot Montage notifies at frames 2, 6, 10"), AddedCount);
-	}
-}
-#endif
-
 void AGunnerCharacter::EndBurst(const TCHAR* Reason)
 {
 	if (!bBurstInProgress)
@@ -518,7 +473,6 @@ void AGunnerCharacter::EndBurst(const TCHAR* Reason)
 		BurstRoundsResolved, Reason, CurrentAmmo, MagazineSize);
 	GetWorldTimerManager().ClearTimer(BurstRoundTimerHandle);
 	GetWorldTimerManager().ClearTimer(BurstSafetyTimerHandle);
-	bBurstTimingDriven = false;
 	bBurstInProgress = false;
 	BurstTargetOre.Reset();
 	if (CurrentAmmo <= 0)
@@ -611,7 +565,15 @@ void AGunnerCharacter::PlayProductionShotVisual(EGunnerShotResult Result, const 
 
 void AGunnerCharacter::BeginReload()
 {
-	if (bIsReloading || !GetWorld())
+	bReloadPending = false;
+
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(PendingReloadTimerHandle);
+	if (bIsReloading)
 	{
 		return;
 	}
@@ -645,6 +607,32 @@ void AGunnerCharacter::BeginReload()
 	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Reload animation unavailable; using %.2fs fallback"), ReloadDuration);
 }
 
+void AGunnerCharacter::QueueReloadAfterSingleShot(const float ShotMontageDuration)
+{
+	if (CurrentAmmo > 0 || bIsReloading || bReloadPending || !GetWorld())
+	{
+		return;
+	}
+
+	if (ShotMontageDuration <= KINDA_SMALL_NUMBER)
+	{
+		BeginReload();
+		return;
+	}
+
+	// The fire and reload Montages share DefaultSlot. Starting reload from
+	// ResolveShot used to let the caller play FireMontage afterwards in the same
+	// frame, which immediately interrupted and effectively erased reload.
+	bReloadPending = true;
+	GetWorldTimerManager().SetTimer(
+		PendingReloadTimerHandle,
+		this,
+		&AGunnerCharacter::BeginReload,
+		ShotMontageDuration,
+		false);
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload queued after final single-shot Montage (%.3fs)"), ShotMontageDuration);
+}
+
 void AGunnerCharacter::CompleteReload()
 {
 	if (!bIsReloading)
@@ -674,6 +662,10 @@ bool AGunnerCharacter::PlayReloadMontage()
 	{
 		return false;
 	}
+
+	// A mesh/AnimClass refresh can replace the AnimInstance after BeginPlay.
+	// Rebind the reload notifies to the instance that will actually play now.
+	RegisterReloadNotifyHandlers();
 
 	ActiveReloadMontage = ReloadMontage;
 	if (AnimInstance->Montage_Play(ActiveReloadMontage) <= 0.0f)
@@ -797,28 +789,29 @@ void AGunnerCharacter::UpdateAmmoDisplay()
 
 void AGunnerCharacter::RegisterReloadNotifyHandlers()
 {
-	if (GetMesh())
+	UAnimInstance* CurrentAnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	if (ReloadNotifyAnimInstance.Get() == CurrentAnimInstance)
 	{
-		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-		{
-			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
-			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
-			AnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_GunnerBurstShot));
-		}
+		return;
+	}
+
+	UnregisterReloadNotifyHandlers();
+	if (CurrentAnimInstance)
+	{
+		CurrentAnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
+		CurrentAnimInstance->AddExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
+		ReloadNotifyAnimInstance = CurrentAnimInstance;
 	}
 }
 
 void AGunnerCharacter::UnregisterReloadNotifyHandlers()
 {
-	if (GetMesh())
+	if (UAnimInstance* AnimInstance = ReloadNotifyAnimInstance.Get())
 	{
-		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-		{
-			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
-			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
-			AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_GunnerBurstShot));
-		}
+		AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToHand));
+		AnimInstance->RemoveExternalNotifyHandler(this, GET_FUNCTION_NAME_CHECKED(AGunnerCharacter, AnimNotify_Mag_ToGun));
 	}
+	ReloadNotifyAnimInstance.Reset();
 }
 
 void AGunnerCharacter::AnimNotify_Mag_ToHand()
@@ -835,22 +828,9 @@ void AGunnerCharacter::AnimNotify_Mag_ToGun()
 	}
 }
 
-void AGunnerCharacter::AnimNotify_GunnerBurstShot()
-{
-	if (bBurstTimingDriven)
-	{
-		// Timed resolution is authoritative. Ignore a duplicate named notify if
-		// the asset is later repaired or reimported with one.
-		UE_LOG(LogTemp, Verbose, TEXT("[Gunner] Ignored duplicate GunnerBurstShot notify during timer-driven burst"));
-		return;
-	}
-
-	ResolveBurstRound(TEXT("animation notify"));
-}
-
 void AGunnerCharacter::ResolveBurstTimedShot()
 {
-	ResolveBurstRound(TEXT("animation timing"));
+	ResolveBurstRound(TEXT("timer"));
 }
 
 void AGunnerCharacter::ResolveBurstRound(const TCHAR* Trigger)
