@@ -9,14 +9,11 @@ class UMaterialInterface;
 class UStaticMesh;
 class UStaticMeshComponent;
 
-/** A mesh to display while the ore's remaining-health ratio is at or above MinHealthRatio. */
+/** Presentation data for one mining-stage index; array order maps directly to the ore's stage index. */
 USTRUCT(BlueprintType)
 struct FOreVisualStage
 {
 	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Visual", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float MinHealthRatio = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Visual")
 	TObjectPtr<UStaticMesh> StaticMesh = nullptr;
@@ -38,7 +35,7 @@ class MINELEARNING_API UOreVisualComponent : public UActorComponent
 public:
 	UOreVisualComponent();
 
-	/** Re-evaluates the stage from the ore's current health. Useful after runtime configuration changes. */
+	/** Re-evaluates the stage from the ore's authoritative mining-stage index. Useful after runtime configuration changes. */
 	UFUNCTION(BlueprintCallable, Category="Mining|Visual")
 	void RefreshVisualStage();
 

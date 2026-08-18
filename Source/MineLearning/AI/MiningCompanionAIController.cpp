@@ -1,10 +1,10 @@
 #include "MiningCompanionAIController.h"
 
 #include "MiningCompanionCharacter.h"
+#include "MiningCompanionTargetingComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Kismet/GameplayStatics.h"
 #include "MineLearning/Mining/MineableOre.h"
 #include "MineLearning/Mining/MiningToolComponent.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
@@ -14,6 +14,7 @@
 AMiningCompanionAIController::AMiningCompanionAIController()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	TargetingComponent = CreateDefaultSubobject<UMiningCompanionTargetingComponent>(TEXT("TargetingComponent"));
 }
 
 void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
@@ -132,6 +133,12 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 			RequestReturnToDelivery();
 			break;
 		}
+		if (GetWorld()->GetTimeSeconds() < NextIdleSearchTime)
+		{
+			break;
+		}
+
+		NextIdleSearchTime = GetWorld()->GetTimeSeconds() + IdleSearchInterval;
 		if (FindPickup())
 		{
 			break;
@@ -258,21 +265,9 @@ void AMiningCompanionAIController::FindDeliveryDepot()
 		return;
 	}
 
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(
-		GetWorld(),
-		AResourceDepot::StaticClass(),
-		FoundActors
-	);
-
-	for (AActor* Actor : FoundActors)
+	if (TargetingComponent)
 	{
-		AResourceDepot* Depot = Cast<AResourceDepot>(Actor);
-		if (IsValid(Depot) && !Depot->IsActorBeingDestroyed())
-		{
-			DeliveryDepot = Depot;
-			return;
-		}
+		DeliveryDepot = TargetingComponent->FindDeliveryDepot();
 	}
 }
 
@@ -500,6 +495,7 @@ void AMiningCompanionAIController::ResetToIdle()
 	TargetOre = nullptr;
 	bAligningForDelivery = false;
 	State = EMiningCompanionState::Idle;
+	NextIdleSearchTime = 0.0f;
 }
 
 bool AMiningCompanionAIController::FindPickup()
@@ -509,38 +505,9 @@ bool AMiningCompanionAIController::FindPickup()
 		return false;
 	}
 
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(
-		GetWorld(),
-		AResourcePickup::StaticClass(),
-		FoundActors
-	);
-
-	AResourcePickup* BestPickup = nullptr;
-	float BestDistanceSq = PickupSearchRadius * PickupSearchRadius;
-
-	const FVector MyLocation = Companion->GetActorLocation();
-
-	for (AActor* Actor : FoundActors)
-	{
-		AResourcePickup* Pickup = Cast<AResourcePickup>(Actor);
-		if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed() || Pickup->Amount <= 0)
-		{
-			continue;
-		}
-
-		if (!Pickup->IsAvailableFor(Companion))
-		{
-			continue;
-		}
-
-		const float DistanceSq = FVector::DistSquared(MyLocation, Pickup->GetActorLocation());
-		if (DistanceSq < BestDistanceSq)
-		{
-			BestDistanceSq = DistanceSq;
-			BestPickup = Pickup;
-		}
-	}
+	AResourcePickup* BestPickup = TargetingComponent
+		? TargetingComponent->FindNearestAvailablePickup(Companion, PickupSearchRadius)
+		: nullptr;
 
 	if (!BestPickup)
 	{
@@ -572,33 +539,9 @@ void AMiningCompanionAIController::FindOre()
 		return;
 	}
 
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(
-		GetWorld(),
-		AMineableOre::StaticClass(),
-		FoundActors
-	);
-
-	AMineableOre* BestOre = nullptr;
-	float BestDistanceSq = SearchRadius * SearchRadius;
-
-	const FVector MyLocation = Companion->GetActorLocation();
-
-	for (AActor* Actor : FoundActors)
-	{
-		AMineableOre* Ore = Cast<AMineableOre>(Actor);
-		if (!IsValid(Ore) || Ore->IsActorBeingDestroyed() || Ore->IsDestroyed())
-		{
-			continue;
-		}
-
-		const float DistanceSq = FVector::DistSquared(MyLocation, Ore->GetActorLocation());
-		if (DistanceSq < BestDistanceSq)
-		{
-			BestDistanceSq = DistanceSq;
-			BestOre = Ore;
-		}
-	}
+	AMineableOre* BestOre = TargetingComponent
+		? TargetingComponent->FindNearestOre(Companion, SearchRadius)
+		: nullptr;
 
 	if (!BestOre)
 	{

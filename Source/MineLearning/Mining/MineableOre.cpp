@@ -45,8 +45,7 @@ void AMineableOre::SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition)
     if (HasActorBegunPlay())
     {
         InitializeStatsFromDefinition();
-        UpdateDamageStage();
-        ApplyDamageVisual();
+		ApplyDamageVisual();
     }
 }
 
@@ -90,7 +89,6 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
 	{
 		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
 	}
-    UpdateDamageStage();
     ApplyDamageVisual();
 
     if (CurrentHP <= 0.0f)
@@ -121,36 +119,9 @@ bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
 	{
 		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
 	}
-    UpdateDamageStage();
     ApplyDamageVisual();
     HandleDepleted();
     return true;
-}
-
-void AMineableOre::UpdateDamageStage()
-{
-    const float Ratio = CurrentHP / MaxHP;
-
-    EMineableDamageStage NewStage = EMineableDamageStage::Full;
-
-    if (Ratio <= 0.0f)
-    {
-        NewStage = EMineableDamageStage::Destroyed;
-    }
-    else if (Ratio <= 0.25f)
-    {
-        NewStage = EMineableDamageStage::HeavyDamage;
-    }
-    else if (Ratio <= 0.5f)
-    {
-        NewStage = EMineableDamageStage::MediumDamage;
-    }
-    else if (Ratio <= 0.75f)
-    {
-        NewStage = EMineableDamageStage::LightDamage;
-    }
-
-    CurrentStage = NewStage;
 }
 
 void AMineableOre::ApplyDamageVisual()

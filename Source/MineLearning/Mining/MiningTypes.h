@@ -18,16 +18,6 @@ enum class EOreDropTrigger : uint8
 	OnDepleted UMETA(DisplayName = "On Depleted")
 };
 
-UENUM(BlueprintType)
-enum class EMineableDamageStage : uint8
-{
-	Full,
-	LightDamage,
-	MediumDamage,
-	HeavyDamage,
-	Destroyed
-};
-
 USTRUCT(BlueprintType)
 struct FMiningHitRequest
 {

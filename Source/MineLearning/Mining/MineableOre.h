@@ -89,13 +89,9 @@ protected:
 	UPROPERTY()
 	UMaterialInstanceDynamic* DynamicMaterial;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Visual")
-	EMineableDamageStage CurrentStage = EMineableDamageStage::Full;
-
 private:
 	void InitializeStatsFromDefinition();
 	void ApplyDamageVisual();
-	void UpdateDamageStage();
 	void SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation);
 	bool ProcessStageBreaks(float PreviousHealth, const FVector& DropLocation);
 	bool UsesStageBreakResourceDrops() const;

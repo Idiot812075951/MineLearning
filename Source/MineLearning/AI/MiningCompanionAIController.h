@@ -12,6 +12,7 @@ class AMiningCompanionCharacter;
 class AResourceDepot;
 class AResourcePickup;
 class UResourceCarryComponent;
+class UMiningCompanionTargetingComponent;
 
 UENUM(BlueprintType)
 enum class EMiningCompanionState : uint8
@@ -57,6 +58,9 @@ private:
 	UPROPERTY()
 	AResourcePickup* TargetPickup = nullptr;
 
+	UPROPERTY(VisibleAnywhere, Category="Mining AI|Targeting")
+	TObjectPtr<UMiningCompanionTargetingComponent> TargetingComponent;
+
 	UPROPERTY(VisibleAnywhere, Category = "Mining AI")
 	EMiningCompanionState State = EMiningCompanionState::Idle;
 
@@ -71,6 +75,10 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Resource")
 	float PickupInteractRadius = 80.0f;
+
+	/** Idle actors query the world at this interval rather than once per frame. */
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Search", meta=(ClampMin="0.05"))
+	float IdleSearchInterval = 0.35f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery")
 	float DeliveryAcceptanceRadius = 120.0f;
@@ -151,4 +159,5 @@ private:
 	TEnumAsByte<EMovementMode> CollectPreviousMovementMode = MOVE_Walking;
 	uint8 CollectPreviousCustomMovementMode = 0;
 	bool bAligningForDelivery = false;
+	float NextIdleSearchTime = 0.0f;
 };

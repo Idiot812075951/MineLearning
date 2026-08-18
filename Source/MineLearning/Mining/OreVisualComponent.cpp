@@ -105,23 +105,23 @@ bool UOreVisualComponent::ApplyVisualStage(int32 MiningStageIndex)
 
 const FOreVisualStage* UOreVisualComponent::FindVisualStage(int32 MiningStageIndex) const
 {
-	TArray<const FOreVisualStage*> OrderedStages;
+	int32 ValidStageIndex = 0;
+	const FOreVisualStage* LastValidStage = nullptr;
 	for (const FOreVisualStage& Stage : Stages)
 	{
 		if (Stage.StaticMesh)
 		{
-			OrderedStages.Add(&Stage);
+			LastValidStage = &Stage;
+			if (ValidStageIndex == MiningStageIndex)
+			{
+				return &Stage;
+			}
+
+			++ValidStageIndex;
 		}
 	}
 
-	OrderedStages.Sort([](const FOreVisualStage& Left, const FOreVisualStage& Right)
-	{
-		return Left.MinHealthRatio > Right.MinHealthRatio;
-	});
-
-	return OrderedStages.IsValidIndex(MiningStageIndex)
-		? OrderedStages[MiningStageIndex]
-		: (OrderedStages.IsEmpty() ? nullptr : OrderedStages.Last());
+	return LastValidStage;
 }
 
 void UOreVisualComponent::PlayHitVisual()
