@@ -7,8 +7,8 @@
 UResourceHitFeedbackComponent::UResourceHitFeedbackComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HitFinder(TEXT("/Game/FX/Gunner/NS_ResourceStoneHit.NS_ResourceStoneHit"));
-	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> DestroyedFinder(TEXT("/Game/FX/Gunner/NS_GunnerGoldenHeadshot.NS_GunnerGoldenHeadshot"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> HitFinder(TEXT("/Game/MineLearning/Mining/Ores/Iron/FX/NS_ResourceStoneHit.NS_ResourceStoneHit"));
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> DestroyedFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerGoldenHeadshot.NS_GunnerGoldenHeadshot"));
 	HitSystem = HitFinder.Object;
 	DestroyedSystem = DestroyedFinder.Object;
 }

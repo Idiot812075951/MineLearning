@@ -10,7 +10,7 @@
 UCompanionBarkComponent::UCompanionBarkComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	static ConstructorHelpers::FClassFinder<UUserWidget> BarkWidgetFinder(TEXT("/Game/UI/Companion/WBP_CompanionBark"));
+	static ConstructorHelpers::FClassFinder<UUserWidget> BarkWidgetFinder(TEXT("/Game/MineLearning/UI/Companion/WBP_CompanionBark"));
 	WidgetClass = BarkWidgetFinder.Class;
 }
 
