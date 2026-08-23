@@ -39,6 +39,27 @@ float AResourceProcessor::GetDisplayProgress() const
 	return bIsProcessing ? GetProcessingProgress() : 0.0f;
 }
 
+EItemReceiverType AResourceProcessor::GetItemReceiverType_Implementation() const
+{
+	return EItemReceiverType::Processor;
+}
+
+bool AResourceProcessor::CanAcceptItem_Implementation(const FItemStack& Item) const
+{
+	UResourceStorageComponent* StorageComponent = ResolveSourceStorage();
+	return Item.ItemType == EItemType::IronOre
+		&& StorageComponent
+		&& StorageComponent->CanAddItem(Item);
+}
+
+bool AResourceProcessor::AcceptItem_Implementation(const FItemStack& Item)
+{
+	UResourceStorageComponent* StorageComponent = ResolveSourceStorage();
+	return CanAcceptItem_Implementation(Item)
+		&& StorageComponent
+		&& StorageComponent->AddItem(Item);
+}
+
 void AResourceProcessor::BeginPlay()
 {
 	Super::BeginPlay();

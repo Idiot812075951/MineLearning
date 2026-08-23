@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "ItemReceiver.h"
 #include "ResourceProcessor.generated.h"
 
 class AResourceDepot;
@@ -10,7 +11,7 @@ class UResourceStorageComponent;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnProcessingStateChanged, bool, bIsProcessing);
 
 UCLASS(Blueprintable)
-class MINELEARNING_API AResourceProcessor : public AActor
+class MINELEARNING_API AResourceProcessor : public AActor, public IItemReceiver
 {
 	GENERATED_BODY()
 
@@ -18,11 +19,11 @@ public:
 	AResourceProcessor();
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Processor")
-	bool TryStartProcessing();
+	virtual bool TryStartProcessing();
 
 	/** Stops the current batch and returns its reserved ore to the source storage. */
 	UFUNCTION(BlueprintCallable, Category="Mining|Processor")
-	void CancelProcessing();
+	virtual void CancelProcessing();
 
 	UFUNCTION(BlueprintPure, Category="Mining|Processor")
 	bool IsProcessing() const { return bIsProcessing; }
@@ -32,6 +33,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Mining|Processor")
 	float GetDisplayProgress() const;
+
+	virtual EItemReceiverType GetItemReceiverType_Implementation() const override;
+	virtual bool CanAcceptItem_Implementation(const FItemStack& Item) const override;
+	virtual bool AcceptItem_Implementation(const FItemStack& Item) override;
 
 	UPROPERTY(BlueprintAssignable, Category="Mining|Processor")
 	FOnProcessingStateChanged OnProcessingStateChanged;
@@ -61,6 +66,8 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Processor")
 	bool bIsProcessing = false;
 
+	double ProcessingStartTime = 0.0;
+
 private:
 	UResourceStorageComponent* ResolveSourceStorage() const;
 	void BindSourceStorageChanged();
@@ -75,6 +82,5 @@ private:
 	UResourceStorageComponent* BoundSourceStorageComponent = nullptr;
 
 	FTimerHandle ProcessingTimerHandle;
-	double ProcessingStartTime = 0.0;
 	int32 ReservedOreForCurrentBatch = 0;
 };
