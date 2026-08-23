@@ -1,33 +1,56 @@
 #include "MiningCompanionTargetingComponent.h"
 
 #include "Kismet/GameplayStatics.h"
+#include "MineLearning/Mining/ItemLogisticsLibrary.h"
+#include "MineLearning/Mining/ItemPickup.h"
 #include "MineLearning/Mining/MineableOre.h"
-#include "MineLearning/Mining/ResourceDepot.h"
-#include "MineLearning/Mining/ResourcePickup.h"
+#include "MineLearning/Mining/ResourceCarryComponent.h"
 
 UMiningCompanionTargetingComponent::UMiningCompanionTargetingComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-AResourcePickup* UMiningCompanionTargetingComponent::FindNearestAvailablePickup(AActor* Searcher, float SearchRadius) const
+AItemPickup* UMiningCompanionTargetingComponent::FindNearestAvailablePickup(
+	AActor* Searcher,
+	float SearchRadius,
+	AActor* RequiredDestination,
+	AActor*& OutDestination) const
 {
+	OutDestination = nullptr;
 	if (!IsValid(Searcher) || !GetWorld())
 	{
 		return nullptr;
 	}
 
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AResourcePickup::StaticClass(), FoundActors);
+	UResourceCarryComponent* CarryComponent = Searcher->FindComponentByClass<UResourceCarryComponent>();
+	if (!CarryComponent)
+	{
+		return nullptr;
+	}
 
-	AResourcePickup* BestPickup = nullptr;
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AItemPickup::StaticClass(), FoundActors);
+
+	AItemPickup* BestPickup = nullptr;
 	float BestDistanceSq = FMath::Square(SearchRadius);
 	const FVector SearcherLocation = Searcher->GetActorLocation();
 	for (AActor* Actor : FoundActors)
 	{
-		AResourcePickup* Pickup = Cast<AResourcePickup>(Actor);
-		if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed() || Pickup->Amount <= 0
-			|| !Pickup->IsAvailableFor(Searcher))
+		AItemPickup* Pickup = Cast<AItemPickup>(Actor);
+		if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed() || Pickup->GetAmount() <= 0
+			|| !Pickup->IsAvailableFor(Searcher)
+			|| !CarryComponent->CanAcceptItem(Pickup->GetItemStack()))
+		{
+			continue;
+		}
+
+		AActor* CandidateDestination = UItemLogisticsLibrary::ResolveDestination(
+			Searcher,
+			Pickup->GetItemStack(),
+			SearcherLocation);
+		if (!IsValid(CandidateDestination)
+			|| (IsValid(RequiredDestination) && CandidateDestination != RequiredDestination))
 		{
 			continue;
 		}
@@ -37,6 +60,7 @@ AResourcePickup* UMiningCompanionTargetingComponent::FindNearestAvailablePickup(
 		{
 			BestDistanceSq = DistanceSq;
 			BestPickup = Pickup;
+			OutDestination = CandidateDestination;
 		}
 	}
 
@@ -73,25 +97,4 @@ AMineableOre* UMiningCompanionTargetingComponent::FindNearestOre(AActor* Searche
 	}
 
 	return BestOre;
-}
-
-AResourceDepot* UMiningCompanionTargetingComponent::FindDeliveryDepot() const
-{
-	if (!GetWorld())
-	{
-		return nullptr;
-	}
-
-	TArray<AActor*> FoundActors;
-	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AResourceDepot::StaticClass(), FoundActors);
-	for (AActor* Actor : FoundActors)
-	{
-		AResourceDepot* Depot = Cast<AResourceDepot>(Actor);
-		if (IsValid(Depot) && !Depot->IsActorBeingDestroyed())
-		{
-			return Depot;
-		}
-	}
-
-	return nullptr;
 }

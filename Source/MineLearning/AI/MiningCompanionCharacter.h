@@ -14,6 +14,7 @@ class MINELEARNING_API AMiningCompanionCharacter : public ACharacter
 
 public:
 	AMiningCompanionCharacter();
+	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintPure, Category="Mining")
 	UMiningToolComponent* GetMiningToolComponent() const { return MiningToolComponent; }

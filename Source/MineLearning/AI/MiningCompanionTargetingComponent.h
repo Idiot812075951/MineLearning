@@ -5,8 +5,7 @@
 #include "MiningCompanionTargetingComponent.generated.h"
 
 class AMineableOre;
-class AResourceDepot;
-class AResourcePickup;
+class AItemPickup;
 
 /**
  * Read-only world queries used by the mining companion controller.
@@ -20,7 +19,10 @@ class MINELEARNING_API UMiningCompanionTargetingComponent : public UActorCompone
 public:
 	UMiningCompanionTargetingComponent();
 
-	AResourcePickup* FindNearestAvailablePickup(AActor* Searcher, float SearchRadius) const;
+	AItemPickup* FindNearestAvailablePickup(
+		AActor* Searcher,
+		float SearchRadius,
+		AActor* RequiredDestination,
+		AActor*& OutDestination) const;
 	AMineableOre* FindNearestOre(AActor* Searcher, float SearchRadius) const;
-	AResourceDepot* FindDeliveryDepot() const;
 };

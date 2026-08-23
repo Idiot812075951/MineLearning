@@ -9,8 +9,7 @@
 
 class AMineableOre;
 class AMiningCompanionCharacter;
-class AResourceDepot;
-class AResourcePickup;
+class AItemPickup;
 class UResourceCarryComponent;
 class UMiningCompanionTargetingComponent;
 
@@ -56,7 +55,10 @@ private:
 	AMineableOre* TargetOre = nullptr;
 
 	UPROPERTY()
-	AResourcePickup* TargetPickup = nullptr;
+	AItemPickup* TargetPickup = nullptr;
+
+	UPROPERTY()
+	AActor* DeliveryTarget = nullptr;
 
 	UPROPERTY(VisibleAnywhere, Category="Mining AI|Targeting")
 	TObjectPtr<UMiningCompanionTargetingComponent> TargetingComponent;
@@ -81,7 +83,7 @@ private:
 	float IdleSearchInterval = 0.35f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery")
-	float DeliveryAcceptanceRadius = 120.0f;
+	float DeliveryAcceptanceRadius = 65.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="1.0"))
 	float DeliveryRotationSpeed = 180.0f;
@@ -89,11 +91,18 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="0.1"))
 	float DeliveryRotationTolerance = 1.0f;
 
-	UPROPERTY(EditInstanceOnly, Category = "Mining AI|Delivery")
-	AResourceDepot* DeliveryDepot = nullptr;
+	/** Short deterministic fallback used only when navigation accepts a request but the pawn remains stalled. */
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Navigation Fallback", meta=(ClampMin="1.0"))
+	float DirectMoveSpeed = 200.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Navigation Fallback", meta=(ClampMin="0.1"))
+	float NavigationStallTimeout = 1.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
 	UAnimMontage* CollectMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation", meta=(ClampMin="0.1"))
+	float CollectAnimationPlayRate = 2.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
 	FName CollectGrabNotifyName = TEXT("Notify_CollectGrab");
@@ -119,6 +128,8 @@ private:
 	void UpdateMoveToPickup(float DeltaSeconds);
 	void UpdateMoveToOre(float DeltaSeconds);
 	void UpdateReturningToDelivery(float DeltaSeconds);
+	void TickDirectMove(float DeltaSeconds);
+	void UpdateNavigationFallback(float DeltaSeconds);
 
 	bool IsTargetOreValid() const;
 	bool IsTargetPickupValid() const;
@@ -127,14 +138,15 @@ private:
 
 	void EnterMiningState();
 	void RequestReturnToDelivery();
-	void DepositCarriedOre();
-	void FindDeliveryDepot();
+	void DepositCarriedItem();
+	void FindDeliveryTarget();
 	FTransform GetDeliveryPointTransform() const;
+	FVector GetDeliveryNavigationLocation() const;
 	void BeginDeliveryAlignment();
 	bool TryCollectTargetPickup();
 	void StartCollectAction();
 	void StartDepositAction();
-	bool PlayActionMontage(UAnimMontage* Montage);
+	bool PlayActionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
 	void FaceTargetPickup();
 	void LockCollectMovementAndRotation();
 	void RestoreCollectMovementAndRotation();
@@ -159,5 +171,7 @@ private:
 	TEnumAsByte<EMovementMode> CollectPreviousMovementMode = MOVE_Walking;
 	uint8 CollectPreviousCustomMovementMode = 0;
 	bool bAligningForDelivery = false;
+	bool bDirectMove = false;
+	float NavigationStallSeconds = 0.0f;
 	float NextIdleSearchTime = 0.0f;
 };

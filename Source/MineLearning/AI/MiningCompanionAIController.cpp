@@ -5,11 +5,14 @@
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "MineLearning/Mining/ItemLogisticsLibrary.h"
+#include "MineLearning/Mining/ItemPickup.h"
+#include "MineLearning/Mining/ItemReceiver.h"
 #include "MineLearning/Mining/MineableOre.h"
 #include "MineLearning/Mining/MiningToolComponent.h"
+#include "MineLearning/Mining/OreProcessorMachine.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ResourceDepot.h"
-#include "MineLearning/Mining/ResourcePickup.h"
 
 AMiningCompanionAIController::AMiningCompanionAIController()
 {
@@ -104,7 +107,6 @@ void AMiningCompanionAIController::BeginPlay()
 	Super::BeginPlay();
 
 	CacheCompanion();
-	FindDeliveryDepot();
 
 	State = EMiningCompanionState::Idle;
 }
@@ -122,6 +124,13 @@ void AMiningCompanionAIController::Tick(float DeltaSeconds)
 
 	if (!Companion)
 	{
+		return;
+	}
+
+	UpdateNavigationFallback(DeltaSeconds);
+	if (bDirectMove)
+	{
+		TickDirectMove(DeltaSeconds);
 		return;
 	}
 
@@ -185,7 +194,7 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 		}
 		else
 		{
-			RequestReturnToDelivery();
+			bDirectMove = true;
 		}
 		return;
 	}
@@ -198,7 +207,7 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 			return;
 		}
 
-		ResetToIdle();
+		bDirectMove = true;
 		return;
 	}
 
@@ -219,7 +228,7 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 		return;
 	}
 
-	ResetToIdle();
+	bDirectMove = true;
 }
 
 void AMiningCompanionAIController::CacheCompanion()
@@ -241,10 +250,17 @@ bool AMiningCompanionAIController::IsTargetOreValid() const
 
 bool AMiningCompanionAIController::IsTargetPickupValid() const
 {
+	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
 	return IsValid(TargetPickup)
 		&& !TargetPickup->IsActorBeingDestroyed()
-		&& TargetPickup->Amount > 0
-		&& TargetPickup->IsAvailableFor(Companion);
+		&& TargetPickup->GetAmount() > 0
+		&& TargetPickup->IsAvailableFor(Companion)
+		&& CarryComponent
+		&& CarryComponent->CanAcceptItem(TargetPickup->GetItemStack())
+		&& IsValid(UItemLogisticsLibrary::ResolveDestination(
+			Companion,
+			TargetPickup->GetItemStack(),
+			Companion ? Companion->GetActorLocation() : FVector::ZeroVector));
 }
 
 UResourceCarryComponent* AMiningCompanionAIController::GetCarryComponent() const
@@ -258,29 +274,42 @@ bool AMiningCompanionAIController::IsCarryFull() const
 	return CarryComponent && CarryComponent->IsFull();
 }
 
-void AMiningCompanionAIController::FindDeliveryDepot()
+void AMiningCompanionAIController::FindDeliveryTarget()
 {
-	if (IsValid(DeliveryDepot) || !GetWorld())
+	UResourceCarryComponent* CarryComponent = GetCarryComponent();
+	if (!CarryComponent || !CarryComponent->GetCurrentItem().IsValid())
 	{
+		DeliveryTarget = nullptr;
 		return;
 	}
 
-	if (TargetingComponent)
-	{
-		DeliveryDepot = TargetingComponent->FindDeliveryDepot();
-	}
+	DeliveryTarget = UItemLogisticsLibrary::ResolveDestination(
+		Companion,
+		CarryComponent->GetCurrentItem(),
+		Companion->GetActorLocation());
 }
 
 FTransform AMiningCompanionAIController::GetDeliveryPointTransform() const
 {
-	return IsValid(DeliveryDepot)
-		? DeliveryDepot->GetDeliveryPointWorldTransform()
-		: FTransform::Identity;
+	if (const AOreProcessorMachine* Processor = Cast<AOreProcessorMachine>(DeliveryTarget))
+	{
+		return Processor->GetDeliveryPointWorldTransform();
+	}
+	if (const AResourceDepot* Depot = Cast<AResourceDepot>(DeliveryTarget))
+	{
+		return Depot->GetDeliveryPointWorldTransform();
+	}
+	return IsValid(DeliveryTarget) ? DeliveryTarget->GetActorTransform() : FTransform::Identity;
+}
+
+FVector AMiningCompanionAIController::GetDeliveryNavigationLocation() const
+{
+	return GetDeliveryPointTransform().GetLocation();
 }
 
 void AMiningCompanionAIController::BeginDeliveryAlignment()
 {
-	if (!Companion || !IsValid(DeliveryDepot))
+	if (!Companion || !IsValid(DeliveryTarget))
 	{
 		ResetToIdle();
 		return;
@@ -300,7 +329,7 @@ bool AMiningCompanionAIController::TryCollectTargetPickup()
 	return TargetPickup->TryCollect(Companion);
 }
 
-bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage)
+bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage, float PlayRate)
 {
 	if (!Companion || !Montage)
 	{
@@ -322,7 +351,7 @@ bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage)
 	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
 	AnimInstance->OnPlayMontageNotifyBegin.AddDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
 
-	const float Duration = AnimInstance->Montage_Play(Montage);
+	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate);
 	if (Duration <= 0.0f)
 	{
 		AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
@@ -353,7 +382,7 @@ void AMiningCompanionAIController::StartCollectAction()
 	LockCollectMovementAndRotation();
 	State = EMiningCompanionState::Collecting;
 
-	if (!PlayActionMontage(CollectMontage))
+	if (!PlayActionMontage(CollectMontage, CollectAnimationPlayRate))
 	{
 		ResetToIdle();
 	}
@@ -362,7 +391,7 @@ void AMiningCompanionAIController::StartCollectAction()
 void AMiningCompanionAIController::StartDepositAction()
 {
 	UResourceCarryComponent* CarryComponent = GetCarryComponent();
-	if (!Companion || !CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	if (!Companion || !CarryComponent || CarryComponent->IsEmpty())
 	{
 		ResetToIdle();
 		return;
@@ -421,7 +450,7 @@ void AMiningCompanionAIController::OnActionMontageNotifyBegin(FName NotifyName, 
 
 	if (State == EMiningCompanionState::Collecting && NotifyName == CollectReleaseNotifyName)
 	{
-		AResourcePickup* Pickup = TargetPickup;
+		AItemPickup* Pickup = TargetPickup;
 		TryCollectTargetPickup();
 
 		// TryCollect destroys a fully consumed pickup. Any uncollected remainder
@@ -437,7 +466,7 @@ void AMiningCompanionAIController::OnActionMontageNotifyBegin(FName NotifyName, 
 
 	if (State == EMiningCompanionState::Depositing && NotifyName == DepositNotifyName)
 	{
-		DepositCarriedOre();
+		DepositCarriedItem();
 	}
 }
 
@@ -495,6 +524,8 @@ void AMiningCompanionAIController::ResetToIdle()
 	TargetOre = nullptr;
 	bAligningForDelivery = false;
 	State = EMiningCompanionState::Idle;
+	bDirectMove = false;
+	NavigationStallSeconds = 0.0f;
 	NextIdleSearchTime = 0.0f;
 }
 
@@ -505,8 +536,26 @@ bool AMiningCompanionAIController::FindPickup()
 		return false;
 	}
 
-	AResourcePickup* BestPickup = TargetingComponent
-		? TargetingComponent->FindNearestAvailablePickup(Companion, PickupSearchRadius)
+	AActor* RequiredDestination = nullptr;
+	if (UResourceCarryComponent* CarryComponent = GetCarryComponent(); CarryComponent && !CarryComponent->IsEmpty())
+	{
+		RequiredDestination = UItemLogisticsLibrary::ResolveDestination(
+			Companion,
+			CarryComponent->GetCurrentItem(),
+			Companion->GetActorLocation());
+		if (!IsValid(RequiredDestination))
+		{
+			return false;
+		}
+	}
+
+	AActor* ResolvedDestination = nullptr;
+	AItemPickup* BestPickup = TargetingComponent
+		? TargetingComponent->FindNearestAvailablePickup(
+			Companion,
+			PickupSearchRadius,
+			RequiredDestination,
+			ResolvedDestination)
 		: nullptr;
 
 	if (!BestPickup)
@@ -520,6 +569,7 @@ bool AMiningCompanionAIController::FindPickup()
 	}
 
 	TargetPickup = BestPickup;
+	DeliveryTarget = ResolvedDestination;
 	TargetOre = nullptr;
 	State = EMiningCompanionState::MoveToPickup;
 	RequestMoveToPickup();
@@ -536,6 +586,17 @@ void AMiningCompanionAIController::FindOre()
 	if (IsCarryFull())
 	{
 		RequestReturnToDelivery();
+		return;
+	}
+
+	FItemStack ProspectiveOre;
+	ProspectiveOre.ItemType = EItemType::IronOre;
+	ProspectiveOre.Amount = 1;
+	if (!UItemLogisticsLibrary::ResolveDestination(
+		Companion,
+		ProspectiveOre,
+		Companion->GetActorLocation()))
+	{
 		return;
 	}
 
@@ -580,7 +641,7 @@ void AMiningCompanionAIController::RequestMoveToOre()
 
 	if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		ResetToIdle();
+		bDirectMove = true;
 		return;
 	}
 
@@ -596,6 +657,7 @@ void AMiningCompanionAIController::RequestMoveToOre()
 	}
 
 	State = EMiningCompanionState::MoveToOre;
+	NavigationStallSeconds = 0.0f;
 }
 
 void AMiningCompanionAIController::RequestMoveToPickup()
@@ -624,7 +686,7 @@ void AMiningCompanionAIController::RequestMoveToPickup()
 
 	if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		ResetToIdle();
+		bDirectMove = true;
 		return;
 	}
 
@@ -638,6 +700,100 @@ void AMiningCompanionAIController::RequestMoveToPickup()
 	}
 
 	State = EMiningCompanionState::MoveToPickup;
+	NavigationStallSeconds = 0.0f;
+}
+
+void AMiningCompanionAIController::UpdateNavigationFallback(float DeltaSeconds)
+{
+	if (bDirectMove || bAligningForDelivery || !Companion
+		|| (State != EMiningCompanionState::MoveToOre
+			&& State != EMiningCompanionState::MoveToPickup
+			&& State != EMiningCompanionState::ReturningToDelivery))
+	{
+		NavigationStallSeconds = 0.0f;
+		return;
+	}
+
+	if (Companion->GetVelocity().SizeSquared2D() > 1.0f)
+	{
+		NavigationStallSeconds = 0.0f;
+		return;
+	}
+
+	NavigationStallSeconds += DeltaSeconds;
+	if (NavigationStallSeconds >= NavigationStallTimeout)
+	{
+		StopMovement();
+		bDirectMove = true;
+		NavigationStallSeconds = 0.0f;
+	}
+}
+
+void AMiningCompanionAIController::TickDirectMove(float DeltaSeconds)
+{
+	if (!Companion)
+	{
+		ResetToIdle();
+		return;
+	}
+
+	FVector TargetLocation = FVector::ZeroVector;
+	float AcceptanceRadius = 0.0f;
+	if (State == EMiningCompanionState::MoveToPickup && IsTargetPickupValid())
+	{
+		TargetLocation = TargetPickup->GetActorLocation();
+		AcceptanceRadius = PickupInteractRadius;
+	}
+	else if (State == EMiningCompanionState::MoveToOre && IsTargetOreValid())
+	{
+		TargetLocation = TargetOre->GetActorLocation();
+		AcceptanceRadius = MiningInteractRadius;
+	}
+	else if (State == EMiningCompanionState::ReturningToDelivery && IsValid(DeliveryTarget))
+	{
+		TargetLocation = GetDeliveryNavigationLocation();
+		AcceptanceRadius = DeliveryAcceptanceRadius;
+	}
+	else
+	{
+		ResetToIdle();
+		return;
+	}
+
+	const FVector CurrentLocation = Companion->GetActorLocation();
+	TargetLocation.Z = CurrentLocation.Z;
+	const FVector Delta = TargetLocation - CurrentLocation;
+	if (Delta.Size2D() <= AcceptanceRadius)
+	{
+		bDirectMove = false;
+		if (State == EMiningCompanionState::MoveToPickup)
+		{
+			StartCollectAction();
+		}
+		else if (State == EMiningCompanionState::MoveToOre)
+		{
+			EnterMiningState();
+		}
+		else
+		{
+			BeginDeliveryAlignment();
+		}
+		return;
+	}
+
+	const FVector NewLocation = FMath::VInterpConstantTo(
+		CurrentLocation,
+		TargetLocation,
+		DeltaSeconds,
+		DirectMoveSpeed);
+	Companion->SetActorLocation(NewLocation, false);
+	if (!Delta.IsNearlyZero())
+	{
+		FRotator Facing = Delta.Rotation();
+		Facing.Pitch = 0.0f;
+		Facing.Roll = 0.0f;
+		Companion->SetActorRotation(Facing);
+	}
 }
 
 void AMiningCompanionAIController::UpdateMoveToPickup(float DeltaSeconds)
@@ -676,7 +832,7 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 	}
 
 	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
-	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	if (!CarryComponent || CarryComponent->IsEmpty())
 	{
 		ResetToIdle();
 		return;
@@ -684,7 +840,7 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 
 	if (bAligningForDelivery)
 	{
-		if (!IsValid(DeliveryDepot))
+		if (!IsValid(DeliveryTarget))
 		{
 			ResetToIdle();
 			return;
@@ -799,16 +955,17 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 	State = EMiningCompanionState::ReturningToDelivery;
 
 	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
-	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	if (!CarryComponent || CarryComponent->IsEmpty())
 	{
 		ResetToIdle();
 		return;
 	}
 
-	FindDeliveryDepot();
-	if (!IsValid(DeliveryDepot))
+	FindDeliveryTarget();
+	if (!IsValid(DeliveryTarget))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] No ResourceDepot found for delivery"));
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] No legal item receiver found for delivery"));
+		ResetToIdle();
 		return;
 	}
 
@@ -821,7 +978,7 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 	}
 
 	const EPathFollowingRequestResult::Type MoveResult = MoveToLocation(
-		GetDeliveryPointTransform().GetLocation(),
+		GetDeliveryNavigationLocation(),
 		DeliveryAcceptanceRadius,
 		true,
 		true,
@@ -840,15 +997,15 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 	}
 	else if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] MoveTo ResourceDepot failed"));
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] MoveTo item receiver failed"));
 	}
 }
 
-void AMiningCompanionAIController::DepositCarriedOre()
+void AMiningCompanionAIController::DepositCarriedItem()
 {
 	const bool bKeepDepositingState = State == EMiningCompanionState::Depositing;
 	UResourceCarryComponent* CarryComponent = GetCarryComponent();
-	if (!CarryComponent || CarryComponent->GetCurrentOreCount() <= 0)
+	if (!CarryComponent || CarryComponent->IsEmpty())
 	{
 		TargetOre = nullptr;
 		TargetPickup = nullptr;
@@ -859,14 +1016,21 @@ void AMiningCompanionAIController::DepositCarriedOre()
 		return;
 	}
 
-	FindDeliveryDepot();
-	if (!IsValid(DeliveryDepot))
+	FindDeliveryTarget();
+	if (!IsValid(DeliveryTarget)
+		|| !DeliveryTarget->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: no ResourceDepot"));
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: no legal item receiver"));
 		return;
 	}
 
-	DeliveryDepot->DepositFromCarry(CarryComponent);
+	const FItemStack CarriedItem = CarryComponent->GetCurrentItem();
+	if (!IItemReceiver::Execute_AcceptItem(DeliveryTarget, CarriedItem))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: receiver rejected item"));
+		return;
+	}
+	CarryComponent->ClearItems();
 	TargetOre = nullptr;
 	TargetPickup = nullptr;
 	if (!bKeepDepositingState)
