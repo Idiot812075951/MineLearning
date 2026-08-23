@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ItemTypes.h"
 #include "ResourceCarryComponent.generated.h"
 
 class UInstancedStaticMeshComponent;
@@ -20,14 +21,44 @@ class MINELEARNING_API UResourceCarryComponent : public UActorComponent
 public:
 	UResourceCarryComponent();
 
-	UFUNCTION(BlueprintPure, Category="Mining|Carry")
-	int32 GetCurrentOreCount() const { return CurrentOreCount; }
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
+	const FItemStack& GetCurrentItem() const { return CurrentItem; }
 
-	UFUNCTION(BlueprintPure, Category="Mining|Carry")
-	int32 GetMaxOreCount() const { return MaxOreCount; }
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
+	int32 GetCurrentItemCount() const { return CurrentItem.Amount; }
 
-	UFUNCTION(BlueprintPure, Category="Mining|Carry")
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
+	int32 GetCapacity() const { return Capacity; }
+
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
+	bool IsEmpty() const { return !CurrentItem.IsValid(); }
+
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
 	bool IsFull() const;
+
+	UFUNCTION(BlueprintPure, Category="Item|Carry")
+	bool CanAcceptItem(const FItemStack& Item) const;
+
+	UFUNCTION(BlueprintCallable, Category="Item|Carry")
+	int32 AddItem(const FItemStack& Item);
+
+	int32 AddItemWithVisual(const FItemStack& Item, UStaticMesh* InResourceMesh);
+
+	UFUNCTION(BlueprintCallable, Category="Item|Carry")
+	FItemStack TakeAllItems();
+
+	UFUNCTION(BlueprintCallable, Category="Item|Carry")
+	void ClearItems();
+
+	/** Sets capacity/category policy. Used by character constructors instead of class checks. */
+	void ConfigureAcceptance(int32 InCapacity, bool bInAcceptAllCategories, const TArray<EItemCategory>& InAllowedCategories);
+
+	// Compatibility API for the established mining/storage path. IronOre is the legacy ore type.
+	UFUNCTION(BlueprintPure, Category="Mining|Carry")
+	int32 GetCurrentOreCount() const;
+
+	UFUNCTION(BlueprintPure, Category="Mining|Carry")
+	int32 GetMaxOreCount() const { return Capacity; }
 
 	UFUNCTION(BlueprintPure, Category="Mining|Carry")
 	bool CanAddOre(int32 Amount) const;
@@ -35,16 +66,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Mining|Carry")
 	int32 AddOre(int32 Amount);
 
-	/** Adds ore and, when the cargo bin was empty, uses the pickup's selected visual for its preview instances. */
 	int32 AddOreWithVisual(int32 Amount, UStaticMesh* InResourceMesh);
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Carry")
 	int32 TakeAllOre();
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Carry")
-	void ClearOre();
+	void ClearOre() { ClearItems(); }
 
-	UPROPERTY(BlueprintAssignable, Category="Mining|Carry")
+	UPROPERTY(BlueprintAssignable, Category="Item|Carry")
 	FOnCarryChangedSignature OnCarryChanged;
 
 protected:
@@ -57,11 +87,17 @@ protected:
 #endif
 
 private:
-	UPROPERTY(VisibleAnywhere, Category="Mining|Carry")
-	int32 CurrentOreCount = 0;
+	UPROPERTY(VisibleAnywhere, Category="Item|Carry")
+	FItemStack CurrentItem;
 
-	UPROPERTY(EditAnywhere, Category="Mining|Carry")
-	int32 MaxOreCount = 5;
+	UPROPERTY(EditAnywhere, Category="Item|Carry", meta=(ClampMin="1"))
+	int32 Capacity = 5;
+
+	UPROPERTY(EditAnywhere, Category="Item|Carry|Rules")
+	bool bAcceptAllCategories = true;
+
+	UPROPERTY(EditAnywhere, Category="Item|Carry|Rules", meta=(EditCondition="!bAcceptAllCategories"))
+	TArray<EItemCategory> AllowedCategories;
 
 	UPROPERTY(EditAnywhere, Category="Mining|Carry|Preview")
 	UStaticMesh* PreviewResourceMesh = nullptr;
@@ -89,7 +125,6 @@ private:
 	UPROPERTY(Transient)
 	UMaterialInterface* AppliedPreviewResourceMaterial = nullptr;
 
-	/** The visual selected by the first pickup in the current cargo load. */
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CarriedResourceMesh = nullptr;
 

@@ -1,5 +1,6 @@
 #include "ResourceCarryComponent.h"
 
+#include "ItemLogisticsLibrary.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -17,6 +18,7 @@ UResourceCarryComponent::UResourceCarryComponent()
 void UResourceCarryComponent::OnRegister()
 {
 	Super::OnRegister();
+	Capacity = FMath::Max(Capacity, 1);
 	RefreshPreviewResources();
 }
 
@@ -43,81 +45,137 @@ void UResourceCarryComponent::BeginPlay()
 void UResourceCarryComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+	Capacity = FMath::Max(Capacity, 1);
 	RefreshPreviewResources();
 }
 #endif
 
 bool UResourceCarryComponent::IsFull() const
 {
-	return CurrentOreCount >= MaxOreCount;
+	return CurrentItem.Amount >= Capacity;
 }
 
-bool UResourceCarryComponent::CanAddOre(int32 Amount) const
+bool UResourceCarryComponent::CanAcceptItem(const FItemStack& Item) const
 {
-	return Amount > 0 && CurrentOreCount < MaxOreCount;
+	if (!Item.IsValid() || IsFull())
+	{
+		return false;
+	}
+
+	if (CurrentItem.IsValid() && CurrentItem.ItemType != Item.ItemType)
+	{
+		return false;
+	}
+
+	const EItemCategory Category = UItemLogisticsLibrary::GetItemCategory(Item.ItemType);
+	return bAcceptAllCategories || AllowedCategories.Contains(Category);
 }
 
-int32 UResourceCarryComponent::AddOre(int32 Amount)
+int32 UResourceCarryComponent::AddItem(const FItemStack& Item)
 {
-	if (!CanAddOre(Amount))
+	if (!CanAcceptItem(Item))
 	{
 		return 0;
 	}
 
-	const int32 OldCount = CurrentOreCount;
-	const int32 AddAmount = FMath::Min(Amount, MaxOreCount - CurrentOreCount);
-	CurrentOreCount += AddAmount;
+	const int32 OldCount = CurrentItem.Amount;
+	const int32 AddedAmount = FMath::Min(Item.Amount, Capacity - OldCount);
+	if (!CurrentItem.IsValid())
+	{
+		CurrentItem.ItemType = Item.ItemType;
+	}
+	CurrentItem.Amount = OldCount + AddedAmount;
 
-	if (CurrentOreCount != OldCount)
+	if (AddedAmount > 0)
 	{
 		BroadcastCarryChanged();
 	}
-
-	return AddAmount;
+	return AddedAmount;
 }
 
-int32 UResourceCarryComponent::AddOreWithVisual(int32 Amount, UStaticMesh* InResourceMesh)
+int32 UResourceCarryComponent::AddItemWithVisual(const FItemStack& Item, UStaticMesh* InResourceMesh)
 {
-	if (CanAddOre(Amount) && CurrentOreCount == 0 && IsValid(InResourceMesh))
+	if (CanAcceptItem(Item) && !CurrentItem.IsValid() && IsValid(InResourceMesh))
 	{
 		CarriedResourceMesh = InResourceMesh;
 	}
-
-	return AddOre(Amount);
+	return AddItem(Item);
 }
 
-int32 UResourceCarryComponent::TakeAllOre()
+FItemStack UResourceCarryComponent::TakeAllItems()
 {
-	const int32 TakenAmount = CurrentOreCount;
-	if (TakenAmount <= 0)
+	const FItemStack TakenItem = CurrentItem;
+	if (!TakenItem.IsValid())
 	{
-		return 0;
+		return TakenItem;
 	}
 
-	CurrentOreCount = 0;
+	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
 	BroadcastCarryChanged();
-	return TakenAmount;
+	return TakenItem;
 }
 
-void UResourceCarryComponent::ClearOre()
+void UResourceCarryComponent::ClearItems()
 {
-	if (CurrentOreCount <= 0)
+	if (!CurrentItem.IsValid())
 	{
 		CarriedResourceMesh = nullptr;
 		RefreshPreviewResources();
 		return;
 	}
 
-	CurrentOreCount = 0;
+	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
 	BroadcastCarryChanged();
+}
+
+void UResourceCarryComponent::ConfigureAcceptance(
+	int32 InCapacity,
+	bool bInAcceptAllCategories,
+	const TArray<EItemCategory>& InAllowedCategories)
+{
+	Capacity = FMath::Max(InCapacity, 1);
+	bAcceptAllCategories = bInAcceptAllCategories;
+	AllowedCategories = InAllowedCategories;
+	RefreshPreviewResources();
+}
+
+int32 UResourceCarryComponent::GetCurrentOreCount() const
+{
+	return CurrentItem.IsValid() && CurrentItem.ItemType == EItemType::IronOre
+		? CurrentItem.Amount
+		: 0;
+}
+
+bool UResourceCarryComponent::CanAddOre(int32 Amount) const
+{
+	return CanAcceptItem({EItemType::IronOre, Amount});
+}
+
+int32 UResourceCarryComponent::AddOre(int32 Amount)
+{
+	return AddItem({EItemType::IronOre, Amount});
+}
+
+int32 UResourceCarryComponent::AddOreWithVisual(int32 Amount, UStaticMesh* InResourceMesh)
+{
+	return AddItemWithVisual({EItemType::IronOre, Amount}, InResourceMesh);
+}
+
+int32 UResourceCarryComponent::TakeAllOre()
+{
+	if (GetCurrentOreCount() <= 0)
+	{
+		return 0;
+	}
+	return TakeAllItems().Amount;
 }
 
 void UResourceCarryComponent::BroadcastCarryChanged()
 {
 	RefreshPreviewResources();
-	OnCarryChanged.Broadcast(CurrentOreCount, MaxOreCount);
+	OnCarryChanged.Broadcast(CurrentItem.Amount, Capacity);
 }
 
 void UResourceCarryComponent::RefreshPreviewResources()
@@ -138,17 +196,16 @@ void UResourceCarryComponent::RefreshPreviewResources()
 
 	const int32 PreviewSlotCount = PreviewResourceTransforms.Num();
 	UWorld* World = GetWorld();
-	const int32 DisplayCapacity = FMath::Min(MaxOreCount, PreviewSlotCount);
+	const int32 DisplayCapacity = FMath::Min(Capacity, PreviewSlotCount);
 	if (DisplayCapacity <= 0)
 	{
 		return;
 	}
 
-	int32 VisibleInstanceCount = FMath::Clamp(CurrentOreCount, 0, DisplayCapacity);
+	int32 VisibleInstanceCount = FMath::Clamp(CurrentItem.Amount, 0, DisplayCapacity);
 
 #if WITH_EDITOR
-	const bool bIsBlueprintPreview =
-		World && World->WorldType == EWorldType::EditorPreview;
+	const bool bIsBlueprintPreview = World && World->WorldType == EWorldType::EditorPreview;
 	if (bIsBlueprintPreview && bShowFullPreviewInEditor)
 	{
 		VisibleInstanceCount = DisplayCapacity;
@@ -167,12 +224,8 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	AActor* Owner = GetOwner();
 	USkeletalMeshComponent* OwnerMesh = FindOwnerSkeletalMesh();
 	UStaticMesh* ResourceMesh = GetPreviewResourceMesh();
-	if (!World
-		|| !Owner
-		|| !ResourceMesh
-		|| PreviewSocketName.IsNone()
-		|| PreviewResourceTransforms.IsEmpty()
-		|| !OwnerMesh
+	if (!World || !Owner || !ResourceMesh || PreviewSocketName.IsNone()
+		|| PreviewResourceTransforms.IsEmpty() || !OwnerMesh
 		|| !OwnerMesh->DoesSocketExist(PreviewSocketName))
 	{
 		return false;
@@ -180,11 +233,7 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 
 	if (!PreviewResourcesMesh)
 	{
-		PreviewResourcesMesh = NewObject<UInstancedStaticMeshComponent>(
-			Owner,
-			NAME_None,
-			RF_Transient
-		);
+		PreviewResourcesMesh = NewObject<UInstancedStaticMeshComponent>(Owner, NAME_None, RF_Transient);
 		if (!PreviewResourcesMesh)
 		{
 			return false;
@@ -209,8 +258,7 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 		PreviewResourcesMesh->AttachToComponent(
 			OwnerMesh,
 			FAttachmentTransformRules::SnapToTargetIncludingScale,
-			PreviewSocketName
-		);
+			PreviewSocketName);
 	}
 
 	if (PreviewResourcesMesh->GetStaticMesh() != ResourceMesh)
@@ -223,13 +271,9 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 
 	if (PreviewResourceMaterial)
 	{
-		if (!PreviewResourceMaterialInstance
-			|| AppliedPreviewResourceMaterial != PreviewResourceMaterial)
+		if (!PreviewResourceMaterialInstance || AppliedPreviewResourceMaterial != PreviewResourceMaterial)
 		{
-			PreviewResourceMaterialInstance = UMaterialInstanceDynamic::Create(
-				PreviewResourceMaterial,
-				this
-			);
+			PreviewResourceMaterialInstance = UMaterialInstanceDynamic::Create(PreviewResourceMaterial, this);
 			PreviewResourcesMesh->SetMaterial(0, PreviewResourceMaterialInstance);
 			AppliedPreviewResourceMaterial = PreviewResourceMaterial;
 		}
