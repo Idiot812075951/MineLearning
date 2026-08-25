@@ -1,7 +1,8 @@
 # Asset Brief Template
 
-> 每个正式建模任务复制本模板并填写。  
-> 未特别批准时，第一次执行只完成检查、候选草模和草模验收，不进入精修。
+> 每个新资产或重大改版保留一份当前有效的 Brief。已有资产的小型修改至少补齐本轮范围、保护项和 Source of Truth。
+>
+> 新资产未特别批准时，第一次执行只完成检查、候选草模和草模验收，不进入精修。
 
 ## 1. 基本信息
 
@@ -15,6 +16,11 @@
   - [ ] 装饰道具
 - Priority：
 - Intended Folder：
+- Brief Status：
+  - [ ] Current
+  - [ ] Superseded
+  - [ ] Archived
+- Authoritative Blender File：
 - Current Stage：
   - [ ] 概念/需求
   - [ ] 草模
@@ -31,9 +37,14 @@
 
 ## 3. 风格目标
 
+- 功能角色：
+- 身份色：
+  - [ ] Engineering Yellow / 暗工业黄
+  - [ ] Infrastructure Blue / 深蓝、蓝灰
+  - [ ] 已批准的新身份色（填写 Gameplay / 世界观 / 功能理由）：
 - 需要传达的三个关键词：
 - 应避免的感觉：
-- 与 OREBUDDY-07 或现有资产的关系：
+- 与 OreBuddy、Gunner、搬运工、矿机、处理机、仓库等现有资产并置时，如何保持项目一致性：
 - 是否有已批准参考图/模型：
 
 ## 4. 尺寸与比例
@@ -60,9 +71,10 @@
 
 ## 6. 色彩与材质
 
-- 主色：
+- 身份主色：
+- 公共材料色（Gunmetal / Tool Silver / Dark Rubber）：
 - 辅助色：
-- 强调色：
+- 强调色（Warning Orange / Cyan Emissive）：
 - 材质类别：
 - 是否需要发光：
 - 最大建议材质槽：
@@ -83,12 +95,17 @@
 - 是否需要拆分导出：
 - Blender 文件名：
 - FBX/UE 资产名：
+- 必须保持的 Object / Bone / Material Slot 名称：
+- 不得修改的 Skeleton / Action / UV / Vertex Group / Modifier / Parent 数据：
+- Blender 是否为静态外观 Source of Truth：
+- UE 只负责哪些运行时动态表现：
 - 其他技术要求：
 
 ## 9. 本轮任务范围
 
 - 本轮必须完成：
 - 本轮禁止提前制作：
+- 本轮必须保护：
 - 候选数量：
 - 停止点：
 - 用户批准后才能继续的阶段：

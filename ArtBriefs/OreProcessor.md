@@ -7,6 +7,8 @@
 - Asset Category：带简单活动部件的机器
 - Priority：当前结构修正
 - Intended Folder：`ArtSource/OreProcessor`
+- Brief Status：Current
+- Authoritative Blender File：`ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend`
 - Current Stage：Tripo 导入模型的结构整理 / 动画准备
 
 ## 2. 游戏用途
@@ -17,10 +19,13 @@
 
 ## 3. 风格目标
 
+- 功能角色：固定式矿石生产/处理单位，将原矿转换为后续物流资源。
+- 身份色：Engineering Yellow / 暗工业黄；理由是它属于持续主动工作的生产机械。
 - 关键词：Q 版、明亮、友好且功能清楚。
 - 保留当前 Tripo 模型的整体美术风格和主轮廓。
 - 避免写实重工业、废土、Low Poly 切面和廉价玩具感。
 - 本轮不修改表面轻微裂纹或脏纹。
+- 与 OreBuddy、Gunner、搬运工、矿机和仓库并置时，共享大块面、明确倒角、Gunmetal 结构、Tool Silver 功能件、Cyan 状态反馈和少量 Warning Orange。
 
 ## 4. 尺寸与比例
 
@@ -39,6 +44,7 @@
 ## 6. 色彩与材质
 
 - 沿用现有材质与颜色。
+- Engineering Yellow 作为身份主色；Gunmetal、Tool Silver 与 Dark Rubber 作为公共结构色，Cyan Emissive 与 Warning Orange 只作功能反馈和少量强调。
 - 本轮禁止制作或重做材质、贴图与 UV。
 
 ## 7. 变体与复用
@@ -50,7 +56,9 @@
 
 - 目标：后续可拆分进入 UE 的 Static Mesh 部件。
 - 本轮不制作骨骼、动画、UV、贴图、重拓扑或大规模减面。
-- Blender 文件：保留导入基线，并另存本轮清理版本。
+- Blender Source of Truth：`ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend`。
+- 保留导入基线，并另存本轮清理版本。
+- 必须保护现有材质槽、UV、整体比例和已确认主轮廓；UE 只负责皮带、滚轮、中央核心等运行时动态表现。
 
 ## 9. 本轮任务范围
 
@@ -58,6 +66,7 @@
 - 保留斜传送带主体，删除或废弃顶部错误小块，新补短水平接驳/导料段并接到大料斗边缘。
 - 轻量清理接料箱内部，不大改外形。
 - 整理后续要转动或单独驱动的对象与 Origin，不制作动画。
+- 本轮必须保护：材质/UV、整体尺寸比例、已确认主轮廓和非目标功能件。
 - 停止点：结构逻辑、接料箱清理与可动件整理完成并通过本轮验收。
 
 ## 10. 验收重点

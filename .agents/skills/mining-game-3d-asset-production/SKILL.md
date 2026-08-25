@@ -1,177 +1,102 @@
 ---
 name: mining-game-3d-asset-production
-description: Create, revise, review, or export Blender 3D art assets for the MineLearning UE mining project, especially ores, processors, crushers, conveyors, storage, machines, and environment props. Use for project modeling, materials, blockout, art review, and UE-ready asset preparation. Do not use for coding-only tasks or the OREBUDDY-07 robot rig and animation pipeline unless explicitly requested.
+description: Create, revise, rig, animate, review, or prepare Blender 3D art assets for the MineLearning Unreal project. Use for characters, robots, ores, machines, tools, props, environments, materials, and UE art delivery. Do not use for coding-only, gameplay-logic, or unrelated UE configuration tasks.
 ---
 
-# MineLearning 风格化 3D 资产生产
+# MineLearning 3D 美术生产
 
-## 目标
+## 目标与 Source of Truth
 
-为 MineLearning UE 挖矿项目稳定生产 Q 版、明亮、可爱、精致，并具有商业游戏完成度的 3D 资产。
+为 MineLearning 制作可持续迭代的 Q 版工业科幻 3D 资产，并保护 Blender 源文件、机械结构、动画数据和 UE 交付稳定性。
 
-本 Skill 首先保证：
+- 用户当前明确要求与已批准 Asset Brief 决定单个资产的需求、阶段和保护项。
+- `references/art-direction.md` 是跨资产视觉 Source of Truth。
+- 当 Blender 被指定为静态外观源资产时，基础颜色、材质分区和静态造型必须在 Blender 中成立；不得用 UE 内不可追溯的手工覆盖代替源设计。UE 可以负责运行时参数、动画和特效。
+- 历史 Prompt、旧 TODO、过期版本说明和未批准概念不得覆盖当前 Brief。
 
-1. 风格不跑偏。
-2. AI 可以稳定完成。
-3. 用户无需依赖专业美术能力兜底。
-4. 资产能继续迭代、复用并进入 UE。
-5. 错误可被及时发现和回退，而不是在错误基础上持续堆叠。
+## 任务开始时读取
 
-## 开始前必须读取
+默认只读取：
 
-每次任务开始时必须读取：
+1. 本 Skill。
+2. 当前 Asset Brief；若任务未提供 Brief，使用 `assets/asset-brief-template.md` 建立或补齐最小 Brief。
+3. `references/art-direction.md`。
 
-- `references/art-direction.md`
-- `references/acceptance-rubric.md`
-- 本次任务指定的 Asset Brief
+仅在任务确实涉及对应内容时读取：
 
-Asset Brief 缺失时，使用：
+- 草模评审、最终验收或准备宣称完成：`references/acceptance-rubric.md`
+- Armature、Bone、权重、机械关节或绑定：`references/rigging-rules.md`
+- Action、关键帧、循环、Root Motion 或动画导出：`references/animation-rules.md`
+- FBX、UE 导入/重导入或宣称 UE-ready：`references/ue-export-checklist.md`
 
-- `assets/asset-brief-template.md`
+不要为了“可能有用”加载无关 Reference。
 
-若任务信息仍有少量缺口，采用保守、可逆的默认值，并在报告中标出；不要因为非关键缺口阻塞草模。
+## 写入前安全门槛
 
-## 约束等级
+出现以下任一情况，立即停止写入并报告：
 
-### 硬约束：不得违反
+- Blender MCP 无法连接，或连接测试失败。
+- 无法确认当前 `.blend` 的绝对路径、保存状态或是否连接到正确文件。
+- 无法确定哪个版本是当前源资产，或下一步会覆盖唯一可用 `.blend`。
+- 不清楚修改是否会破坏 Skeleton、Bone、Action、关键帧、UV、Vertex Group、Armature Modifier、父子关系、Pivot 或材质槽。
+- 目标对象、任务范围或必须保留的结构无法从 Brief、场景或用户要求中确认。
 
-- 不得做成 Low Poly 切面风、像素/体素风或简单方块占位物。
-- 不得做成写实次世代、废土、重污渍或阴暗压抑工业风。
-- 不得依赖用户进行专业雕刻、重拓扑、手绘贴图或复杂 UV 修复。
-- 必须先草模、后精修。
-- 必须保留可回退版本。
-- 不得破坏或覆盖唯一可用场景。
-- 不得用随机铆钉、管线、凹槽和噪声堆砌来伪装复杂度。
-- 未通过验收不得宣称完成。
+写入前必须：
 
-### 默认约束：可以有理由偏离
+- 只读检查当前文件、场景、Collection、单位、对象层级和任务相关数据。
+- 确认一个可回退起点；优先另存版本或阶段检查点，不覆盖唯一源文件。
+- 对受保护数据建立与风险相称的基线，例如名称、数量、槽位、UV、Rig 或 Action 摘要。
 
-- 默认采用圆润、饱满、稳定的主轮廓。
-- 默认建立“大形体—功能结构—点缀细节”三级层次。
-- 默认控制材质槽数量。
-- 默认优先非破坏式修改、镜像、阵列和可复用模块。
-- 默认使用中高明度配色，以少量高饱和色形成识别重点。
-- 默认只制作对轮廓、功能或材质表达有价值的细节。
-- 偏离默认约束时，必须在结果报告中说明理由。
+## 通用设计原则
 
-### 资产变量：由 Asset Brief 决定
+- 新原型或新 Brief 进入正式制作前，必须回答：资产的功能角色、身份色，以及它与现有 MineLearning 资产并置时是否属于同一项目。
+- 先解决大轮廓、比例和功能分区，再做中型功能结构，最后才是少量点缀细节。
+- 通过清楚的大块面、明确倒角、厚度、接缝和功能分件获得完成度。
+- 新增细节必须服务轮廓、功能、材质层次或状态反馈；不得依靠随机螺丝、管线、凹槽或材质噪声堆复杂度。
+- 复杂方案优先采用简单、少而准、可验证、可回退的实现，不为了“高级”引入难以维护的系统。
+- 新资产先完成草模门槛；已有资产只修改 Brief 授权的当前阶段，不无理由推倒已确认结构。
 
-- 尺寸和比例。
-- 主色和矿种颜色。
-- 功能结构和活动部件。
-- 是否需要动画、骨骼或可拆分部件。
-- 细节等级、变体数量和导出范围。
+## 材质与外观
 
-## 标准工作流
+- 遵循 Art Direction 的公共材质语言和身份色，不为单个资产随意创造新主色体系。
+- 使用少量、功能明确的材质族；通过 Base Color、Metallic、Roughness 和受控 Emissive 区分外壳、结构、工具、橡胶与反馈区域。
+- 所有机械件不得共享同一种塑料质感；工具件、裸露金属、喷涂外壳和橡胶应可读地区分。
+- 磨损与污渍只能轻量、可控，不得把项目推向写实战争机器、废土或脏旧重工业。
 
-### Phase 0：检查与规划
+## 结构、Rig 与 Animation
 
-1. 检查当前 Blender 场景、Collection、已有资产、单位和保存路径。
-2. 不得默认清空场景。
-3. 读取 Asset Brief，提取：
-   - 游戏用途
-   - 视觉重点
-   - 大致比例
-   - 功能结构
-   - 活动/可拆部件
-   - UE 交付要求
-4. 判断本任务属于：
-   - 静态资源
-   - 静态机器
-   - 带简单活动部件的机器
-   - 场景模块
-5. 用简短文字说明拟采用的主轮廓、三级层次和复用计划。
-6. 保存或确认一个可回退起点。
+- 活动机械部件保持清楚的对象拆分、Pivot、局部轴、父子关系和可解释命名。
+- 刚性机械绑定不得依赖未经检查的自动权重；每个刚性部件的驱动关系必须可验证。
+- 未经明确授权，不修改现有 Skeleton、Bone、Action、关键帧、Vertex Group、Armature Modifier 或功能部件位置。
+- Rig 或 Animation 任务必须读取相应按需 Reference，并在修改前后验证受保护数据。
 
-### Phase 1：草模 Blockout
+## UE 交付
 
-1. 只处理主轮廓、比例、功能分区和与角色的尺度关系。
-2. 不添加密集小细节、复杂材质或装饰噪声。
-3. Asset Brief 要求多个候选时，将候选放在独立 Collection 或整齐并排，禁止互相覆盖。
-4. 从前、侧、四分之三视角检查轮廓。
-5. 使用 `acceptance-rubric.md` 的“草模门槛”自检。
-6. 未通过时，只修改失败维度，不要无理由整体重做。
-7. 未明确授权进入下一阶段时，到此停止并汇报。
+- 只有在完成 `references/ue-export-checklist.md` 的适用检查后，才能宣称 UE-ready。
+- 保持尺寸、轴向、Root、对象/骨骼命名、材质槽、法线、Transform、UV、动画拆分和活动部件层级可追踪。
+- 不把 UE 中临时手工修色、缩放或重命名当作源资产修复。
+- 未明确授权时，不修改 UE Asset、Blueprint、运行时配置或游戏代码。
 
-### Phase 2：结构精修
+## 工作方式
 
-1. 保留已通过的主轮廓。
-2. 增加能解释功能的次级结构。
-3. 通过倒角、曲面过渡、厚度和接缝提升精致度，而不是堆随机零件。
-4. 确保重要部件在中距离可读。
-5. 任何复杂结构必须能说明其功能或视觉作用。
-6. 对可能活动的部件保持独立对象、合理命名和可用 Pivot。
+1. 核对 Brief、源文件、当前阶段、保护项和验收重点。
+2. 建立回退点，只执行本轮范围。
+3. 小步修改、阶段检查；失败时停止扩散并回到最近可用版本。
+4. 验证受影响的数据与常用视角；只修复失败维度。
+5. 报告修改内容、文件位置、验证结果、风险和下一步最小任务。
 
-### Phase 3：材质与颜色
+## 停止条件
 
-1. 优先建立少量、清晰的材质类别：
-   - 涂装金属/设备外壳
-   - 深色结构或橡胶
-   - 矿物或资源核心
-   - 少量发光/指示区域
-2. 颜色必须有主次，不能所有部件同样鲜艳。
-3. 磨损只能轻量化、风格化，不得把资产变成废土残骸。
-4. 材质必须在明亮 UE 场景光照下仍保持层次。
-5. 不得用纯材质噪声弥补造型不足。
+不得在工具失败、几何损坏、风格明显跑偏、文件版本不明或必须依赖专业人工大修时继续堆叠修改。停止扩散，保留或回到最近可用版本，标出失败对象与步骤，并提出更简单、可验证的替代方案。不得用“看起来差不多”掩盖已知问题。
 
-### Phase 4：技术整理
-
-在宣称 UE-ready 前检查：
-
-- 单位和大致尺寸合理。
-- Object 名称符合 Asset Brief。
-- 变换已按交付需要处理，避免异常缩放。
-- Origin/Pivot 符合摆放或活动需求。
-- 法线和可见面无明显错误。
-- 无明显穿插、悬空、破面和重复几何。
-- 材质槽数量合理且命名清晰。
-- 需要 UV 的资产不存在明显不可用 UV。
-- 活动部件已拆分并具有合理层级。
-- 静态资产具备简单碰撞方案说明。
-- 文件保存到明确、可追踪的位置。
-
-### Phase 5：验收与报告
-
-使用 `references/acceptance-rubric.md` 完成最终检查。
-
-报告必须包含：
-
-- 已完成内容。
-- 保留的设计决策。
-- 未完成或存在风险的部分。
-- 当前 Blender 文件位置。
-- UE 导入建议。
-- 是否通过草模门槛或最终门槛。
-- 下一步最小可执行任务。
-
-## AI 优先的失败处理
-
-出现以下情况时，停止继续堆叠修改：
-
-- Blender/MCP 命令连续失败。
-- 几何体出现无法解释的破损。
-- 风格明显偏离且局部修复无法恢复。
-- 为解决一个问题引入更多不可控问题。
-- 下一步必须依赖专业人工美术技能才能继续。
-- 无法确认正在编辑的对象或文件版本。
-
-处理顺序：
-
-1. 停止扩散修改。
-2. 保存故障前的最近可用版本，或回退。
-3. 标出具体失败对象和失败步骤。
-4. 给出一个更简单、更稳定的替代方案。
-5. 不得用“看起来差不多”掩盖问题。
-
-## 参考优先级
+## 冲突优先级
 
 发生冲突时按以下优先级执行：
 
 1. 用户在当前任务中的明确要求。
-2. 已批准的 Asset Brief。
-3. 已批准且可见的项目资产与比例参照。
-4. `art-direction.md`。
-5. 本 Skill 的默认规则。
-6. AI 自行发挥。
+2. 当前已批准 Asset Brief。
+3. 已批准且可见的项目资产与技术约束。
+4. Art Direction 与按需 Reference。
+5. 本 Skill 的默认原则。
 
-不得凭空推翻高优先级决定。
+不得用低优先级规则推翻更高优先级决定。
