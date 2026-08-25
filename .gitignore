@@ -48,6 +48,11 @@ DerivedDataCache/
 # Optional large local files
 *.tmp
 *.cache
+
+# Local art-authoring rollback files
+*.blend1
+Content/**/_Backups/
+Content/**/_NotifyFixBackups/
 # vsconfig
 .vsconfig
 
