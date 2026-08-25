@@ -54,7 +54,6 @@ World Partition/External Actors 的未提交变动包含上述实例的替换、
 
 ## 兼容资产
 
-- `BP_ResourceProcessor`：旧通用处理机资产；基类现已实现 `IItemReceiver`，但真实可视流程由 `BP_ProcesserMachine` 承担。
 - `BP_ResourceStorage`：旧通用存储资产；继续使用升级后的 `UResourceStorageComponent`。
 - `AResourcePickup`：旧矿石类名兼容层；真实 Pickup 行为在 `AItemPickup`。
 
@@ -64,4 +63,3 @@ World Partition/External Actors 的未提交变动包含上述实例的替换、
 - C++ 负责：物品状态、AI 状态机、处理队列、事件驱动视觉参数、门逻辑和库存。
 - 蓝图 EventGraph 不再承担 Debug 自动演示或大量运行时赋值。
 - 处理机点位后续调整时，必须先拆分“真实 `InputPoint` 入料口”和“箱外 OreBuddy 交付/停车点”，不要再次混用同一组件。
-

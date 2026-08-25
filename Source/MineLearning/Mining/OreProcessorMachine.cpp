@@ -14,10 +14,6 @@ AOreProcessorMachine::AOreProcessorMachine()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
-	bAutoStart = false;
-	InputOrePerBatch = 1;
-	OutputProcessedOrePerBatch = 1;
-	ProcessingQueueCapacity = 1;
 
 	InputOrePickupClass = AItemPickup::StaticClass();
 	CoinPickupClass = AItemPickup::StaticClass();
@@ -75,6 +71,11 @@ void AOreProcessorMachine::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	InputTransportItems.Reset();
 	OutputTransportItems.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MachineProcessingTimerHandle);
+	}
+	bIsProcessing = false;
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -87,6 +88,11 @@ void AOreProcessorMachine::Tick(float DeltaSeconds)
 	UpdateOutputTransport(DeltaSeconds);
 	RefreshMachineState();
 	RefreshTickEnabled();
+}
+
+EItemReceiverType AOreProcessorMachine::GetItemReceiverType_Implementation() const
+{
+	return EItemReceiverType::Processor;
 }
 
 bool AOreProcessorMachine::CanAcceptItem_Implementation(const FItemStack& Item) const
@@ -158,23 +164,21 @@ bool AOreProcessorMachine::AcceptItem_Implementation(const FItemStack& Item)
 	return true;
 }
 
-bool AOreProcessorMachine::TryStartProcessing()
+void AOreProcessorMachine::StartProcessingIfReady()
 {
 	if (bIsProcessing || QueuedOreCount <= 0)
 	{
-		return false;
+		return;
 	}
 
 	bIsProcessing = true;
-	ProcessingStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
-	OnProcessingStateChanged.Broadcast(true);
 	RefreshMachineState();
 	RefreshTickEnabled();
 
 	if (!GetWorld() || ProcessingTime <= 0.0f)
 	{
 		CompleteMachineProcessing();
-		return true;
+		return;
 	}
 
 	GetWorld()->GetTimerManager().SetTimer(
@@ -183,24 +187,6 @@ bool AOreProcessorMachine::TryStartProcessing()
 		&AOreProcessorMachine::CompleteMachineProcessing,
 		ProcessingTime,
 		false);
-	return true;
-}
-
-void AOreProcessorMachine::CancelProcessing()
-{
-	const bool bWasProcessing = bIsProcessing;
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(MachineProcessingTimerHandle);
-	}
-	bIsProcessing = false;
-	ProcessingStartTime = 0.0;
-	if (bWasProcessing)
-	{
-		OnProcessingStateChanged.Broadcast(false);
-	}
-	RefreshMachineState();
-	RefreshTickEnabled();
 }
 
 USplineComponent* AOreProcessorMachine::FindAuthoredSpline(FName ComponentName) const
@@ -394,7 +380,7 @@ void AOreProcessorMachine::AdmitOreAtProcessInput(int32 TransportIndex)
 	InputTransportItems.RemoveAt(TransportIndex);
 	QueuedOreCount = FMath::Min(QueuedOreCount + 1, ProcessingQueueCapacity);
 	OnProcessorQueueChanged.Broadcast(QueuedOreCount, ProcessingQueueCapacity);
-	TryStartProcessing();
+	StartProcessingIfReady();
 }
 
 void AOreProcessorMachine::TryAdmitWaitingOre()
@@ -422,9 +408,7 @@ void AOreProcessorMachine::CompleteMachineProcessing()
 	}
 
 	bIsProcessing = false;
-	ProcessingStartTime = 0.0;
 	QueuedOreCount = FMath::Max(QueuedOreCount - 1, 0);
-	OnProcessingStateChanged.Broadcast(false);
 	OnProcessorQueueChanged.Broadcast(QueuedOreCount, ProcessingQueueCapacity);
 
 	if (!SpawnOutputCoin())
@@ -461,7 +445,7 @@ bool AOreProcessorMachine::SpawnOutputCoin()
 
 	FItemStack CoinStack;
 	CoinStack.ItemType = EItemType::Coin;
-	CoinStack.Amount = FMath::Max(OutputProcessedOrePerBatch, 1);
+	CoinStack.Amount = FMath::Max(OutputCoinAmount, 1);
 	const FTransform StartTransform(
 		OutputSpline->GetQuaternionAtDistanceAlongSpline(0.0f, ESplineCoordinateSpace::World),
 		OutputSpline->GetLocationAtDistanceAlongSpline(0.0f, ESplineCoordinateSpace::World));

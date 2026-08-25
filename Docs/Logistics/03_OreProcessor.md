@@ -2,7 +2,7 @@
 
 ## 资产与类
 
-- C++：`AOreProcessorMachine`，继承 `AResourceProcessor`，接收方类型为 `Processor`。
+- C++：`AOreProcessorMachine`，直接继承 `AActor` 并实现 `IItemReceiver`，接收方类型为 `Processor`。
 - 蓝图：`/Game/MineLearning/Mining/Processing/Blueprints/BP_ProcesserMachine`。
 - 蓝图 EventGraph 当前为空；模型、材质、Spline、SceneComponent 和导航阻挡在 CDO 中配置，运行状态由 C++ 驱动。
 
@@ -39,7 +39,8 @@
 | `OutputCoinTravelSpeed` | `14 cm/s` |
 | `WaitingOreSpacing` | `12 cm` |
 | `InputReleaseInterval` | `0.55 s` |
-| `ProcessingTime` | 基类默认 `2.0 s`，可在实例/CDO 配置 |
+| `ProcessingTime` | `AOreProcessorMachine` 默认 `2.0 s`，可在实例/CDO 配置 |
+| `OutputCoinAmount` | `1` |
 | `InputOreMeshScale` | `1.0` |
 | `CoinMeshScale` | `3.3`，引用共享金币比例 |
 | `InputOrePickupClass` | `/Script/MineLearning.ItemPickup` |
@@ -77,4 +78,3 @@
 | `NavObstacle_Core1` | `(45, 30, 15)` | `(17.1545, 13.2505, 13.5538)` |
 
 这样保留入料箱、出料口附近的可达空间。`NavigationBodyMeshComponentName = StaticMesh5` 仅为旧序列化兼容字段，不再是当前导航阻挡真值。
-

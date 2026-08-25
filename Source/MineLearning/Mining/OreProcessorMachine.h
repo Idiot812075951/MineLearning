@@ -1,7 +1,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ResourceProcessor.h"
+#include "GameFramework/Actor.h"
+#include "ItemReceiver.h"
 #include "OreProcessorMachine.generated.h"
 
 class AItemPickup;
@@ -51,7 +52,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreProcessorStateChanged, EOrePro
  * -> output spline -> authored OutputPoint.
  */
 UCLASS(Blueprintable)
-class MINELEARNING_API AOreProcessorMachine : public AResourceProcessor
+class MINELEARNING_API AOreProcessorMachine : public AActor, public IItemReceiver
 {
 	GENERATED_BODY()
 
@@ -59,8 +60,7 @@ public:
 	AOreProcessorMachine();
 
 	virtual void Tick(float DeltaSeconds) override;
-	virtual bool TryStartProcessing() override;
-	virtual void CancelProcessing() override;
+	virtual EItemReceiverType GetItemReceiverType_Implementation() const override;
 	virtual bool CanAcceptItem_Implementation(const FItemStack& Item) const override;
 	virtual bool AcceptItem_Implementation(const FItemStack& Item) override;
 
@@ -94,8 +94,11 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Queue", meta=(ClampMin="1", ClampMax="1"))
-	int32 ProcessingQueueCapacity = 1;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Processing", meta=(ClampMin="0.0"))
+	float ProcessingTime = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Processing", meta=(ClampMin="1"))
+	int32 OutputCoinAmount = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Queue", meta=(ClampMin="1"))
 	int32 MaxBufferedInputOre = 8;
@@ -150,6 +153,9 @@ protected:
 	FName NavigationBodyMeshComponentName = TEXT("StaticMesh5");
 
 private:
+	static constexpr int32 ProcessingQueueCapacity = 1;
+
+	void StartProcessingIfReady();
 	USplineComponent* FindAuthoredSpline(FName ComponentName) const;
 	USceneComponent* FindAuthoredSceneComponent(FName ComponentName) const;
 	AItemPickup* SpawnTransportPickup(const FItemStack& Stack, UStaticMesh* Mesh, float MeshScale, TSubclassOf<AItemPickup> PickupClass, const FTransform& SpawnTransform);
@@ -191,5 +197,6 @@ private:
 	EOreProcessorMachineState MachineState = EOreProcessorMachineState::Idle;
 
 	FTimerHandle MachineProcessingTimerHandle;
+	bool bIsProcessing = false;
 	float NextInputReleaseTimeSeconds = 0.0f;
 };
