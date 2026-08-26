@@ -7,7 +7,6 @@
 #include "Logging/LogMacros.h"
 #include "MineLearningCharacter.generated.h"
 
-class UMiningToolComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UInputMappingContext;
@@ -45,15 +44,6 @@ class AMineLearningCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 	
-	/** Look Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* MineAction;
-
-public:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining")
-	UMiningToolComponent* MiningToolComponent;
-	
-
 public:
 	AMineLearningCharacter();
 	
@@ -65,9 +55,6 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-	void Mine();
-
-protected:
 
 	virtual void NotifyControllerChanged() override;
 

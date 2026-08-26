@@ -11,7 +11,6 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
-#include "Mining/MiningToolComponent.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
@@ -52,9 +51,8 @@ AMineLearningCharacter::AMineLearningCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
-	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
-	MiningToolComponent = CreateDefaultSubobject<UMiningToolComponent>(TEXT("MiningToolComponent"));
+	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
+	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++).
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -95,8 +93,6 @@ void AMineLearningCharacter::SetupPlayerInputComponent(UInputComponent* PlayerIn
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMineLearningCharacter::Look);
-		
-		EnhancedInputComponent->BindAction(MineAction, ETriggerEvent::Triggered, this, &AMineLearningCharacter::Mine);
 	}
 	else
 	{
@@ -137,14 +133,6 @@ void AMineLearningCharacter::Look(const FInputActionValue& Value)
 		// add yaw and pitch input to controller
 		AddControllerYawInput(LookAxisVector.X);
 		AddControllerPitchInput(LookAxisVector.Y);
-	}
-}
-
-void AMineLearningCharacter::Mine()
-{
-	if (MiningToolComponent)
-	{
-		MiningToolComponent->StartMining();
 	}
 }
 
