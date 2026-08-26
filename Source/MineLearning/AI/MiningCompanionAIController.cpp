@@ -67,7 +67,7 @@ void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
 		CancelTargetPickup();
 		RestoreCollectMovementAndRotation();
 		TargetOre = nullptr;
-		bAligningForDelivery = false;
+		bAligningForAction = false;
 		State = EMiningCompanionState::Idle;
 		return;
 	}
@@ -87,7 +87,7 @@ void AMiningCompanionAIController::SetDebugPaused(bool bPaused)
 
 	TargetOre = nullptr;
 	TargetPickup = nullptr;
-	bAligningForDelivery = false;
+	bAligningForAction = false;
 	State = EMiningCompanionState::Idle;
 	bDebugPaused = false;
 #endif
@@ -188,6 +188,11 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 
 	if (State == EMiningCompanionState::ReturningToDelivery)
 	{
+		if (bAligningForAction)
+		{
+			return;
+		}
+
 		if (Result.IsSuccess())
 		{
 			BeginDeliveryAlignment();
@@ -201,9 +206,14 @@ void AMiningCompanionAIController::OnMoveCompleted(FAIRequestID RequestID, const
 
 	if (State == EMiningCompanionState::MoveToPickup)
 	{
+		if (bAligningForAction)
+		{
+			return;
+		}
+
 		if (Result.IsSuccess())
 		{
-			StartCollectAction();
+			BeginPickupAlignment();
 			return;
 		}
 
@@ -307,6 +317,25 @@ FVector AMiningCompanionAIController::GetDeliveryNavigationLocation() const
 	return GetDeliveryPointTransform().GetLocation();
 }
 
+void AMiningCompanionAIController::BeginPickupAlignment()
+{
+	if (!Companion || !IsTargetPickupValid())
+	{
+		ResetToIdle();
+		return;
+	}
+
+	if (bAligningForAction)
+	{
+		return;
+	}
+
+	StopCompanionMovement();
+	bDirectMove = false;
+	bAligningForAction = true;
+	NavigationStallSeconds = 0.0f;
+}
+
 void AMiningCompanionAIController::BeginDeliveryAlignment()
 {
 	if (!Companion || !IsValid(DeliveryTarget))
@@ -315,8 +344,48 @@ void AMiningCompanionAIController::BeginDeliveryAlignment()
 		return;
 	}
 
+	if (bAligningForAction)
+	{
+		return;
+	}
+
 	StopCompanionMovement();
-	bAligningForDelivery = true;
+	bDirectMove = false;
+	bAligningForAction = true;
+	NavigationStallSeconds = 0.0f;
+}
+
+bool AMiningCompanionAIController::RotateCompanionTowards(FRotator TargetRotation, float DeltaSeconds)
+{
+	if (!Companion)
+	{
+		return false;
+	}
+
+	TargetRotation.Pitch = 0.0f;
+	TargetRotation.Roll = 0.0f;
+
+	const FRotator NewRotation = FMath::RInterpConstantTo(
+		Companion->GetActorRotation(),
+		TargetRotation,
+		DeltaSeconds,
+		DeliveryRotationSpeed
+	);
+	SetControlRotation(NewRotation);
+	Companion->SetActorRotation(NewRotation);
+
+	const float RemainingYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(
+		NewRotation.Yaw,
+		TargetRotation.Yaw
+	));
+	if (RemainingYaw > DeliveryRotationTolerance)
+	{
+		return false;
+	}
+
+	SetControlRotation(TargetRotation);
+	Companion->SetActorRotation(TargetRotation);
+	return true;
 }
 
 bool AMiningCompanionAIController::TryCollectTargetPickup()
@@ -378,7 +447,7 @@ void AMiningCompanionAIController::StartCollectAction()
 	}
 
 	StopCompanionMovement();
-	FaceTargetPickup();
+	bAligningForAction = false;
 	LockCollectMovementAndRotation();
 	State = EMiningCompanionState::Collecting;
 
@@ -399,7 +468,7 @@ void AMiningCompanionAIController::StartDepositAction()
 
 	StopCompanionMovement();
 	LockCollectMovementAndRotation();
-	bAligningForDelivery = false;
+	bAligningForAction = false;
 	State = EMiningCompanionState::Depositing;
 
 	if (!PlayActionMontage(DepositMontage))
@@ -522,11 +591,13 @@ void AMiningCompanionAIController::ResetToIdle()
 	CancelTargetPickup();
 	RestoreCollectMovementAndRotation();
 	TargetOre = nullptr;
-	bAligningForDelivery = false;
+	bAligningForAction = false;
 	State = EMiningCompanionState::Idle;
 	bDirectMove = false;
 	NavigationStallSeconds = 0.0f;
-	NextIdleSearchTime = 0.0f;
+	NextIdleSearchTime = GetWorld()
+		? GetWorld()->GetTimeSeconds() + IdleSearchInterval
+		: 0.0f;
 }
 
 bool AMiningCompanionAIController::FindPickup()
@@ -692,9 +763,9 @@ void AMiningCompanionAIController::RequestMoveToPickup()
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		if (State == EMiningCompanionState::MoveToPickup)
+		if (State == EMiningCompanionState::MoveToPickup && !bAligningForAction)
 		{
-			StartCollectAction();
+			BeginPickupAlignment();
 		}
 		return;
 	}
@@ -705,7 +776,7 @@ void AMiningCompanionAIController::RequestMoveToPickup()
 
 void AMiningCompanionAIController::UpdateNavigationFallback(float DeltaSeconds)
 {
-	if (bDirectMove || bAligningForDelivery || !Companion
+	if (bDirectMove || bAligningForAction || !Companion
 		|| (State != EMiningCompanionState::MoveToOre
 			&& State != EMiningCompanionState::MoveToPickup
 			&& State != EMiningCompanionState::ReturningToDelivery))
@@ -768,7 +839,7 @@ void AMiningCompanionAIController::TickDirectMove(float DeltaSeconds)
 		bDirectMove = false;
 		if (State == EMiningCompanionState::MoveToPickup)
 		{
-			StartCollectAction();
+			BeginPickupAlignment();
 		}
 		else if (State == EMiningCompanionState::MoveToOre)
 		{
@@ -810,6 +881,19 @@ void AMiningCompanionAIController::UpdateMoveToPickup(float DeltaSeconds)
 		return;
 	}
 
+	if (bAligningForAction)
+	{
+		FVector Direction = TargetPickup->GetActorLocation() - Companion->GetActorLocation();
+		Direction.Z = 0.0f;
+
+		if (Direction.IsNearlyZero() || RotateCompanionTowards(Direction.Rotation(), DeltaSeconds))
+		{
+			bAligningForAction = false;
+			StartCollectAction();
+		}
+		return;
+	}
+
 	if (GetMoveStatus() == EPathFollowingStatus::Idle)
 	{
 		ResetToIdle();
@@ -838,7 +922,7 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 		return;
 	}
 
-	if (bAligningForDelivery)
+	if (bAligningForAction)
 	{
 		if (!IsValid(DeliveryTarget))
 		{
@@ -846,28 +930,9 @@ void AMiningCompanionAIController::UpdateReturningToDelivery(float DeltaSeconds)
 			return;
 		}
 
-		FRotator TargetRotation = GetDeliveryPointTransform().Rotator();
-		TargetRotation.Pitch = 0.0f;
-		TargetRotation.Roll = 0.0f;
-
-		const FRotator NewRotation = FMath::RInterpConstantTo(
-			Companion->GetActorRotation(),
-			TargetRotation,
-			DeltaSeconds,
-			DeliveryRotationSpeed
-		);
-		SetControlRotation(NewRotation);
-		Companion->SetActorRotation(NewRotation);
-
-		const float RemainingYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(
-			NewRotation.Yaw,
-			TargetRotation.Yaw
-		));
-		if (RemainingYaw <= DeliveryRotationTolerance)
+		if (RotateCompanionTowards(GetDeliveryPointTransform().Rotator(), DeltaSeconds))
 		{
-			SetControlRotation(TargetRotation);
-			Companion->SetActorRotation(TargetRotation);
-			bAligningForDelivery = false;
+			bAligningForAction = false;
 			StartDepositAction();
 		}
 		return;
@@ -951,7 +1016,7 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 	CancelTargetPickup();
 	RestoreCollectMovementAndRotation();
 	TargetOre = nullptr;
-	bAligningForDelivery = false;
+	bAligningForAction = false;
 	State = EMiningCompanionState::ReturningToDelivery;
 
 	const UResourceCarryComponent* CarryComponent = GetCarryComponent();
@@ -990,7 +1055,7 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 
 	if (MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
 	{
-		if (State == EMiningCompanionState::ReturningToDelivery && !bAligningForDelivery)
+		if (State == EMiningCompanionState::ReturningToDelivery && !bAligningForAction)
 		{
 			BeginDeliveryAlignment();
 		}
@@ -1056,22 +1121,6 @@ void AMiningCompanionAIController::FaceTargetOre()
 
 	Direction.Normalize();
 	Companion->SetActorRotation(Direction.Rotation());
-}
-
-void AMiningCompanionAIController::FaceTargetPickup()
-{
-	if (!Companion || !IsTargetPickupValid())
-	{
-		return;
-	}
-
-	FVector Direction = TargetPickup->GetActorLocation() - Companion->GetActorLocation();
-	Direction.Z = 0.0f;
-
-	if (!Direction.IsNearlyZero())
-	{
-		Companion->SetActorRotation(Direction.Rotation());
-	}
 }
 
 void AMiningCompanionAIController::LockCollectMovementAndRotation()

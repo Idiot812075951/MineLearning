@@ -85,9 +85,11 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery")
 	float DeliveryAcceptanceRadius = 65.0f;
 
+	/** Shared turn speed for pickup and delivery action alignment. */
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="1.0"))
 	float DeliveryRotationSpeed = 180.0f;
 
+	/** Shared yaw tolerance for pickup and delivery action alignment. */
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Delivery", meta=(ClampMin="0.1"))
 	float DeliveryRotationTolerance = 1.0f;
 
@@ -142,12 +144,13 @@ private:
 	void FindDeliveryTarget();
 	FTransform GetDeliveryPointTransform() const;
 	FVector GetDeliveryNavigationLocation() const;
+	void BeginPickupAlignment();
 	void BeginDeliveryAlignment();
+	bool RotateCompanionTowards(FRotator TargetRotation, float DeltaSeconds);
 	bool TryCollectTargetPickup();
 	void StartCollectAction();
 	void StartDepositAction();
 	bool PlayActionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
-	void FaceTargetPickup();
 	void LockCollectMovementAndRotation();
 	void RestoreCollectMovementAndRotation();
 	void CancelTargetPickup();
@@ -170,7 +173,7 @@ private:
 	bool bCollectPreviousUseControllerDesiredRotation = false;
 	TEnumAsByte<EMovementMode> CollectPreviousMovementMode = MOVE_Walking;
 	uint8 CollectPreviousCustomMovementMode = 0;
-	bool bAligningForDelivery = false;
+	bool bAligningForAction = false;
 	bool bDirectMove = false;
 	float NavigationStallSeconds = 0.0f;
 	float NextIdleSearchTime = 0.0f;
