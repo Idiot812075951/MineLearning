@@ -4,16 +4,13 @@
 #include "Animation/AnimMontage.h"
 #include "Components/ActorComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "MiningTypes.h"
 #include "MiningToolComponent.generated.h"
 
 class AMineableOre;
-class UAnimInstance;
 class USkeletalMeshComponent;
 
-struct FBranchingPointNotifyPayload;
-
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMiningFinishedSignature, bool, bInterrupted);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMiningHitConfirmedSignature, FVector, HitLocation, FVector, HitNormal);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class MINELEARNING_API UMiningToolComponent : public UActorComponent
@@ -25,34 +22,29 @@ public:
 	UMiningToolComponent();
 
 	UFUNCTION(BlueprintCallable, Category="Mining")
-	bool StartMining();
-
-	UFUNCTION(BlueprintCallable, Category="Mining")
 	bool StartMiningTarget(AMineableOre* TargetOre);
-
-	UFUNCTION(BlueprintCallable, Category="Mining")
-	void HandleMiningHitNotify();
-
-	UFUNCTION(BlueprintCallable, Category="Mining")
-	bool TryMine();
-
-	UFUNCTION(BlueprintCallable, Category="Mining")
-	bool TryMineTarget(AMineableOre* TargetOre);
 
 	UFUNCTION(BlueprintPure, Category="Mining")
 	bool IsMining() const;
+
+	/** Selects the mesh socket used as the mining contact origin. */
+	UFUNCTION(BlueprintCallable, Category="Mining|Tool")
+	void SetMiningHitSocketName(FName NewSocketName);
 
 	void CancelMining();
 
 	UPROPERTY(BlueprintAssignable, Category="Mining")
 	FOnMiningFinishedSignature OnMiningFinished;
 
+	/** Fired exactly once after a targeted mining hit has been accepted by the ore. */
+	UPROPERTY(BlueprintAssignable, Category="Mining|Feedback")
+	FOnMiningHitConfirmedSignature OnMiningHitConfirmed;
+
 protected:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
-	UAnimMontage* MiningMontage = nullptr;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
-	FName MiningHitNotifyName = TEXT("Mine_End");
+	UAnimMontage* MiningMontage = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
 	bool bLockMovementDuringMining = true;
@@ -63,11 +55,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
 	float MiningPower = 20.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float TraceRadius = 75.0f;
+	/** Confirmed hits distributed evenly through one Loop segment. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool", meta=(ClampMin="1", ClampMax="5", UIMin="1", UIMax="5"))
+	int32 MiningHitCount = 5;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float AttackInterval = 0.7f;
+	/** Play rate for the complete Start -> Loop -> End montage. Capped so anticipation and recovery remain readable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation", meta=(ClampMin="0.1", ClampMax="2.0", UIMin="0.1", UIMax="2.0"))
+	float AttackSpeed = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
 	FName HitSocketName = TEXT("PickaxeRightSocket");
@@ -75,32 +69,27 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
 	bool bUseOwnerMeshSocket = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Debug")
-	bool bDrawDebug = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
 	float StartForwardOffset = 60.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Melee")
 	float StartHeightOffset = 60.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation")
-	bool bUseMiningMontage = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Animation", meta=(EditCondition="!bUseMiningMontage"))
-	float NonMontageMiningDuration = 0.25f;
 private:
+	static constexpr int32 MinMiningHitCount = 1;
+	static constexpr int32 MaxMiningHitCount = 5;
+	static constexpr float MinAttackSpeed = 0.1f;
+	static constexpr float MaxAttackSpeed = 2.0f;
+
 	UPROPERTY()
 	AMineableOre* ActiveMiningTarget = nullptr;
 
-	double LastMineTime = -999.0;
+	FTimerHandle MiningHitTimerHandle;
 
-	FTimerHandle EndMiningTimerHandle;
-
-	bool bStartedWithTarget = false;
+	int32 ActiveMiningHitCount = 0;
+	int32 NextMiningHitIndex = 0;
+	float MiningLoopStartTime = 0.0f;
+	float MiningLoopEndTime = 0.0f;
 	bool bMovementAndRotationLocked = false;
 	bool bHadMovementComponent = false;
 	EMovementMode PreviousMovementMode = MOVE_Walking;
@@ -110,15 +99,18 @@ private:
 	bool bPreviousUseControllerRotationYaw = false;
 
 private:
-	void EndMining();
 	void FinishMining(bool bInterrupted, bool bBroadcastCompletion);
 	bool PlayMiningMontage();
+	bool ResolveMiningLoopRange();
+	void ScheduleNextMiningHit();
+	void HandleScheduledMiningHit();
+	void StopScheduledMiningHits();
+	int32 GetClampedMiningHitCount() const;
+	float GetClampedAttackSpeed() const;
+	float GetMiningHitMontageTime(int32 HitIndex) const;
 	bool ApplyMiningHitToTarget(AMineableOre* TargetOre);
 	void LockOwnerMovementAndRotation();
 	void RestoreOwnerMovementAndRotation();
-
-	UFUNCTION()
-	void OnMiningMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
 
 	void OnMiningMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 

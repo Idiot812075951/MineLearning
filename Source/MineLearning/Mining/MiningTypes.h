@@ -37,6 +37,10 @@ struct FMiningHitRequest
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector HitNormal = FVector::UpVector;
+
+	/** Whether the mined target should play its generic hit Niagara for this request. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bPlayTargetHitFeedback = true;
 };
 
 USTRUCT(BlueprintType)

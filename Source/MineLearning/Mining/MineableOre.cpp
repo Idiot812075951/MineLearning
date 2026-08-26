@@ -80,7 +80,7 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
 		bStageBreak ? TEXT("Skipped") : TEXT("Play"));
 	OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
 
-	if (!bStageBreak && HitFeedbackComponent)
+	if (!bStageBreak && Request.bPlayTargetHitFeedback && HitFeedbackComponent)
 	{
 		HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, ActualDamage);
     }
@@ -112,7 +112,10 @@ bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
     OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
     if (HitFeedbackComponent)
     {
-        HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, MaxHP);
+		if (Request.bPlayTargetHitFeedback)
+		{
+			HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, MaxHP);
+		}
         HitFeedbackComponent->PlayDestroyedFeedback(GetActorLocation(), Request.HitNormal);
     }
 	if (!UsesStageBreakResourceDrops())
