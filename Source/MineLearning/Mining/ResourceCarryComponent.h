@@ -42,13 +42,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Item|Carry")
 	int32 AddItem(const FItemStack& Item);
 
-	int32 AddItemWithVisual(const FItemStack& Item, UStaticMesh* InResourceMesh);
+	int32 AddItemWithVisual(
+		const FItemStack& Item,
+		UStaticMesh* InResourceMesh,
+		float InResourceMeshScale = 1.0f);
 
 	UFUNCTION(BlueprintCallable, Category="Item|Carry")
 	FItemStack TakeAllItems();
 
 	UFUNCTION(BlueprintCallable, Category="Item|Carry")
 	void ClearItems();
+
+	/** Spawns one physical pickup per carried item and clears the carry only after every spawn succeeds. */
+	UFUNCTION(BlueprintCallable, Category="Item|Carry")
+	int32 DropAllItems(const FVector& DropOrigin);
 
 	/** Sets capacity/category policy. Used by character constructors instead of class checks. */
 	void ConfigureAcceptance(int32 InCapacity, bool bInAcceptAllCategories, const TArray<EItemCategory>& InAllowedCategories);
@@ -127,6 +134,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CarriedResourceMesh = nullptr;
+
+	UPROPERTY(Transient)
+	float CarriedResourceMeshScale = 1.0f;
 
 	void BroadcastCarryChanged();
 	void RefreshPreviewResources();

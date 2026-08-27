@@ -39,6 +39,17 @@ public:
 	UFUNCTION(BlueprintPure, Category="Mining AI|Debug", meta=(DevelopmentOnly))
 	bool IsDebugPaused() const;
 
+	/** Player-controlled OreBuddy reads the same authored action presentation from this controller CDO. */
+	UAnimMontage* GetCollectMontage() const { return CollectMontage; }
+	float GetCollectAnimationPlayRate() const { return CollectAnimationPlayRate; }
+	FName GetCollectGrabNotifyName() const { return CollectGrabNotifyName; }
+	FName GetCollectReleaseNotifyName() const { return CollectReleaseNotifyName; }
+	FName GetCollectSocketName() const { return CollectSocketName; }
+	UAnimMontage* GetDepositMontage() const { return DepositMontage; }
+	FName GetDepositNotifyName() const { return DepositNotifyName; }
+	float GetDeliveryRotationSpeed() const { return DeliveryRotationSpeed; }
+	float GetDeliveryRotationTolerance() const { return DeliveryRotationTolerance; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;

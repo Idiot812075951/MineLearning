@@ -1,5 +1,6 @@
 #include "ResourceCarryComponent.h"
 
+#include "ItemPickup.h"
 #include "ItemLogisticsLibrary.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -93,11 +94,15 @@ int32 UResourceCarryComponent::AddItem(const FItemStack& Item)
 	return AddedAmount;
 }
 
-int32 UResourceCarryComponent::AddItemWithVisual(const FItemStack& Item, UStaticMesh* InResourceMesh)
+int32 UResourceCarryComponent::AddItemWithVisual(
+	const FItemStack& Item,
+	UStaticMesh* InResourceMesh,
+	float InResourceMeshScale)
 {
 	if (CanAcceptItem(Item) && !CurrentItem.IsValid() && IsValid(InResourceMesh))
 	{
 		CarriedResourceMesh = InResourceMesh;
+		CarriedResourceMeshScale = FMath::Max(InResourceMeshScale, 0.01f);
 	}
 	return AddItem(Item);
 }
@@ -112,6 +117,7 @@ FItemStack UResourceCarryComponent::TakeAllItems()
 
 	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
+	CarriedResourceMeshScale = 1.0f;
 	BroadcastCarryChanged();
 	return TakenItem;
 }
@@ -121,13 +127,63 @@ void UResourceCarryComponent::ClearItems()
 	if (!CurrentItem.IsValid())
 	{
 		CarriedResourceMesh = nullptr;
+		CarriedResourceMeshScale = 1.0f;
 		RefreshPreviewResources();
 		return;
 	}
 
 	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
+	CarriedResourceMeshScale = 1.0f;
 	BroadcastCarryChanged();
+}
+
+int32 UResourceCarryComponent::DropAllItems(const FVector& DropOrigin)
+{
+	UWorld* World = GetWorld();
+	UStaticMesh* DropMesh = GetPreviewResourceMesh();
+	const FItemStack CarriedItem = CurrentItem;
+	if (!World || !CarriedItem.IsValid() || !IsValid(DropMesh))
+	{
+		return 0;
+	}
+
+	TArray<TObjectPtr<UStaticMesh>> DropMeshes;
+	DropMeshes.Add(DropMesh);
+	TArray<AItemPickup*> SpawnedPickups;
+	SpawnedPickups.Reserve(CarriedItem.Amount);
+
+	for (int32 Index = 0; Index < CarriedItem.Amount; ++Index)
+	{
+		const FVector SpawnLocation = DropOrigin + FVector(
+			FMath::RandRange(-35.0f, 35.0f),
+			FMath::RandRange(-35.0f, 35.0f),
+			20.0f + Index * 8.0f);
+		FActorSpawnParameters SpawnParameters;
+		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AItemPickup* Pickup = World->SpawnActor<AItemPickup>(
+			AItemPickup::StaticClass(),
+			SpawnLocation,
+			FRotator::ZeroRotator,
+			SpawnParameters);
+		if (!Pickup)
+		{
+			for (AItemPickup* SpawnedPickup : SpawnedPickups)
+			{
+				SpawnedPickup->Destroy();
+			}
+			return 0;
+		}
+
+		FItemStack UnitItem;
+		UnitItem.ItemType = CarriedItem.ItemType;
+		UnitItem.Amount = 1;
+		Pickup->InitializeItem(UnitItem, DropMeshes, CarriedResourceMeshScale);
+		SpawnedPickups.Add(Pickup);
+	}
+
+	ClearItems();
+	return SpawnedPickups.Num();
 }
 
 void UResourceCarryComponent::ConfigureAcceptance(

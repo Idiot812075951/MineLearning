@@ -79,6 +79,8 @@ private:
 	UPROPERTY()
 	TWeakObjectPtr<AActor> ReservedCollector;
 
+	float ReservedResourceMeshScale = 1.0f;
+
 	UPROPERTY(VisibleAnywhere, Category="Item|Pickup")
 	bool bTransportLocked = false;
 };

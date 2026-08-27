@@ -94,6 +94,7 @@ bool AItemPickup::TryReserve(AActor* Collector)
 	}
 
 	ReservedCollector = Collector;
+	ReservedResourceMeshScale = Mesh->GetComponentTransform().GetScale3D().GetAbsMax();
 	return true;
 }
 
@@ -155,6 +156,7 @@ void AItemPickup::ReleaseReservation(AActor* Collector)
 	if (ReservedCollector.Get() == Collector)
 	{
 		ReservedCollector.Reset();
+		ReservedResourceMeshScale = 1.0f;
 	}
 }
 
@@ -262,7 +264,13 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 		return false;
 	}
 
-	const int32 AddedAmount = CarryComponent->AddItemWithVisual(ItemStack, SelectedDropMesh);
+	const float ResourceMeshScale = ReservedCollector.Get() == OtherActor
+		? ReservedResourceMeshScale
+		: Mesh->GetComponentTransform().GetScale3D().GetAbsMax();
+	const int32 AddedAmount = CarryComponent->AddItemWithVisual(
+		ItemStack,
+		SelectedDropMesh,
+		ResourceMeshScale);
 	if (AddedAmount <= 0)
 	{
 		return false;
