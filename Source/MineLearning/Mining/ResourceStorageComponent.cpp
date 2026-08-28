@@ -49,6 +49,34 @@ bool UResourceStorageComponent::AddItem(const FItemStack& Item)
 	return true;
 }
 
+bool UResourceStorageComponent::RemoveItem(const FItemStack& Item)
+{
+	const int32 StoredAmount = GetStoredItemAmount(Item.ItemType);
+	if (!Item.IsValid() || StoredAmount < Item.Amount)
+	{
+		return false;
+	}
+
+	if (Item.ItemType == EItemType::IronOre
+		&& StoredAmount - Item.Amount < ReservedOreCount)
+	{
+		return false;
+	}
+
+	const int32 RemainingAmount = StoredAmount - Item.Amount;
+	if (RemainingAmount > 0)
+	{
+		StoredItems.FindOrAdd(Item.ItemType) = RemainingAmount;
+	}
+	else
+	{
+		StoredItems.Remove(Item.ItemType);
+	}
+
+	BroadcastStorageChanged();
+	return true;
+}
+
 int32 UResourceStorageComponent::AddOre(int32 Amount)
 {
 	FItemStack OreStack;

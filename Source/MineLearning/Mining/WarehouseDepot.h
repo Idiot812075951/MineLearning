@@ -8,6 +8,7 @@ class AHaulerCharacter;
 class UBoxComponent;
 class UInstancedStaticMeshComponent;
 class UPrimitiveComponent;
+class UResourceStorageComponent;
 class USceneComponent;
 
 /**
@@ -27,6 +28,16 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Warehouse|Door")
 	void CloseWarehouse();
+
+	/**
+	 * Temporary test hook that emits every complete two-Coin batch at the
+	 * Warehouse dock and assigns Robot Center PaymentDropPoint as its explicit
+	 * Hauler destination. Returns the number of Coins dispatched.
+	 *
+	 * TODO: Replace this hook with formal Warehouse outbound orders.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Warehouse|Debug", meta=(DevelopmentOnly))
+	int32 DispatchCoinBatchesToRobotCenterForTesting();
 
 	virtual bool AcceptItem_Implementation(const FItemStack& Item) override;
 
@@ -63,6 +74,7 @@ private:
 	TObjectPtr<UPrimitiveComponent> DoorSafetyBlockerComponent;
 
 	bool bDoorOpenRequested = false;
+	bool bTemporaryCoinDispatchInProgress = false;
 	float CurrentDoorRoll = 0.0f;
 	FTimerHandle CloseDoorTimer;
 
@@ -89,5 +101,9 @@ private:
 	void RefreshInventoryVisual();
 	void UpdateDoorFeedback(bool bFullyOpen);
 	void TryCloseAfterDelivery();
+	bool FindTemporaryRobotCenterDeliveryTarget(
+		UResourceStorageComponent*& OutStorage,
+		USceneComponent*& OutDropPoint) const;
+	FVector ResolveOutboundPickupLocation(const USceneComponent* DockPoint) const;
 	USceneComponent* FindSceneComponent(FName ComponentName) const;
 };

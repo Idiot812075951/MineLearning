@@ -7,7 +7,10 @@
 
 class AHaulerCharacter;
 class AItemPickup;
+struct FItemStack;
 class UResourceCarryComponent;
+class UResourceStorageComponent;
+class USceneComponent;
 
 UENUM(BlueprintType)
 enum class EHaulerState : uint8
@@ -55,6 +58,8 @@ private:
 	bool BeginDropOffAnimation();
 	bool DepositCurrentItem();
 	void ResetToIdle();
+	AActor* ResolvePickupDestination(const AItemPickup* Pickup) const;
+	bool HasValidExplicitDeliveryRoute(const FItemStack& Item) const;
 	FVector GetDestinationLocation() const;
 	void TickDirectMove(float DeltaSeconds);
 
@@ -66,6 +71,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<AActor> TargetDestination;
+
+	UPROPERTY()
+	TObjectPtr<UResourceStorageComponent> ExplicitDeliveryStorage;
+
+	UPROPERTY()
+	TObjectPtr<USceneComponent> ExplicitDeliveryPoint;
 
 	UPROPERTY(VisibleAnywhere, Category="Item|Hauler")
 	EHaulerState State = EHaulerState::Idle;

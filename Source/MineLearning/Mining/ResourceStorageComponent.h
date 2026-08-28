@@ -33,6 +33,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool AddItem(const FItemStack& Item);
 
+	UFUNCTION(BlueprintCallable, Category="Item|Storage")
+	bool RemoveItem(const FItemStack& Item);
+
 	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
 	int32 AddOre(int32 Amount);
 

@@ -7,6 +7,8 @@
 #include "MineLearning/Mining/ItemReceiver.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ResourceDepot.h"
+#include "MineLearning/Mining/ResourceStorageComponent.h"
+#include "Components/SceneComponent.h"
 #include "TimerManager.h"
 
 AHaulerAIController::AHaulerAIController()
@@ -131,10 +133,7 @@ bool AHaulerAIController::FindNearestValidPickup()
 			continue;
 		}
 
-		AActor* Destination = UItemLogisticsLibrary::ResolveDestination(
-			Hauler,
-			Pickup->GetItemStack(),
-			Pickup->GetActorLocation());
+		AActor* Destination = ResolvePickupDestination(Pickup);
 		if (!IsValid(Destination))
 		{
 			continue;
@@ -230,10 +229,13 @@ bool AHaulerAIController::CollectCurrentPickup()
 		return false;
 	}
 
-	AActor* CurrentDestination = UItemLogisticsLibrary::ResolveDestination(
-		Hauler,
-		TargetPickup->GetItemStack(),
-		TargetPickup->GetActorLocation());
+	const bool bUseExplicitDelivery = TargetPickup->HasUsableExplicitDeliveryTarget();
+	AActor* CurrentDestination = bUseExplicitDelivery
+		? TargetPickup->GetExplicitDeliveryActor()
+		: UItemLogisticsLibrary::ResolveDestination(
+			Hauler,
+			TargetPickup->GetItemStack(),
+			TargetPickup->GetActorLocation());
 	if (!IsValid(CurrentDestination))
 	{
 		ResetToIdle();
@@ -242,6 +244,12 @@ bool AHaulerAIController::CollectCurrentPickup()
 
 	const FItemStack PickupItem = TargetPickup->GetItemStack();
 	UStaticMesh* PickupMesh = TargetPickup->SelectedDropMesh;
+	UResourceStorageComponent* PickupDeliveryStorage = bUseExplicitDelivery
+		? TargetPickup->GetExplicitDeliveryStorage()
+		: nullptr;
+	USceneComponent* PickupDeliveryPoint = bUseExplicitDelivery
+		? TargetPickup->GetExplicitDeliveryPoint()
+		: nullptr;
 	AItemPickup* CollectedPickup = TargetPickup;
 	if (!CollectedPickup->TryCollect(Hauler))
 	{
@@ -255,6 +263,8 @@ bool AHaulerAIController::CollectCurrentPickup()
 
 	TargetPickup = nullptr;
 	TargetDestination = CurrentDestination;
+	ExplicitDeliveryStorage = PickupDeliveryStorage;
+	ExplicitDeliveryPoint = PickupDeliveryPoint;
 	Hauler->ShowCarriedItem(PickupMesh);
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] Picked ItemType=%d Amount=%d"),
 		static_cast<int32>(PickupItem.ItemType), CarryComponent->GetCurrentItem().Amount);
@@ -271,10 +281,19 @@ bool AHaulerAIController::ResolveAndMoveToDestination()
 		return false;
 	}
 
-	TargetDestination = UItemLogisticsLibrary::ResolveDestination(
-		Hauler,
-		CarryComponent->GetCurrentItem(),
-		Hauler->GetActorLocation());
+	if (HasValidExplicitDeliveryRoute(CarryComponent->GetCurrentItem()))
+	{
+		TargetDestination = ExplicitDeliveryStorage->GetOwner();
+	}
+	else
+	{
+		ExplicitDeliveryStorage = nullptr;
+		ExplicitDeliveryPoint = nullptr;
+		TargetDestination = UItemLogisticsLibrary::ResolveDestination(
+			Hauler,
+			CarryComponent->GetCurrentItem(),
+			Hauler->GetActorLocation());
+	}
 	if (!IsValid(TargetDestination))
 	{
 		State = EHaulerState::Idle;
@@ -339,27 +358,45 @@ bool AHaulerAIController::DepositCurrentItem()
 	}
 
 	const FItemStack CarriedItem = CarryComponent->GetCurrentItem();
-	AActor* CurrentDestination = UItemLogisticsLibrary::ResolveDestination(
-		Hauler,
-		CarriedItem,
-		Hauler->GetActorLocation());
-	if (!IsValid(CurrentDestination)
-		|| !CurrentDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
+	if (HasValidExplicitDeliveryRoute(CarriedItem))
 	{
-		State = EHaulerState::Idle;
-		return false;
-	}
+		AActor* CurrentDestination = ExplicitDeliveryStorage->GetOwner();
+		if (CurrentDestination != TargetDestination)
+		{
+			TargetDestination = CurrentDestination;
+			return ResolveAndMoveToDestination();
+		}
 
-	if (CurrentDestination != TargetDestination)
-	{
-		TargetDestination = CurrentDestination;
-		return ResolveAndMoveToDestination();
+		if (!ExplicitDeliveryStorage->AddItem(CarriedItem))
+		{
+			State = EHaulerState::Idle;
+			return false;
+		}
 	}
-
-	if (!IItemReceiver::Execute_AcceptItem(TargetDestination, CarriedItem))
+	else
 	{
-		State = EHaulerState::Idle;
-		return false;
+		AActor* CurrentDestination = UItemLogisticsLibrary::ResolveDestination(
+			Hauler,
+			CarriedItem,
+			Hauler->GetActorLocation());
+		if (!IsValid(CurrentDestination)
+			|| !CurrentDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
+		{
+			State = EHaulerState::Idle;
+			return false;
+		}
+
+		if (CurrentDestination != TargetDestination)
+		{
+			TargetDestination = CurrentDestination;
+			return ResolveAndMoveToDestination();
+		}
+
+		if (!IItemReceiver::Execute_AcceptItem(TargetDestination, CarriedItem))
+		{
+			State = EHaulerState::Idle;
+			return false;
+		}
 	}
 
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] Delivered ItemType=%d Amount=%d Receiver=%s"),
@@ -460,6 +497,8 @@ void AHaulerAIController::ResetToIdle()
 	}
 	TargetPickup = nullptr;
 	TargetDestination = nullptr;
+	ExplicitDeliveryStorage = nullptr;
+	ExplicitDeliveryPoint = nullptr;
 	State = EHaulerState::Idle;
 	bDirectMove = false;
 	bPickupCommitted = false;
@@ -469,11 +508,43 @@ void AHaulerAIController::ResetToIdle()
 
 FVector AHaulerAIController::GetDestinationLocation() const
 {
+	if (IsValid(ExplicitDeliveryPoint))
+	{
+		return ExplicitDeliveryPoint->GetComponentLocation();
+	}
+
 	if (const AResourceDepot* Depot = Cast<AResourceDepot>(TargetDestination))
 	{
 		return Depot->GetDeliveryPointWorldTransform().GetLocation();
 	}
 	return IsValid(TargetDestination) ? TargetDestination->GetActorLocation() : FVector::ZeroVector;
+}
+
+AActor* AHaulerAIController::ResolvePickupDestination(const AItemPickup* Pickup) const
+{
+	if (!Pickup)
+	{
+		return nullptr;
+	}
+
+	if (Pickup->HasUsableExplicitDeliveryTarget())
+	{
+		return Pickup->GetExplicitDeliveryActor();
+	}
+
+	return UItemLogisticsLibrary::ResolveDestination(
+		Hauler,
+		Pickup->GetItemStack(),
+		Pickup->GetActorLocation());
+}
+
+bool AHaulerAIController::HasValidExplicitDeliveryRoute(const FItemStack& Item) const
+{
+	return IsValid(TargetDestination)
+		&& IsValid(ExplicitDeliveryStorage)
+		&& IsValid(ExplicitDeliveryPoint)
+		&& ExplicitDeliveryStorage->GetOwner() == TargetDestination
+		&& ExplicitDeliveryStorage->CanAddItem(Item);
 }
 
 void AHaulerAIController::TickDirectMove(float DeltaSeconds)

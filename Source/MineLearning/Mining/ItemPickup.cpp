@@ -1,7 +1,9 @@
 #include "ItemPickup.h"
 
 #include "ResourceCarryComponent.h"
+#include "ResourceStorageComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 
@@ -59,6 +61,25 @@ void AItemPickup::SetItemStack(const FItemStack& InItemStack)
 {
 	ItemStack = InItemStack;
 	ItemStack.Amount = FMath::Max(ItemStack.Amount, 0);
+}
+
+void AItemPickup::SetExplicitDeliveryTarget(
+	AActor* InDeliveryActor,
+	UResourceStorageComponent* InDeliveryStorage,
+	USceneComponent* InDeliveryPoint)
+{
+	ExplicitDeliveryActor = InDeliveryActor;
+	ExplicitDeliveryStorage = InDeliveryStorage;
+	ExplicitDeliveryPoint = InDeliveryPoint;
+}
+
+bool AItemPickup::HasUsableExplicitDeliveryTarget() const
+{
+	return IsValid(ExplicitDeliveryActor)
+		&& IsValid(ExplicitDeliveryStorage)
+		&& IsValid(ExplicitDeliveryPoint)
+		&& ExplicitDeliveryStorage->GetOwner() == ExplicitDeliveryActor
+		&& ExplicitDeliveryStorage->CanAddItem(ItemStack);
 }
 
 void AItemPickup::SelectDropMesh(

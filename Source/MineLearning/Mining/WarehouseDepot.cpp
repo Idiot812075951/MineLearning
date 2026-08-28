@@ -1,6 +1,7 @@
 #include "WarehouseDepot.h"
 
 #include "MineLearning/AI/HaulerCharacter.h"
+#include "ItemPickup.h"
 #include "ResourceStorageComponent.h"
 #include "ItemTypes.h"
 #include "Components/BoxComponent.h"
@@ -8,8 +9,24 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#if WITH_DEV_AUTOMATION_TESTS
+#include "Misc/AutomationTest.h"
+#endif
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
+
+namespace WarehouseTemporaryCoinDispatch
+{
+	constexpr int32 CoinBatchSize = 2;
+	const FName RobotCenterStorageTag(TEXT("RobotCenter.CoinStorage"));
+
+	int32 GetDispatchableCoinCount(int32 StoredCoinCount)
+	{
+		return FMath::Max(StoredCoinCount, 0) / CoinBatchSize * CoinBatchSize;
+	}
+}
 
 AWarehouseDepot::AWarehouseDepot()
 {
@@ -63,6 +80,7 @@ void AWarehouseDepot::BeginPlay()
 	}
 	UpdateDoorFeedback(false);
 	RefreshInventoryVisual();
+	DispatchCoinBatchesToRobotCenterForTesting();
 }
 
 void AWarehouseDepot::Tick(float DeltaSeconds)
@@ -99,6 +117,87 @@ void AWarehouseDepot::CloseWarehouse()
 {
 	bDoorOpenRequested = false;
 	UpdateDoorFeedback(false);
+}
+
+int32 AWarehouseDepot::DispatchCoinBatchesToRobotCenterForTesting()
+{
+	if (bTemporaryCoinDispatchInProgress || !HasAuthority())
+	{
+		return 0;
+	}
+
+	UResourceStorageComponent* WarehouseStorage = GetStorageComponent();
+	UResourceStorageComponent* RobotCenterStorage = nullptr;
+	USceneComponent* PaymentDropPoint = nullptr;
+	USceneComponent* WarehouseDockPoint = FindSceneComponent(TEXT("P_Warehouse_DockPoint"));
+	if (!WarehouseStorage
+		|| !WarehouseDockPoint
+		|| !FindTemporaryRobotCenterDeliveryTarget(RobotCenterStorage, PaymentDropPoint))
+	{
+		return 0;
+	}
+
+	TGuardValue<bool> DispatchGuard(bTemporaryCoinDispatchInProgress, true);
+	FItemStack CoinBatch;
+	CoinBatch.ItemType = EItemType::Coin;
+	CoinBatch.Amount = WarehouseTemporaryCoinDispatch::CoinBatchSize;
+
+	int32 DispatchedCoinCount = 0;
+	while (WarehouseStorage->GetStoredItemAmount(EItemType::Coin) >= CoinBatch.Amount
+		&& RobotCenterStorage->CanAddItem(CoinBatch))
+	{
+		FTransform SpawnTransform = WarehouseDockPoint->GetComponentTransform();
+		SpawnTransform.SetLocation(ResolveOutboundPickupLocation(WarehouseDockPoint));
+		SpawnTransform.SetScale3D(FVector::OneVector);
+
+		FActorSpawnParameters SpawnParameters;
+		SpawnParameters.Owner = this;
+		SpawnParameters.SpawnCollisionHandlingOverride =
+			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AItemPickup* OutboundCoin = GetWorld()->SpawnActor<AItemPickup>(
+			AItemPickup::StaticClass(),
+			SpawnTransform,
+			SpawnParameters);
+		if (!OutboundCoin)
+		{
+			break;
+		}
+
+		TArray<TObjectPtr<UStaticMesh>> CoinMeshes;
+		if (UStaticMesh* CoinMesh = InventoryCoinVisual->GetStaticMesh())
+		{
+			CoinMeshes.Add(CoinMesh);
+		}
+		OutboundCoin->InitializeItem(
+			CoinBatch,
+			CoinMeshes,
+			MineLearningItemVisual::GoldCoinScale);
+		OutboundCoin->ReleaseStationaryForCollection();
+		OutboundCoin->SetExplicitDeliveryTarget(
+			RobotCenterStorage->GetOwner(),
+			RobotCenterStorage,
+			PaymentDropPoint);
+
+		if (!WarehouseStorage->RemoveItem(CoinBatch))
+		{
+			OutboundCoin->Destroy();
+			break;
+		}
+
+		DispatchedCoinCount += CoinBatch.Amount;
+	}
+
+	if (DispatchedCoinCount > 0)
+	{
+		// TODO: Replace this temporary auto-dispatch with a real Warehouse
+		// outbound-order queue. The Hauler movement and PaymentDropPoint delivery
+		// performed after this point are real, not an inventory teleport.
+		UE_LOG(LogTemp, Display,
+			TEXT("[Warehouse][TEMP] Dispatched %d Coin for Hauler delivery to PaymentDropPoint"),
+			DispatchedCoinCount);
+	}
+
+	return DispatchedCoinCount;
 }
 
 bool AWarehouseDepot::AcceptItem_Implementation(const FItemStack& Item)
@@ -150,6 +249,79 @@ void AWarehouseDepot::HandleWorkerExit(
 void AWarehouseDepot::HandleStorageChanged(int32 StoredOreCount)
 {
 	RefreshInventoryVisual();
+	DispatchCoinBatchesToRobotCenterForTesting();
+}
+
+bool AWarehouseDepot::FindTemporaryRobotCenterDeliveryTarget(
+	UResourceStorageComponent*& OutStorage,
+	USceneComponent*& OutDropPoint) const
+{
+	OutStorage = nullptr;
+	OutDropPoint = nullptr;
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	// TODO: Replace the component tag/name lookup with a formal outbound-order
+	// destination descriptor once the logistics system owns second-leg routes.
+	for (TActorIterator<AActor> ActorIterator(World); ActorIterator; ++ActorIterator)
+	{
+		TInlineComponentArray<UResourceStorageComponent*> StorageComponents(*ActorIterator);
+		for (UResourceStorageComponent* CandidateStorage : StorageComponents)
+		{
+			if (CandidateStorage
+				&& CandidateStorage != GetStorageComponent()
+				&& CandidateStorage->ComponentHasTag(
+					WarehouseTemporaryCoinDispatch::RobotCenterStorageTag))
+			{
+				TInlineComponentArray<USceneComponent*> SceneComponents(*ActorIterator);
+				for (USceneComponent* CandidatePoint : SceneComponents)
+				{
+					if (CandidatePoint && CandidatePoint->GetFName() == TEXT("PaymentDropPoint"))
+					{
+						OutStorage = CandidateStorage;
+						OutDropPoint = CandidatePoint;
+						return true;
+					}
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+FVector AWarehouseDepot::ResolveOutboundPickupLocation(const USceneComponent* DockPoint) const
+{
+	if (!DockPoint)
+	{
+		return GetActorLocation();
+	}
+
+	const FVector ProbeLocation = DockPoint->GetComponentLocation()
+		+ DockPoint->GetForwardVector() * 120.0f;
+	const FVector TraceStart = ProbeLocation + FVector(0.0f, 0.0f, 200.0f);
+	const FVector TraceEnd = ProbeLocation - FVector(0.0f, 0.0f, 500.0f);
+	FHitResult GroundHit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WarehouseOutboundCoinGround), false, this);
+	const FCollisionObjectQueryParams ObjectQuery(ECC_WorldStatic);
+	if (const UWorld* World = GetWorld();
+		World && World->LineTraceSingleByObjectType(
+			GroundHit,
+			TraceStart,
+			TraceEnd,
+			ObjectQuery,
+			QueryParams))
+	{
+		return GroundHit.ImpactPoint + FVector(0.0f, 0.0f, 5.0f);
+	}
+
+	// TODO: Remove this fallback with the temporary Warehouse outbound hook.
+	// The actor origin is authored on the work floor, so this remains grounded
+	// if a map intentionally has no WorldStatic surface below the dock probe.
+	return FVector(ProbeLocation.X, ProbeLocation.Y, GetActorLocation().Z + 5.0f);
 }
 
 void AWarehouseDepot::CacheAuthoredComponents()
@@ -248,3 +420,29 @@ USceneComponent* AWarehouseDepot::FindSceneComponent(FName ComponentName) const
 	}
 	return nullptr;
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FWarehouseTemporaryCoinDispatchTest,
+	"MineLearning.Warehouse.TemporaryCoinDispatch.TwoCoinBatches",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWarehouseTemporaryCoinDispatchTest::RunTest(const FString& Parameters)
+{
+	auto VerifyDispatchAmount = [this](
+		const TCHAR* CaseName,
+		int32 InitialCoinCount,
+		int32 ExpectedDispatchableCoinCount)
+	{
+		TestEqual(
+			CaseName,
+			WarehouseTemporaryCoinDispatch::GetDispatchableCoinCount(InitialCoinCount),
+			ExpectedDispatchableCoinCount);
+	};
+
+	VerifyDispatchAmount(TEXT("One Coin"), 1, 0);
+	VerifyDispatchAmount(TEXT("Two Coins"), 2, 2);
+	VerifyDispatchAmount(TEXT("Four Coins"), 4, 4);
+	return true;
+}
+#endif

@@ -6,9 +6,11 @@
 #include "ItemPickup.generated.h"
 
 class USkeletalMeshComponent;
+class USceneComponent;
 class USphereComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
+class UResourceStorageComponent;
 
 UCLASS(Blueprintable)
 class MINELEARNING_API AItemPickup : public AActor
@@ -32,6 +34,22 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Item|Pickup")
 	void SetItemStack(const FItemStack& InItemStack);
+
+	/**
+	 * Temporary explicit second-leg route used by station-generated pickups.
+	 *
+	 * TODO: Replace this runtime-only route with the formal logistics-order
+	 * system when Warehouse outbound orders are implemented.
+	 */
+	void SetExplicitDeliveryTarget(
+		AActor* InDeliveryActor,
+		UResourceStorageComponent* InDeliveryStorage,
+		USceneComponent* InDeliveryPoint);
+
+	bool HasUsableExplicitDeliveryTarget() const;
+	AActor* GetExplicitDeliveryActor() const { return ExplicitDeliveryActor; }
+	UResourceStorageComponent* GetExplicitDeliveryStorage() const { return ExplicitDeliveryStorage; }
+	USceneComponent* GetExplicitDeliveryPoint() const { return ExplicitDeliveryPoint; }
 
 	UFUNCTION(BlueprintPure, Category="Item|Pickup")
 	int32 GetAmount() const { return ItemStack.Amount; }
@@ -78,6 +96,15 @@ private:
 
 	UPROPERTY()
 	TWeakObjectPtr<AActor> ReservedCollector;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> ExplicitDeliveryActor;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UResourceStorageComponent> ExplicitDeliveryStorage;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USceneComponent> ExplicitDeliveryPoint;
 
 	float ReservedResourceMeshScale = 1.0f;
 
