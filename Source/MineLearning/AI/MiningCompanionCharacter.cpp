@@ -46,6 +46,9 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 	bUseControllerRotationRoll = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
+	// Match the human pawn so player-controlled OreBuddy does not snag on the
+	// same functional-pad lips immediately after transforming.
+	GetCharacterMovement()->MaxStepHeight = 85.0f;
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("PlayerCameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);

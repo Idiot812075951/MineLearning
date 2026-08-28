@@ -20,6 +20,10 @@ AMineableOre::AMineableOre()
     OreMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     OreMesh->SetCollisionObjectType(ECC_WorldStatic);
     OreMesh->SetCollisionResponseToAllChannels(ECR_Block);
+    // Mineable resources are interaction targets, not permanent terrain. Keeping them
+    // out of the navigation export prevents a resource from cutting an impassable ring
+    // around the exact place the companion must stand to mine it.
+    OreMesh->SetCanEverAffectNavigation(false);
 }
 
 void AMineableOre::BeginPlay()

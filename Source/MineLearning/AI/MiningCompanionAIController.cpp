@@ -581,6 +581,7 @@ void AMiningCompanionAIController::OnActionMontageEnded(UAnimMontage* Montage, b
 	if (State == EMiningCompanionState::Depositing)
 	{
 		RestoreCollectMovementAndRotation();
+		UE_LOG(LogTemp, Display, TEXT("[MiningAI] Deposit montage finished; resuming work search"));
 		ResetToIdle();
 	}
 }
@@ -591,6 +592,7 @@ void AMiningCompanionAIController::ResetToIdle()
 	CancelTargetPickup();
 	RestoreCollectMovementAndRotation();
 	TargetOre = nullptr;
+	DeliveryTarget = nullptr;
 	bAligningForAction = false;
 	State = EMiningCompanionState::Idle;
 	bDirectMove = false;
@@ -643,6 +645,7 @@ bool AMiningCompanionAIController::FindPickup()
 	DeliveryTarget = ResolvedDestination;
 	TargetOre = nullptr;
 	State = EMiningCompanionState::MoveToPickup;
+	UE_LOG(LogTemp, Display, TEXT("[MiningAI] Work selected: pickup %s"), *GetNameSafe(TargetPickup));
 	RequestMoveToPickup();
 	return true;
 }
@@ -683,6 +686,7 @@ void AMiningCompanionAIController::FindOre()
 	TargetOre = BestOre;
 	TargetPickup = nullptr;
 	State = EMiningCompanionState::MoveToOre;
+	UE_LOG(LogTemp, Display, TEXT("[MiningAI] Work selected: ore %s"), *GetNameSafe(TargetOre));
 	RequestMoveToOre();
 }
 
@@ -1062,7 +1066,13 @@ void AMiningCompanionAIController::RequestReturnToDelivery()
 	}
 	else if (MoveResult == EPathFollowingRequestResult::Failed)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] MoveTo item receiver failed"));
+		// A nearby receiver interaction point can be valid for delivery while sitting just
+		// outside the generated NavMesh. Reuse the controller's existing short-range direct
+		// movement fallback instead of repeatedly issuing the same failed path request.
+		bDirectMove = true;
+		NavigationStallSeconds = 0.0f;
+		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] MoveTo item receiver failed; using direct fallback for %s"),
+			*GetNameSafe(DeliveryTarget));
 	}
 }
 
@@ -1074,6 +1084,7 @@ void AMiningCompanionAIController::DepositCarriedItem()
 	{
 		TargetOre = nullptr;
 		TargetPickup = nullptr;
+		DeliveryTarget = nullptr;
 		if (!bKeepDepositingState)
 		{
 			State = EMiningCompanionState::Idle;
@@ -1095,9 +1106,14 @@ void AMiningCompanionAIController::DepositCarriedItem()
 		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: receiver rejected item"));
 		return;
 	}
+	const FString CompletedReceiverName = GetNameSafe(DeliveryTarget);
 	CarryComponent->ClearItems();
 	TargetOre = nullptr;
 	TargetPickup = nullptr;
+	DeliveryTarget = nullptr;
+	UE_LOG(LogTemp, Display, TEXT("[MiningAI] Delivery complete: %s -> %s"),
+		*UEnum::GetValueAsString(CarriedItem.ItemType),
+		*CompletedReceiverName);
 	if (!bKeepDepositingState)
 	{
 		State = EMiningCompanionState::Idle;

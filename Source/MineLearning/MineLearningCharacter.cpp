@@ -39,6 +39,10 @@ AMineLearningCharacter::AMineLearningCharacter()
 	GetCharacterMovement()->JumpZVelocity = 700.f;
 	GetCharacterMovement()->AirControl = 0.35f;
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
+	// Functional pads in the compact world use an 80 cm visual plinth. Let the
+	// player clear that authored gameplay step without making taller machinery
+	// or cliff faces walkable.
+	GetCharacterMovement()->MaxStepHeight = 85.0f;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
