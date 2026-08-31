@@ -1,5 +1,9 @@
 # MineLearning 项目指导
 
+## UI 工作
+
+- 处理运行时 UI 的设计、实现、修改、调试或评审时，必须使用 `$minelearning-umg-ui`。
+
 ## 美术资产工作
 
 - 处理 Blender 建模、材质、角色/机器人、Rig、Animation、静态或可动设备、以及 UE 美术交付任务时，必须使用 `$mining-game-3d-asset-production`。
