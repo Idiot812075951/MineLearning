@@ -8,7 +8,15 @@ class APlayerController;
 class APawn;
 class UBoxComponent;
 
-/** Transformation area that swaps the player between human and OreBuddy pawns. */
+UENUM(BlueprintType)
+enum class EPlayerTransformationForm : uint8
+{
+	Human,
+	OreBuddy,
+	Gunner
+};
+
+/** Transformation area that owns the shared human/robot pawn-swap transaction. */
 UCLASS()
 class MINELEARNING_API APlayerTransformZone : public AActor
 {
@@ -23,6 +31,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Transformation")
 	bool TryRestoreHumanForm(APlayerController* PlayerController);
 
+	UFUNCTION(BlueprintCallable, Category="Transformation")
+	bool TrySelectForm(APlayerController* PlayerController, EPlayerTransformationForm Form);
+
+	/** Finds an overlapping transformation area and enters its configured robot form. */
+	UFUNCTION(BlueprintCallable, Category="Transformation")
+	static bool TryTransformOverlappingPlayer(APlayerController* PlayerController);
+
+	/** Finds an overlapping transformation area and restores the configured human form. */
+	UFUNCTION(BlueprintCallable, Category="Transformation")
+	static bool TryRestoreOverlappingPlayer(APlayerController* PlayerController);
+
+	UFUNCTION(BlueprintCallable, Category="Transformation")
+	static bool TrySelectOverlappingForm(APlayerController* PlayerController, EPlayerTransformationForm Form);
+
+	UFUNCTION(BlueprintPure, Category="Transformation")
+	static bool IsPlayerOverlappingTransformZone(APlayerController* PlayerController);
+
 private:
 	UPROPERTY(VisibleAnywhere, Category="Transformation")
 	TObjectPtr<UBoxComponent> TransformArea;
@@ -31,7 +56,11 @@ private:
 	TSubclassOf<APawn> RobotPawnClass;
 
 	UPROPERTY(EditAnywhere, Category="Transformation")
+	TSubclassOf<APawn> OreBuddyPawnClass;
+
+	UPROPERTY(EditAnywhere, Category="Transformation")
 	TSubclassOf<APawn> HumanPawnClass;
 
+	static APlayerTransformZone* FindOverlappingZone(APlayerController* PlayerController);
 	bool TrySwapPawn(APlayerController* PlayerController, TSubclassOf<APawn> TargetPawnClass);
 };

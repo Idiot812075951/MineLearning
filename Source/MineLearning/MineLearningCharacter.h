@@ -44,10 +44,6 @@ class AMineLearningCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* LookAction;
 
-	/** Player transformation Input Action. */
-	UPROPERTY()
-	UInputAction* TransformationAction;
-	
 public:
 	AMineLearningCharacter();
 	
@@ -59,9 +55,6 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-
-	/** Attempts the first-slice OreBuddy transformation when standing in a transform zone. */
-	void TryTransform();
 
 	virtual void NotifyControllerChanged() override;
 

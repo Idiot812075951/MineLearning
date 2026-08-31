@@ -12,7 +12,6 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
-#include "PlayerTransformZone.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -58,10 +57,6 @@ AMineLearningCharacter::AMineLearningCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
-	static ConstructorHelpers::FObjectFinder<UInputAction> TransformationActionFinder(
-		TEXT("/Game/MineLearning/Input/Actions/IA_Transform.IA_Transform"));
-	TransformationAction = TransformationActionFinder.Object;
-
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++).
 }
@@ -105,41 +100,10 @@ void AMineLearningCharacter::SetupPlayerInputComponent(UInputComponent* PlayerIn
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMineLearningCharacter::Look);
 
-		if (TransformationAction)
-		{
-			EnhancedInputComponent->BindAction(
-				TransformationAction,
-				ETriggerEvent::Started,
-				this,
-				&AMineLearningCharacter::TryTransform);
-		}
 	}
 	else
 	{
 		UE_LOG(LogTemplateCharacter, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
-	}
-}
-
-void AMineLearningCharacter::TryTransform()
-{
-	APlayerController* PlayerController = Cast<APlayerController>(Controller);
-	if (!PlayerController)
-	{
-		return;
-	}
-
-	TArray<AActor*> OverlappingZones;
-	GetOverlappingActors(OverlappingZones, APlayerTransformZone::StaticClass());
-
-	for (AActor* Actor : OverlappingZones)
-	{
-		if (APlayerTransformZone* TransformZone = Cast<APlayerTransformZone>(Actor))
-		{
-			if (TransformZone->TryTransform(PlayerController))
-			{
-				return;
-			}
-		}
 	}
 }
 
