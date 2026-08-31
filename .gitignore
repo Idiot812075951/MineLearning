@@ -62,6 +62,12 @@ Content/**/_NotifyFixBackups/
 # Local generated review patch
 /MineLearning_CodeChanges*.patch
 
+# Art source is versioned separately: keep new Blender sources visible while
+# ignoring generated exports, previews, scripts, notes, and caches here.
+/ArtSource/**
+!/ArtSource/**/
+!/ArtSource/**/*.blend
+
 # UE local/editor generated
 /Binaries/
 /Intermediate/
