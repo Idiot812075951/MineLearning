@@ -11,7 +11,6 @@ class AItemPickup;
 class APlayerController;
 class UMiningToolComponent;
 class UNiagaraSystem;
-class URobotMiningSkillWidget;
 class UResourceCarryComponent;
 class USoundBase;
 class UCameraComponent;
@@ -19,6 +18,14 @@ class UInputAction;
 class UInputMappingContext;
 class USpringArmComponent;
 struct FInputActionValue;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FMiningCompanionSkillAvailabilityChangedSignature,
+	bool, bMiningAvailable,
+	bool, bPickupAvailable);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FMiningCompanionControlModeChangedSignature,
+	bool, bPlayerControlled);
 
 UCLASS(BlueprintType)
 class MINELEARNING_API AMiningCompanionCharacter : public ACharacter
@@ -39,10 +46,21 @@ public:
 	UFUNCTION(BlueprintPure, Category="Mining|Carry")
 	UResourceCarryComponent* GetResourceCarryComponent() const { return ResourceCarryComponent; }
 
+	UFUNCTION(BlueprintPure, Category="Player Control|Skills")
+	bool IsMiningSkillAvailable() const { return bMiningSkillAvailable; }
+
+	UFUNCTION(BlueprintPure, Category="Player Control|Skills")
+	bool IsPickupSkillAvailable() const { return bPickupSkillAvailable; }
+
+	UPROPERTY(BlueprintAssignable, Category="Player Control|Skills")
+	FMiningCompanionSkillAvailabilityChangedSignature OnSkillAvailabilityChanged;
+
+	UPROPERTY(BlueprintAssignable, Category="Player Control")
+	FMiningCompanionControlModeChangedSignature OnControlModeChanged;
+
 protected:
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
-	void TryRestoreHumanForm();
 	void TryUseMiningSkill();
 	void TryUsePickupSkill();
 
@@ -60,9 +78,6 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UInputAction> LookAction;
-
-	UPROPERTY()
-	TObjectPtr<UInputAction> TransformationAction;
 
 	UPROPERTY()
 	TObjectPtr<UInputAction> MiningSkillAction;
@@ -107,9 +122,7 @@ private:
 	AMineableOre* FindMineableOreInRange() const;
 	AItemPickup* FindPickupInRange();
 	float GetSquaredDistanceToOre(const AMineableOre* Ore, FVector* OutClosestPoint = nullptr) const;
-	bool ShowMiningSkillWidget(APlayerController* PlayerController);
-	void HideMiningSkillWidget();
-	void EnsurePlayerInterface(APlayerController* PlayerController);
+	void StartPlayerInteractionMonitoring(APlayerController* PlayerController);
 	void RefreshPlayerInteractionState();
 	void TryAutoDeposit();
 	bool StartPlayerCollectAction(AItemPickup* Pickup);
@@ -139,9 +152,6 @@ private:
 	void HandleMiningHitConfirmed(FVector HitLocation, FVector HitNormal);
 
 	UPROPERTY(Transient)
-	TObjectPtr<URobotMiningSkillWidget> MiningSkillWidget;
-
-	UPROPERTY(Transient)
 	TObjectPtr<AItemPickup> PlayerInteractionPickup;
 
 	UPROPERTY(Transient)
@@ -154,4 +164,6 @@ private:
 	bool bPreviousPlayerOrientRotationToMovement = true;
 	bool bPreviousPlayerUseControllerDesiredRotation = false;
 	bool bPlayerInteractionMovementLocked = false;
+	bool bMiningSkillAvailable = false;
+	bool bPickupSkillAvailable = false;
 };

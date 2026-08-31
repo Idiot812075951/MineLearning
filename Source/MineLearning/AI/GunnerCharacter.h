@@ -5,13 +5,18 @@
 #include "GunnerCharacter.generated.h"
 
 class AMineableOre;
+class APlayerController;
 class UAnimInstance;
 class UAnimMontage;
+class UCameraComponent;
+class UInputAction;
+class UInputComponent;
+class UInputMappingContext;
 class USceneComponent;
+class USpringArmComponent;
 class UStaticMeshComponent;
-class UWidgetComponent;
 class UNiagaraSystem;
-class UCompanionBarkComponent;
+struct FInputActionValue;
 
 UENUM(BlueprintType)
 enum class EGunnerShotResult : uint8
@@ -30,6 +35,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
 	float, AppliedDamage);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGunnerReloadStateChangedSignature, bool, bReloading);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGunnerWeaponFiredSignature);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
+	FGunnerAmmoChangedSignature,
+	int32, CurrentAmmo,
+	int32, MagazineSize);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FGunnerControlModeChangedSignature,
+	bool, bPlayerControlled);
 
 UCLASS(BlueprintType)
 class MINELEARNING_API AGunnerCharacter : public ACharacter
@@ -41,10 +54,22 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void NotifyControllerChanged() override;
+	virtual void PawnClientRestart() override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
-	/** Requests a point shot or a three-round burst, chosen per attack. */
+	/** AI request: chooses the existing point-shot or three-round burst behavior. */
 	UFUNCTION(BlueprintCallable, Category="Gunner|Combat")
 	bool TryFireAtOre(AMineableOre* TargetOre);
+
+	/** Fires a player burst through the crosshair. An ore target is optional. */
+	UFUNCTION(BlueprintCallable, Category="Gunner|Combat")
+	bool TryFireAtAim(FVector AimOrigin, FVector AimDirection);
+
+	/** Starts the same reload transaction used by the AI when the magazine is not full. */
+	UFUNCTION(BlueprintCallable, Category="Gunner|Combat")
+	bool RequestReload();
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
 	bool IsReloading() const { return bIsReloading; }
@@ -64,6 +89,18 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
 	FGunnerReloadStateChangedSignature OnReloadStateChanged;
 
+	/** Fired once for every projectile actually emitted, including each burst round. */
+	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
+	FGunnerWeaponFiredSignature OnWeaponFired;
+
+	/** Authoritative magazine snapshot after ammo actually changes. */
+	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
+	FGunnerAmmoChangedSignature OnAmmoChanged;
+
+	/** Announces possession-mode changes without referencing any presentation object. */
+	UPROPERTY(BlueprintAssignable, Category="Gunner|Control")
+	FGunnerControlModeChangedSignature OnControlModeChanged;
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
 	TObjectPtr<UStaticMeshComponent> WeaponMesh;
@@ -76,12 +113,26 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
 	TObjectPtr<USceneComponent> MuzzlePoint;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Bark")
-	TObjectPtr<UCompanionBarkComponent> BarkComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player Control")
+	TObjectPtr<USpringArmComponent> CameraBoom;
 
-	/** Persistent read-only ammo display. Weapon state remains owned by Gunner. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|UI")
-	TObjectPtr<UWidgetComponent> AmmoWidgetComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player Control")
+	TObjectPtr<UCameraComponent> FollowCamera;
+
+	UPROPERTY()
+	TObjectPtr<UInputMappingContext> PlayerMappingContext;
+
+	UPROPERTY()
+	TObjectPtr<UInputAction> MoveAction;
+
+	UPROPERTY()
+	TObjectPtr<UInputAction> LookAction;
+
+	UPROPERTY()
+	TObjectPtr<UInputAction> FireAction;
+
+	UPROPERTY()
+	TObjectPtr<UInputAction> SecondarySkillAction;
 
 	/** Persistent Montage assets. Do not replace these with transient dynamic montages. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Animation")
@@ -142,6 +193,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="1.0"))
 	float MissRadiusMultiplier = 1.35f;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player Control|Combat", meta=(ClampMin="100.0"))
+	float PlayerAimRange = 5000.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player Control|Aim")
+	FVector2D PlayerWeaponPitchRange = FVector2D(-45.0f, 35.0f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Player Control|Aim", meta=(ClampMin="0.0"))
+	float PlayerWeaponAimInterpSpeed = 14.0f;
+
 	/** Optional debug-only line. Production shots use a collision-free Niagara projectile. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Visual")
 	bool bDrawShotDebug = false;
@@ -169,17 +229,33 @@ protected:
 	void PlayShotVisuals(EGunnerShotResult Result, FVector MuzzleLocation, FVector TargetLocation);
 
 private:
+	struct FShotTarget
+	{
+		TWeakObjectPtr<AMineableOre> Ore;
+		FVector AimLocation = FVector::ZeroVector;
+		bool bUseExactAimLocation = false;
+	};
+
+	void Move(const FInputActionValue& Value);
+	void Look(const FInputActionValue& Value);
+	void StartPlayerFire();
+	void StopPlayerAim();
+	void StartPlayerReload();
+	void UpdatePlayerAim(float DeltaSeconds);
+	void TryResolvePendingPlayerShot();
+	void ConfigureControllerMode();
+	void ApplyLocalPlayerViewport();
+	bool TryStartAttack(const FShotTarget& Target);
 	EGunnerShotResult RollShotResult(bool bUseBurstAccuracy) const;
-	FVector CalculateShotTarget(const AMineableOre* TargetOre, EGunnerShotResult Result) const;
+	FVector CalculateShotTarget(const FShotTarget& Target, EGunnerShotResult Result) const;
 	float PlayFireMontage();
 	bool PlayBurstFireMontage();
-	void ResolveShot(AMineableOre* TargetOre, bool bUseBurstAccuracy, int32 BurstRoundIndex = 0);
+	void ResolveShot(const FShotTarget& Target, bool bUseBurstAccuracy, int32 BurstRoundIndex = 0);
 	void EndBurst(const TCHAR* Reason);
 	void ResolveBurstRound(const TCHAR* Trigger);
 	void ResolveBurstTimedShot();
 	void ResolveOutstandingBurstShots();
 	void PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
-	void SpawnHeadshotWorldFeedback(EGunnerShotResult Result, const FVector& TargetLocation);
 	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
 	void BeginReload();
 	void QueueReloadAfterSingleShot(float ShotMontageDuration);
@@ -188,7 +264,6 @@ private:
 	void ForceCompleteReload();
 	void AttachMagazineToHand();
 	void AttachMagazineToWeapon();
-	void UpdateAmmoDisplay();
 	void RegisterReloadNotifyHandlers();
 	void UnregisterReloadNotifyHandlers();
 
@@ -205,7 +280,11 @@ private:
 	bool bReloadPending = false;
 	bool bBurstInProgress = false;
 	int32 BurstRoundsResolved = 0;
-	TWeakObjectPtr<AMineableOre> BurstTargetOre;
+	FShotTarget BurstTarget;
+	FRotator WeaponBaseRelativeRotation = FRotator::ZeroRotator;
+	float CurrentWeaponAimPitch = 0.0f;
+	bool bPlayerShotPending = false;
+	bool bPlayerAimInputHeld = false;
 	double NextAllowedFireTime = 0.0;
 	FTimerHandle ReloadTimerHandle;
 	FTimerHandle PendingReloadTimerHandle;

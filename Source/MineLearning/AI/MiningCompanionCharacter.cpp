@@ -27,13 +27,10 @@
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ResourceDepot.h"
 #include "MineLearning/AI/MiningCompanionAIController.h"
-#include "MineLearning/PlayerTransformZone.h"
-#include "MineLearning/UI/RobotMiningSkillWidget.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "OreBuddyAnimInstance.h"
 #include "UObject/ConstructorHelpers.h"
-
 
 AMiningCompanionCharacter::AMiningCompanionCharacter()
 {
@@ -71,10 +68,6 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 		TEXT("/Game/MineLearning/Input/Actions/IA_Look.IA_Look"));
 	LookAction = LookActionFinder.Object;
 
-	static ConstructorHelpers::FObjectFinder<UInputAction> TransformationActionFinder(
-		TEXT("/Game/MineLearning/Input/Actions/IA_Transform.IA_Transform"));
-	TransformationAction = TransformationActionFinder.Object;
-
 	static ConstructorHelpers::FObjectFinder<UInputAction> MiningSkillActionFinder(
 		TEXT("/Game/MineLearning/Input/Actions/IA_RobotSkill1.IA_RobotSkill1"));
 	MiningSkillAction = MiningSkillActionFinder.Object;
@@ -106,7 +99,6 @@ void AMiningCompanionCharacter::Tick(float DeltaSeconds)
 void AMiningCompanionCharacter::NotifyControllerChanged()
 {
 	Super::NotifyControllerChanged();
-	HideMiningSkillWidget();
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PlayerInteractionTimerHandle);
@@ -123,11 +115,23 @@ void AMiningCompanionCharacter::NotifyControllerChanged()
 			}
 		}
 
-		EnsurePlayerInterface(PlayerController);
+		StartPlayerInteractionMonitoring(PlayerController);
+		OnControlModeChanged.Broadcast(true);
 	}
-	else if (PlayerInteractionState != EPlayerInteractionState::None)
+	else
 	{
-		FinishPlayerInteraction();
+		if (PlayerInteractionState != EPlayerInteractionState::None)
+		{
+			FinishPlayerInteraction();
+		}
+		const bool bAvailabilityChanged = bMiningSkillAvailable || bPickupSkillAvailable;
+		bMiningSkillAvailable = false;
+		bPickupSkillAvailable = false;
+		if (bAvailabilityChanged)
+		{
+			OnSkillAvailabilityChanged.Broadcast(false, false);
+		}
+		OnControlModeChanged.Broadcast(false);
 	}
 }
 
@@ -145,15 +149,6 @@ void AMiningCompanionCharacter::SetupPlayerInputComponent(UInputComponent* Playe
 		if (LookAction)
 		{
 			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMiningCompanionCharacter::Look);
-		}
-
-		if (TransformationAction)
-		{
-			EnhancedInputComponent->BindAction(
-				TransformationAction,
-				ETriggerEvent::Started,
-				this,
-				&AMiningCompanionCharacter::TryRestoreHumanForm);
 		}
 
 		if (MiningSkillAction)
@@ -175,7 +170,7 @@ void AMiningCompanionCharacter::SetupPlayerInputComponent(UInputComponent* Playe
 		}
 	}
 
-	EnsurePlayerInterface(Cast<APlayerController>(Controller));
+	StartPlayerInteractionMonitoring(Cast<APlayerController>(Controller));
 }
 
 void AMiningCompanionCharacter::Move(const FInputActionValue& Value)
@@ -196,33 +191,6 @@ void AMiningCompanionCharacter::Look(const FInputActionValue& Value)
 	const FVector2D LookAxisVector = Value.Get<FVector2D>();
 	AddControllerYawInput(LookAxisVector.X);
 	AddControllerPitchInput(LookAxisVector.Y);
-}
-
-void AMiningCompanionCharacter::TryRestoreHumanForm()
-{
-	if (IsPlayerActionLocked())
-	{
-		return;
-	}
-
-	APlayerController* PlayerController = Cast<APlayerController>(Controller);
-	if (!PlayerController)
-	{
-		return;
-	}
-
-	TArray<AActor*> OverlappingZones;
-	GetOverlappingActors(OverlappingZones, APlayerTransformZone::StaticClass());
-	for (AActor* Actor : OverlappingZones)
-	{
-		if (APlayerTransformZone* TransformZone = Cast<APlayerTransformZone>(Actor))
-		{
-			if (TransformZone->TryRestoreHumanForm(PlayerController))
-			{
-				return;
-			}
-		}
-	}
 }
 
 void AMiningCompanionCharacter::TryUseMiningSkill()
@@ -367,55 +335,13 @@ float AMiningCompanionCharacter::GetSquaredDistanceToOre(
 	return DistanceSq;
 }
 
-bool AMiningCompanionCharacter::ShowMiningSkillWidget(APlayerController* PlayerController)
-{
-	if (!PlayerController || !PlayerController->IsLocalController())
-	{
-		return false;
-	}
-
-	if (!MiningSkillWidget)
-	{
-		MiningSkillWidget = CreateWidget<URobotMiningSkillWidget>(
-			PlayerController,
-			URobotMiningSkillWidget::StaticClass());
-	}
-	if (!MiningSkillWidget)
-	{
-		return false;
-	}
-
-	if (!MiningSkillWidget->IsInViewport()
-		&& !MiningSkillWidget->AddToPlayerScreen(10))
-	{
-		return false;
-	}
-
-	MiningSkillWidget->SetAnchorsInViewport(FAnchors(0.5f, 1.0f));
-	MiningSkillWidget->SetAlignmentInViewport(FVector2D(0.5f, 1.0f));
-	MiningSkillWidget->SetPositionInViewport(FVector2D(0.0f, -32.0f), false);
-	MiningSkillWidget->SetDesiredSizeInViewport(FVector2D(204.0f, 96.0f));
-	MiningSkillWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
-	return MiningSkillWidget->IsInViewport();
-}
-
-void AMiningCompanionCharacter::HideMiningSkillWidget()
-{
-	if (MiningSkillWidget)
-	{
-		MiningSkillWidget->RemoveFromParent();
-		MiningSkillWidget = nullptr;
-	}
-}
-
-void AMiningCompanionCharacter::EnsurePlayerInterface(APlayerController* PlayerController)
+void AMiningCompanionCharacter::StartPlayerInteractionMonitoring(APlayerController* PlayerController)
 {
 	if (!PlayerController)
 	{
 		return;
 	}
 
-	ShowMiningSkillWidget(PlayerController);
 	RefreshPlayerInteractionState();
 	if (UWorld* World = GetWorld();
 		World && !World->GetTimerManager().IsTimerActive(PlayerInteractionTimerHandle))
@@ -432,20 +358,23 @@ void AMiningCompanionCharacter::EnsurePlayerInterface(APlayerController* PlayerC
 void AMiningCompanionCharacter::RefreshPlayerInteractionState()
 {
 	APlayerController* PlayerController = Cast<APlayerController>(Controller);
-	ShowMiningSkillWidget(PlayerController);
 	if (PlayerController && !IsPlayerActionLocked())
 	{
 		TryAutoDeposit();
 	}
 
-	if (MiningSkillWidget)
+	const bool bActionsAvailable = PlayerController && !IsPlayerActionLocked();
+	const bool bNewMiningAvailable = bActionsAvailable && FindMineableOreInRange() != nullptr;
+	const bool bNewPickupAvailable = bActionsAvailable
+		&& ResourceCarryComponent
+		&& !ResourceCarryComponent->IsFull()
+		&& FindPickupInRange() != nullptr;
+	if (bMiningSkillAvailable != bNewMiningAvailable
+		|| bPickupSkillAvailable != bNewPickupAvailable)
 	{
-		const bool bActionsAvailable = !IsPlayerActionLocked();
-		MiningSkillWidget->SetMiningAvailable(
-			bActionsAvailable && FindMineableOreInRange() != nullptr);
-		MiningSkillWidget->SetPickupState(
-			bActionsAvailable && FindPickupInRange() != nullptr,
-			ResourceCarryComponent && ResourceCarryComponent->IsFull());
+		bMiningSkillAvailable = bNewMiningAvailable;
+		bPickupSkillAvailable = bNewPickupAvailable;
+		OnSkillAvailabilityChanged.Broadcast(bMiningSkillAvailable, bPickupSkillAvailable);
 	}
 }
 
@@ -858,7 +787,6 @@ void AMiningCompanionCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason
 		World->GetTimerManager().ClearTimer(PlayerInteractionTimerHandle);
 	}
 	FinishPlayerInteraction();
-	HideMiningSkillWidget();
 
 	if (MiningToolComponent)
 	{
