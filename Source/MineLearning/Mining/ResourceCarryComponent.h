@@ -44,8 +44,7 @@ public:
 
 	int32 AddItemWithVisual(
 		const FItemStack& Item,
-		UStaticMesh* InResourceMesh,
-		float InResourceMeshScale = 1.0f);
+		UStaticMesh* InResourceMesh);
 
 	UFUNCTION(BlueprintCallable, Category="Item|Carry")
 	FItemStack TakeAllItems();
@@ -134,9 +133,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CarriedResourceMesh = nullptr;
-
-	UPROPERTY(Transient)
-	float CarriedResourceMeshScale = 1.0f;
 
 	void BroadcastCarryChanged();
 	void RefreshPreviewResources();

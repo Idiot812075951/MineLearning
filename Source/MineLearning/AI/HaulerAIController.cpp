@@ -56,7 +56,7 @@ void AHaulerAIController::Tick(float DeltaSeconds)
 			NavigationStallSeconds += DeltaSeconds;
 			if (NavigationStallSeconds >= NavigationStallTimeout)
 			{
-				StopMovement();
+				StopActiveMove();
 				bDirectMove = true;
 				NavigationStallSeconds = 0.0f;
 			}
@@ -184,6 +184,9 @@ bool AHaulerAIController::MoveToCurrentPickup()
 		nullptr,
 		true);
 	bIssuingMoveRequest = false;
+	ActiveMoveRequestId = Result == EPathFollowingRequestResult::RequestSuccessful
+		? GetCurrentMoveRequestID()
+		: FAIRequestID::InvalidRequest;
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] MoveToPickup Result=%d From=%s To=%s"),
 		static_cast<int32>(Result),
 		*HaulerLocation.ToCompactString(),
@@ -210,7 +213,7 @@ bool AHaulerAIController::BeginPickupAnimation()
 		return false;
 	}
 
-	StopMovement();
+	StopActiveMove();
 	bDirectMove = false;
 	bPickupCommitted = false;
 	State = EHaulerState::PickingUp;
@@ -283,7 +286,9 @@ bool AHaulerAIController::ResolveAndMoveToDestination()
 
 	if (HasValidExplicitDeliveryRoute(CarryComponent->GetCurrentItem()))
 	{
-		TargetDestination = ExplicitDeliveryStorage->GetOwner();
+		TargetDestination = IsValid(ExplicitDeliveryStorage)
+			? ExplicitDeliveryStorage->GetOwner()
+			: TargetDestination.Get();
 	}
 	else
 	{
@@ -314,6 +319,9 @@ bool AHaulerAIController::ResolveAndMoveToDestination()
 		nullptr,
 		true);
 	bIssuingMoveRequest = false;
+	ActiveMoveRequestId = Result == EPathFollowingRequestResult::RequestSuccessful
+		? GetCurrentMoveRequestID()
+		: FAIRequestID::InvalidRequest;
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] MoveToDestination Result=%d From=%s To=%s"),
 		static_cast<int32>(Result),
 		*HaulerLocation.ToCompactString(),
@@ -340,7 +348,7 @@ bool AHaulerAIController::BeginDropOffAnimation()
 		return false;
 	}
 
-	StopMovement();
+	StopActiveMove();
 	bDirectMove = false;
 	bDropOffCommitted = false;
 	State = EHaulerState::DroppingOff;
@@ -360,14 +368,19 @@ bool AHaulerAIController::DepositCurrentItem()
 	const FItemStack CarriedItem = CarryComponent->GetCurrentItem();
 	if (HasValidExplicitDeliveryRoute(CarriedItem))
 	{
-		AActor* CurrentDestination = ExplicitDeliveryStorage->GetOwner();
+		AActor* CurrentDestination = IsValid(ExplicitDeliveryStorage)
+			? ExplicitDeliveryStorage->GetOwner()
+			: TargetDestination.Get();
 		if (CurrentDestination != TargetDestination)
 		{
 			TargetDestination = CurrentDestination;
 			return ResolveAndMoveToDestination();
 		}
 
-		if (!ExplicitDeliveryStorage->AddItem(CarriedItem))
+		const bool bDelivered = IsValid(ExplicitDeliveryStorage)
+			? ExplicitDeliveryStorage->AddItem(CarriedItem)
+			: IItemReceiver::Execute_AcceptItem(TargetDestination, CarriedItem);
+		if (!bDelivered)
 		{
 			State = EHaulerState::Idle;
 			return false;
@@ -456,13 +469,14 @@ void AHaulerAIController::OnMoveCompleted(
 	const FPathFollowingResult& Result)
 {
 	Super::OnMoveCompleted(RequestID, Result);
+	if (bIssuingMoveRequest || !RequestID.IsEquivalent(ActiveMoveRequestId))
+	{
+		return;
+	}
+
+	ActiveMoveRequestId = FAIRequestID::InvalidRequest;
 	if (!Result.IsSuccess())
 	{
-		if (bIssuingMoveRequest)
-		{
-			return;
-		}
-
 		// A valid request may still fail asynchronously when a pickup or receiver is
 		// just outside the generated navmesh. Keep the selected job and use the
 		// existing deterministic direct-move fallback instead of repeatedly
@@ -490,7 +504,7 @@ void AHaulerAIController::OnMoveCompleted(
 
 void AHaulerAIController::ResetToIdle()
 {
-	StopMovement();
+	StopActiveMove();
 	if (IsValid(TargetPickup))
 	{
 		TargetPickup->ReleaseReservation(Hauler);
@@ -504,6 +518,14 @@ void AHaulerAIController::ResetToIdle()
 	bPickupCommitted = false;
 	bDropOffCommitted = false;
 	NavigationStallSeconds = 0.0f;
+}
+
+void AHaulerAIController::StopActiveMove()
+{
+	// StopMovement can emit a delayed completion. Invalidate first so that an
+	// old path cannot advance whichever logistics state happens to be current.
+	ActiveMoveRequestId = FAIRequestID::InvalidRequest;
+	StopMovement();
 }
 
 FVector AHaulerAIController::GetDestinationLocation() const
@@ -540,11 +562,19 @@ AActor* AHaulerAIController::ResolvePickupDestination(const AItemPickup* Pickup)
 
 bool AHaulerAIController::HasValidExplicitDeliveryRoute(const FItemStack& Item) const
 {
-	return IsValid(TargetDestination)
-		&& IsValid(ExplicitDeliveryStorage)
-		&& IsValid(ExplicitDeliveryPoint)
-		&& ExplicitDeliveryStorage->GetOwner() == TargetDestination
-		&& ExplicitDeliveryStorage->CanAddItem(Item);
+	if (!IsValid(TargetDestination) || !IsValid(ExplicitDeliveryPoint))
+	{
+		return false;
+	}
+
+	if (IsValid(ExplicitDeliveryStorage))
+	{
+		return ExplicitDeliveryStorage->GetOwner() == TargetDestination
+			&& ExplicitDeliveryStorage->CanAddItem(Item);
+	}
+
+	return TargetDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
+		&& IItemReceiver::Execute_CanAcceptItem(TargetDestination, Item);
 }
 
 void AHaulerAIController::TickDirectMove(float DeltaSeconds)

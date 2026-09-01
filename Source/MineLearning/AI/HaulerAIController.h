@@ -62,6 +62,7 @@ private:
 	bool HasValidExplicitDeliveryRoute(const FItemStack& Item) const;
 	FVector GetDestinationLocation() const;
 	void TickDirectMove(float DeltaSeconds);
+	void StopActiveMove();
 
 	UPROPERTY()
 	TObjectPtr<AHaulerCharacter> Hauler;
@@ -98,6 +99,7 @@ private:
 	float NavigationStallTimeout = 1.0f;
 
 	FTimerHandle SearchTimerHandle;
+	FAIRequestID ActiveMoveRequestId = FAIRequestID::InvalidRequest;
 	bool bDirectMove = false;
 	bool bIssuingMoveRequest = false;
 	bool bPickupCommitted = false;

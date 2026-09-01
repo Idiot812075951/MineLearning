@@ -1,5 +1,7 @@
 #include "ItemPickup.h"
 
+#include "ItemReceiver.h"
+#include "MineLearning/AI/HaulerCharacter.h"
 #include "ResourceCarryComponent.h"
 #include "ResourceStorageComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -42,6 +44,16 @@ void AItemPickup::BeginPlay()
 	Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 }
 
+void AItemPickup::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsValid(ReservationSourceStorage) && ItemStack.IsValid())
+	{
+		ReservationSourceStorage->ReleaseReservedItem(ItemStack);
+	}
+	ReservationSourceStorage = nullptr;
+	Super::EndPlay(EndPlayReason);
+}
+
 void AItemPickup::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -50,11 +62,11 @@ void AItemPickup::Tick(float DeltaSeconds)
 
 void AItemPickup::InitializeItem(
 	const FItemStack& InItemStack,
-	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
-	float InDropMeshScale)
+	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes)
 {
 	SetItemStack(InItemStack);
-	SelectDropMesh(InDropMeshes, InDropMeshScale);
+	SetActorScale3D(FVector::OneVector);
+	SelectDropMesh(InDropMeshes);
 }
 
 void AItemPickup::SetItemStack(const FItemStack& InItemStack)
@@ -75,16 +87,60 @@ void AItemPickup::SetExplicitDeliveryTarget(
 
 bool AItemPickup::HasUsableExplicitDeliveryTarget() const
 {
-	return IsValid(ExplicitDeliveryActor)
-		&& IsValid(ExplicitDeliveryStorage)
-		&& IsValid(ExplicitDeliveryPoint)
-		&& ExplicitDeliveryStorage->GetOwner() == ExplicitDeliveryActor
-		&& ExplicitDeliveryStorage->CanAddItem(ItemStack);
+	if (!IsValid(ExplicitDeliveryActor) || !IsValid(ExplicitDeliveryPoint))
+	{
+		return false;
+	}
+
+	if (IsValid(ExplicitDeliveryStorage))
+	{
+		return ExplicitDeliveryStorage->GetOwner() == ExplicitDeliveryActor
+			&& ExplicitDeliveryStorage->CanAddItem(ItemStack);
+	}
+
+	return ExplicitDeliveryActor->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
+		&& IItemReceiver::Execute_CanAcceptItem(ExplicitDeliveryActor, ItemStack);
+}
+
+void AItemPickup::SetReservationSource(UResourceStorageComponent* InSourceStorage)
+{
+	ReservationSourceStorage = InSourceStorage;
+}
+
+int32 AItemPickup::CancelReservedAmount(int32 Amount)
+{
+	if (!IsValid(ReservationSourceStorage) || Amount <= 0 || !ItemStack.IsValid())
+	{
+		return 0;
+	}
+
+	FItemStack CanceledItem = ItemStack;
+	CanceledItem.Amount = FMath::Min(Amount, ItemStack.Amount);
+	if (!ReservationSourceStorage->ReleaseReservedItem(CanceledItem))
+	{
+		return 0;
+	}
+
+	ItemStack.Amount -= CanceledItem.Amount;
+	if (ItemStack.Amount <= 0)
+	{
+		ReservationSourceStorage = nullptr;
+		Destroy();
+	}
+	return CanceledItem.Amount;
+}
+
+void AItemPickup::SetWaitingVisualEnabled(bool bEnabled)
+{
+	Mesh->SetVisibility(bEnabled, true);
+	Mesh->SetHiddenInGame(!bEnabled, true);
+	PickupSphere->SetCollisionEnabled(
+		bEnabled ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+	PickupSphere->SetGenerateOverlapEvents(bEnabled);
 }
 
 void AItemPickup::SelectDropMesh(
-	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
-	float InDropMeshScale)
+	const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes)
 {
 	TArray<UStaticMesh*> ValidMeshes;
 	ValidMeshes.Reserve(InDropMeshes.Num());
@@ -104,7 +160,8 @@ void AItemPickup::SelectDropMesh(
 
 	SelectedDropMesh = ValidMeshes[FMath::RandRange(0, ValidMeshes.Num() - 1)];
 	Mesh->SetStaticMesh(SelectedDropMesh);
-	Mesh->SetRelativeScale3D(FVector(FMath::Max(InDropMeshScale, 0.01f)));
+	Mesh->SetRelativeScale3D(FVector(
+		MineLearningItemVisual::GetUniformScale(SelectedDropMesh)));
 }
 
 bool AItemPickup::TryReserve(AActor* Collector)
@@ -115,13 +172,16 @@ bool AItemPickup::TryReserve(AActor* Collector)
 	}
 
 	ReservedCollector = Collector;
-	ReservedResourceMeshScale = Mesh->GetComponentTransform().GetScale3D().GetAbsMax();
 	return true;
 }
 
 bool AItemPickup::IsAvailableFor(AActor* Collector) const
 {
 	if (bTransportLocked || !IsValid(Collector) || !ItemStack.IsValid())
+	{
+		return false;
+	}
+	if (bRequiresHauler && !Collector->IsA<AHaulerCharacter>())
 	{
 		return false;
 	}
@@ -177,7 +237,6 @@ void AItemPickup::ReleaseReservation(AActor* Collector)
 	if (ReservedCollector.Get() == Collector)
 	{
 		ReservedCollector.Reset();
-		ReservedResourceMeshScale = 1.0f;
 	}
 }
 
@@ -285,21 +344,38 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 		return false;
 	}
 
-	const float ResourceMeshScale = ReservedCollector.Get() == OtherActor
-		? ReservedResourceMeshScale
-		: Mesh->GetComponentTransform().GetScale3D().GetAbsMax();
+	const int32 ExpectedAmount = FMath::Min(
+		ItemStack.Amount,
+		CarryComponent->GetCapacity() - CarryComponent->GetCurrentItemCount());
+	FItemStack ReservedTransfer = ItemStack;
+	ReservedTransfer.Amount = ExpectedAmount;
+	if (IsValid(ReservationSourceStorage)
+		&& !ReservationSourceStorage->CanCommitReservedItem(ReservedTransfer))
+	{
+		return false;
+	}
+
 	const int32 AddedAmount = CarryComponent->AddItemWithVisual(
 		ItemStack,
-		SelectedDropMesh,
-		ResourceMeshScale);
+		SelectedDropMesh);
 	if (AddedAmount <= 0)
 	{
 		return false;
+	}
+	if (IsValid(ReservationSourceStorage))
+	{
+		FItemStack CommittedItem = ItemStack;
+		CommittedItem.Amount = AddedAmount;
+		if (!ensure(ReservationSourceStorage->CommitReservedItem(CommittedItem)))
+		{
+			return false;
+		}
 	}
 
 	ItemStack.Amount -= AddedAmount;
 	if (ItemStack.Amount <= 0)
 	{
+		ReservationSourceStorage = nullptr;
 		Destroy();
 	}
 

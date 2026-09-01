@@ -34,7 +34,11 @@ private:
 	UPROPERTY(VisibleAnywhere, Category="Mining|Depot")
 	USceneComponent* SceneRoot = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Depot", meta=(MakeEditWidget, AllowPrivateAccess="true"))
+	/** Used only by depot classes that do not provide an authored dock component. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Depot", meta=(
+		MakeEditWidget,
+		DisplayName="Fallback Delivery Point",
+		AllowPrivateAccess="true"))
 	FTransform DeliveryPoint = FTransform::Identity;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Depot", meta=(AllowPrivateAccess="true"))

@@ -96,18 +96,23 @@ void URobotCenterCoinDisplayComponent::RefreshDisplay()
 	const int32 CoinCount = FMath::Min(
 		CoinStorage->GetStoredItemAmount(EItemType::Coin),
 		MaxVisibleCoins);
+	const FVector CoinWorldSize = MineLearningItemVisual::GetWorldSize(CoinMesh);
+	const FVector InstanceScale = MineLearningItemVisual::GetRelativeScale(
+		CoinMesh,
+		CoinPileVisual->GetComponentScale());
 	for (int32 Index = 0; Index < CoinCount; ++Index)
 	{
-		const int32 Column = Index % 4;
-		const int32 Row = (Index / 4) % 3;
-		const int32 Layer = Index / 12;
+		const int32 StackIndex = Index / MineLearningItemVisual::DefaultStackHeight;
+		const int32 StackLevel = Index % MineLearningItemVisual::DefaultStackHeight;
+		const int32 Column = StackIndex % 4;
+		const int32 Row = StackIndex / 4;
 		const FVector Location(
 			(Column - 1.5f) * 34.0f,
-			(Row - 1.0f) * 34.0f,
-			Layer * 9.0f);
+			(Row - 0.5f) * 34.0f,
+			CoinWorldSize.Z * 0.5f + StackLevel * (CoinWorldSize.Z + 1.5f));
 		const FRotator Rotation(0.0f, Index * 17.0f, 0.0f);
 		CoinPileVisual->AddInstance(
-			FTransform(Rotation, Location, FVector(MineLearningItemVisual::GoldCoinScale)));
+			FTransform(Rotation, Location, InstanceScale));
 	}
 
 	CoinPileVisual->SetVisibility(CoinCount > 0, true);

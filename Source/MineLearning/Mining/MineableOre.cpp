@@ -299,12 +299,11 @@ bool AMineableOre::SpawnResourceDropDirect(EResourceType Type, int32 Amount, con
 
     if (Pickup)
     {
-        Pickup->InitializeResource(
-            Type,
-            Amount,
-            OreDefinition->DropMeshes,
-            OreDefinition->DropMeshScale
-        );
+		Pickup->InitializeResource(
+			Type,
+			Amount,
+			OreDefinition->DropMeshes
+		);
         return true;
     }
 

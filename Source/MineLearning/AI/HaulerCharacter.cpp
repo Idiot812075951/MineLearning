@@ -51,9 +51,12 @@ AHaulerCharacter::AHaulerCharacter()
 	DropOffAnimation = DropOffAnimFinder.Object;
 
 	ResourceCarryComponent = CreateDefaultSubobject<UResourceCarryComponent>(TEXT("ResourceCarryComponent"));
-	// The Carrier owns the processor -> warehouse leg. OreBuddy remains responsible
-	// for ore extraction/transport, so this policy intentionally accepts currency only.
-	ResourceCarryComponent->ConfigureAcceptance(1, false, { EItemCategory::Currency });
+	// The Carrier owns player-scheduled warehouse routes in both directions:
+	// ore travels to a SellPoint and the generated currency returns to Warehouse.
+	ResourceCarryComponent->ConfigureAcceptance(
+		1,
+		false,
+		{ EItemCategory::Ore, EItemCategory::Currency, EItemCategory::ProcessedMaterial });
 
 	CarriedItemVisual = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CarriedItemVisual"));
 	CarriedItemVisual->SetupAttachment(GetMesh(), TEXT("S_Cargo"));
@@ -68,7 +71,6 @@ AHaulerCharacter::AHaulerCharacter()
 	CargoContentVisual = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CargoContentVisual"));
 	CargoContentVisual->SetupAttachment(CarriedItemVisual);
 	CargoContentVisual->SetRelativeLocation(FVector(0.0f, 0.0f, 10.0f));
-	CargoContentVisual->SetRelativeScale3D(FVector(MineLearningItemVisual::GoldCoinScale));
 	CargoContentVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	CargoContentVisual->SetGenerateOverlapEvents(false);
 	CargoContentVisual->SetCanEverAffectNavigation(false);
@@ -87,13 +89,14 @@ void AHaulerCharacter::BeginPlay()
 	// deadlock OreBuddy and the carrier nose-to-nose.
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	GetCapsuleComponent()->SetCanEverAffectNavigation(false);
-	CargoContentVisual->SetRelativeScale3D(FVector(MineLearningItemVisual::GoldCoinScale));
 }
 
 void AHaulerCharacter::ShowCarriedItem(UStaticMesh* ItemMesh)
 {
 	CargoContentVisual->SetStaticMesh(ItemMesh);
-	CargoContentVisual->SetRelativeScale3D(FVector(MineLearningItemVisual::GoldCoinScale));
+	CargoContentVisual->SetRelativeScale3D(MineLearningItemVisual::GetRelativeScale(
+		ItemMesh,
+		CarriedItemVisual->GetComponentScale()));
 	CarriedItemVisual->SetVisibility(true, true);
 	CargoContentVisual->SetVisibility(IsValid(ItemMesh), true);
 }

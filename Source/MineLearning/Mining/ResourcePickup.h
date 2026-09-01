@@ -17,8 +17,7 @@ public:
 	void InitializeResource(
 		EResourceType InType,
 		int32 InAmount,
-		const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
-		float InDropMeshScale
+		const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes
 	);
 
 	/** Compatibility view for legacy resource callers. ItemStack is the only stored item data. */

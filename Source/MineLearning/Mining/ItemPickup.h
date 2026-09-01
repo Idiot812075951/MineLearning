@@ -22,11 +22,11 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	void InitializeItem(
 		const FItemStack& InItemStack,
-		const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes,
-		float InDropMeshScale
+		const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes
 	);
 
 	UFUNCTION(BlueprintPure, Category="Item|Pickup")
@@ -45,6 +45,18 @@ public:
 		AActor* InDeliveryActor,
 		UResourceStorageComponent* InDeliveryStorage,
 		USceneComponent* InDeliveryPoint);
+
+	/** Associates this logical pickup with items frozen in a source storage. */
+	void SetReservationSource(UResourceStorageComponent* InSourceStorage);
+
+	/** Releases up to Amount from the frozen source and removes it from this order. */
+	int32 CancelReservedAmount(int32 Amount);
+
+	/** Hides the waiting order without changing the mesh used after collection. */
+	void SetWaitingVisualEnabled(bool bEnabled);
+
+	/** Restricts a logical logistics order to the dedicated Hauler worker. */
+	void SetRequiresHauler(bool bRequired) { bRequiresHauler = bRequired; }
 
 	bool HasUsableExplicitDeliveryTarget() const;
 	AActor* GetExplicitDeliveryActor() const { return ExplicitDeliveryActor; }
@@ -89,7 +101,7 @@ public:
 	float AttachMoveSpeed = 600.0f;
 
 protected:
-	void SelectDropMesh(const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes, float InDropMeshScale);
+	void SelectDropMesh(const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes);
 
 private:
 	void UpdateAttachMovement(float DeltaSeconds);
@@ -106,8 +118,12 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<USceneComponent> ExplicitDeliveryPoint;
 
-	float ReservedResourceMeshScale = 1.0f;
+	UPROPERTY(Transient)
+	TObjectPtr<UResourceStorageComponent> ReservationSourceStorage;
 
 	UPROPERTY(VisibleAnywhere, Category="Item|Pickup")
 	bool bTransportLocked = false;
+
+	UPROPERTY(VisibleAnywhere, Category="Item|Pickup")
+	bool bRequiresHauler = false;
 };

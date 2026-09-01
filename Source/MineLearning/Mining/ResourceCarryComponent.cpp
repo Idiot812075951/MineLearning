@@ -96,13 +96,11 @@ int32 UResourceCarryComponent::AddItem(const FItemStack& Item)
 
 int32 UResourceCarryComponent::AddItemWithVisual(
 	const FItemStack& Item,
-	UStaticMesh* InResourceMesh,
-	float InResourceMeshScale)
+	UStaticMesh* InResourceMesh)
 {
 	if (CanAcceptItem(Item) && !CurrentItem.IsValid() && IsValid(InResourceMesh))
 	{
 		CarriedResourceMesh = InResourceMesh;
-		CarriedResourceMeshScale = FMath::Max(InResourceMeshScale, 0.01f);
 	}
 	return AddItem(Item);
 }
@@ -117,7 +115,6 @@ FItemStack UResourceCarryComponent::TakeAllItems()
 
 	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
-	CarriedResourceMeshScale = 1.0f;
 	BroadcastCarryChanged();
 	return TakenItem;
 }
@@ -127,14 +124,12 @@ void UResourceCarryComponent::ClearItems()
 	if (!CurrentItem.IsValid())
 	{
 		CarriedResourceMesh = nullptr;
-		CarriedResourceMeshScale = 1.0f;
 		RefreshPreviewResources();
 		return;
 	}
 
 	CurrentItem.Amount = 0;
 	CarriedResourceMesh = nullptr;
-	CarriedResourceMeshScale = 1.0f;
 	BroadcastCarryChanged();
 }
 
@@ -178,7 +173,7 @@ int32 UResourceCarryComponent::DropAllItems(const FVector& DropOrigin)
 		FItemStack UnitItem;
 		UnitItem.ItemType = CarriedItem.ItemType;
 		UnitItem.Amount = 1;
-		Pickup->InitializeItem(UnitItem, DropMeshes, CarriedResourceMeshScale);
+		Pickup->InitializeItem(UnitItem, DropMeshes);
 		SpawnedPickups.Add(Pickup);
 	}
 
@@ -259,6 +254,7 @@ void UResourceCarryComponent::RefreshPreviewResources()
 	}
 
 	int32 VisibleInstanceCount = FMath::Clamp(CurrentItem.Amount, 0, DisplayCapacity);
+	UStaticMesh* ResourceMesh = GetPreviewResourceMesh();
 
 #if WITH_EDITOR
 	const bool bIsBlueprintPreview = World && World->WorldType == EWorldType::EditorPreview;
@@ -270,7 +266,11 @@ void UResourceCarryComponent::RefreshPreviewResources()
 
 	for (int32 Index = 0; Index < VisibleInstanceCount; ++Index)
 	{
-		PreviewResourcesMesh->AddInstance(PreviewResourceTransforms[Index]);
+		FTransform InstanceTransform = PreviewResourceTransforms[Index];
+		InstanceTransform.SetScale3D(MineLearningItemVisual::GetRelativeScale(
+			ResourceMesh,
+			PreviewResourcesMesh->GetComponentScale()));
+		PreviewResourcesMesh->AddInstance(InstanceTransform);
 	}
 }
 
