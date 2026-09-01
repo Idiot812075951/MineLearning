@@ -19,6 +19,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Item|Logistics")
 	static EItemCategory GetItemCategory(EItemType ItemType);
 
+	UFUNCTION(BlueprintPure, Category="Item|Economy")
+	static int32 GetUnitSellPrice(EItemType ItemType);
+
 	UFUNCTION(BlueprintCallable, Category="Item|Logistics", meta=(WorldContext="WorldContextObject"))
 	static AActor* ResolveDestination(
 		const UObject* WorldContextObject,

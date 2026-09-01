@@ -6,6 +6,7 @@
 #include "ResourceStorageComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStorageChangedSignature, int32, StoredOreCount);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedSignature);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class MINELEARNING_API UResourceStorageComponent : public UActorComponent
@@ -25,6 +26,12 @@ public:
 	int32 GetStoredItemAmount(EItemType ItemType) const;
 
 	UFUNCTION(BlueprintPure, Category="Item|Storage")
+	int32 GetReservedItemAmount(EItemType ItemType) const;
+
+	UFUNCTION(BlueprintPure, Category="Item|Storage")
+	int32 GetAvailableItemAmount(EItemType ItemType) const;
+
+	UFUNCTION(BlueprintPure, Category="Item|Storage")
 	int32 GetTotalStoredItemCount() const;
 
 	UFUNCTION(BlueprintPure, Category="Item|Storage")
@@ -35,6 +42,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool RemoveItem(const FItemStack& Item);
+
+	UFUNCTION(BlueprintCallable, Category="Item|Storage")
+	bool TryReserveItem(const FItemStack& Item);
+
+	UFUNCTION(BlueprintPure, Category="Item|Storage")
+	bool CanCommitReservedItem(const FItemStack& Item) const;
+
+	UFUNCTION(BlueprintCallable, Category="Item|Storage")
+	bool CommitReservedItem(const FItemStack& Item);
+
+	UFUNCTION(BlueprintCallable, Category="Item|Storage")
+	bool ReleaseReservedItem(const FItemStack& Item);
 
 	UFUNCTION(BlueprintCallable, Category="Mining|Storage")
 	int32 AddOre(int32 Amount);
@@ -51,6 +70,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="Mining|Storage")
 	FOnStorageChangedSignature OnStorageChanged;
 
+	UPROPERTY(BlueprintAssignable, Category="Item|Storage")
+	FOnInventoryChangedSignature OnInventoryChanged;
+
 private:
 	/** Zero means unlimited. V1 defaults to a generous but testable capacity. */
 	UPROPERTY(EditAnywhere, Category="Item|Storage", meta=(ClampMin="0"))
@@ -59,8 +81,8 @@ private:
 	UPROPERTY(VisibleAnywhere, Category="Item|Storage")
 	TMap<EItemType, int32> StoredItems;
 
-	UPROPERTY(VisibleAnywhere, Category="Mining|Storage")
-	int32 ReservedOreCount = 0;
+	UPROPERTY(VisibleAnywhere, Category="Item|Storage")
+	TMap<EItemType, int32> ReservedItems;
 
 	void BroadcastStorageChanged();
 };

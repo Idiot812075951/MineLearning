@@ -3,12 +3,15 @@
 #include "CoreMinimal.h"
 #include "ItemTypes.generated.h"
 
+class UStaticMesh;
+
 UENUM(BlueprintType)
 enum class EItemType : uint8
 {
 	IronOre UMETA(DisplayName = "Iron Ore"),
 	Coin UMETA(DisplayName = "Coin"),
-	Ammo UMETA(DisplayName = "Ammo")
+	Ammo UMETA(DisplayName = "Ammo"),
+	IronIngot UMETA(DisplayName = "Iron Ingot")
 };
 
 UENUM(BlueprintType)
@@ -19,7 +22,8 @@ enum class EItemCategory : uint8
 	Ammo UMETA(DisplayName = "Ammo"),
 	Weapon UMETA(DisplayName = "Weapon"),
 	Consumable UMETA(DisplayName = "Consumable"),
-	Misc UMETA(DisplayName = "Misc")
+	Misc UMETA(DisplayName = "Misc"),
+	ProcessedMaterial UMETA(DisplayName = "Processed Material")
 };
 
 UENUM(BlueprintType)
@@ -27,6 +31,7 @@ enum class EItemReceiverType : uint8
 {
 	Processor UMETA(DisplayName = "Processor"),
 	Warehouse UMETA(DisplayName = "Warehouse"),
+	SellPoint UMETA(DisplayName = "Sell Point"),
 	Gunner UMETA(DisplayName = "Gunner")
 };
 
@@ -37,7 +42,14 @@ enum class EItemReceiverType : uint8
  */
 namespace MineLearningItemVisual
 {
-	inline constexpr float GoldCoinScale = 3.3f;
+	inline constexpr float StandardMaxDimensionCm = 30.0f;
+	inline constexpr int32 DefaultStackHeight = 3;
+
+	MINELEARNING_API float GetUniformScale(const UStaticMesh* Mesh);
+	MINELEARNING_API FVector GetRelativeScale(
+		const UStaticMesh* Mesh,
+		const FVector& ParentWorldScale);
+	MINELEARNING_API FVector GetWorldSize(const UStaticMesh* Mesh);
 }
 
 USTRUCT(BlueprintType)

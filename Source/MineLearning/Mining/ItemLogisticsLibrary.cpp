@@ -59,6 +59,16 @@ EItemCategory UItemLogisticsLibrary::GetItemCategory(EItemType ItemType)
 	return GetItemRule(LookupItem, Rule) ? Rule.Category : EItemCategory::Misc;
 }
 
+int32 UItemLogisticsLibrary::GetUnitSellPrice(EItemType ItemType)
+{
+	FItemStack LookupItem;
+	LookupItem.ItemType = ItemType;
+	LookupItem.Amount = 1;
+
+	FItemRuleRow Rule;
+	return GetItemRule(LookupItem, Rule) ? FMath::Max(Rule.UnitSellPrice, 0) : 0;
+}
+
 AActor* UItemLogisticsLibrary::ResolveDestination(
 	const UObject* WorldContextObject,
 	const FItemStack& Item,

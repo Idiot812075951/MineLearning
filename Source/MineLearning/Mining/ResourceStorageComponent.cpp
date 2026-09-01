@@ -12,13 +12,26 @@ int32 UResourceStorageComponent::GetStoredOreCount() const
 
 int32 UResourceStorageComponent::GetAvailableOre() const
 {
-	return FMath::Max(GetStoredOreCount() - ReservedOreCount, 0);
+	return GetAvailableItemAmount(EItemType::IronOre);
 }
 
 int32 UResourceStorageComponent::GetStoredItemAmount(EItemType ItemType) const
 {
 	const int32* StoredAmount = StoredItems.Find(ItemType);
 	return StoredAmount ? *StoredAmount : 0;
+}
+
+int32 UResourceStorageComponent::GetReservedItemAmount(EItemType ItemType) const
+{
+	const int32* ReservedAmount = ReservedItems.Find(ItemType);
+	return ReservedAmount ? FMath::Max(*ReservedAmount, 0) : 0;
+}
+
+int32 UResourceStorageComponent::GetAvailableItemAmount(EItemType ItemType) const
+{
+	return FMath::Max(
+		GetStoredItemAmount(ItemType) - GetReservedItemAmount(ItemType),
+		0);
 }
 
 int32 UResourceStorageComponent::GetTotalStoredItemCount() const
@@ -57,8 +70,7 @@ bool UResourceStorageComponent::RemoveItem(const FItemStack& Item)
 		return false;
 	}
 
-	if (Item.ItemType == EItemType::IronOre
-		&& StoredAmount - Item.Amount < ReservedOreCount)
+	if (StoredAmount - Item.Amount < GetReservedItemAmount(Item.ItemType))
 	{
 		return false;
 	}
@@ -77,6 +89,75 @@ bool UResourceStorageComponent::RemoveItem(const FItemStack& Item)
 	return true;
 }
 
+bool UResourceStorageComponent::TryReserveItem(const FItemStack& Item)
+{
+	if (!Item.IsValid() || GetAvailableItemAmount(Item.ItemType) < Item.Amount)
+	{
+		return false;
+	}
+
+	ReservedItems.FindOrAdd(Item.ItemType) += Item.Amount;
+	BroadcastStorageChanged();
+	return true;
+}
+
+bool UResourceStorageComponent::CanCommitReservedItem(const FItemStack& Item) const
+{
+	return Item.IsValid()
+		&& GetReservedItemAmount(Item.ItemType) >= Item.Amount
+		&& GetStoredItemAmount(Item.ItemType) >= Item.Amount;
+}
+
+bool UResourceStorageComponent::CommitReservedItem(const FItemStack& Item)
+{
+	if (!CanCommitReservedItem(Item))
+	{
+		return false;
+	}
+
+	const int32 RemainingReserved = GetReservedItemAmount(Item.ItemType) - Item.Amount;
+	if (RemainingReserved > 0)
+	{
+		ReservedItems.FindOrAdd(Item.ItemType) = RemainingReserved;
+	}
+	else
+	{
+		ReservedItems.Remove(Item.ItemType);
+	}
+
+	const int32 RemainingStored = GetStoredItemAmount(Item.ItemType) - Item.Amount;
+	if (RemainingStored > 0)
+	{
+		StoredItems.FindOrAdd(Item.ItemType) = RemainingStored;
+	}
+	else
+	{
+		StoredItems.Remove(Item.ItemType);
+	}
+	BroadcastStorageChanged();
+	return true;
+}
+
+bool UResourceStorageComponent::ReleaseReservedItem(const FItemStack& Item)
+{
+	if (!Item.IsValid() || GetReservedItemAmount(Item.ItemType) < Item.Amount)
+	{
+		return false;
+	}
+
+	const int32 RemainingReserved = GetReservedItemAmount(Item.ItemType) - Item.Amount;
+	if (RemainingReserved > 0)
+	{
+		ReservedItems.FindOrAdd(Item.ItemType) = RemainingReserved;
+	}
+	else
+	{
+		ReservedItems.Remove(Item.ItemType);
+	}
+	BroadcastStorageChanged();
+	return true;
+}
+
 int32 UResourceStorageComponent::AddOre(int32 Amount)
 {
 	FItemStack OreStack;
@@ -87,50 +168,21 @@ int32 UResourceStorageComponent::AddOre(int32 Amount)
 
 bool UResourceStorageComponent::TryReserveOre(int32 Amount)
 {
-	if (Amount <= 0 || GetAvailableOre() < Amount)
-	{
-		return false;
-	}
-
-	ReservedOreCount += Amount;
-	return true;
+	return TryReserveItem({EItemType::IronOre, Amount});
 }
 
 bool UResourceStorageComponent::CommitReservedOre(int32 Amount)
 {
-	const int32 StoredOre = GetStoredOreCount();
-	if (Amount <= 0 || ReservedOreCount < Amount || StoredOre < Amount)
-	{
-		return false;
-	}
-
-	ReservedOreCount -= Amount;
-	const int32 RemainingOre = StoredOre - Amount;
-	if (RemainingOre > 0)
-	{
-		StoredItems.FindOrAdd(EItemType::IronOre) = RemainingOre;
-	}
-	else
-	{
-		StoredItems.Remove(EItemType::IronOre);
-	}
-	BroadcastStorageChanged();
-	return true;
+	return CommitReservedItem({EItemType::IronOre, Amount});
 }
 
 bool UResourceStorageComponent::ReleaseReservedOre(int32 Amount)
 {
-	if (Amount <= 0 || ReservedOreCount < Amount)
-	{
-		return false;
-	}
-
-	ReservedOreCount -= Amount;
-	BroadcastStorageChanged();
-	return true;
+	return ReleaseReservedItem({EItemType::IronOre, Amount});
 }
 
 void UResourceStorageComponent::BroadcastStorageChanged()
 {
 	OnStorageChanged.Broadcast(GetStoredOreCount());
+	OnInventoryChanged.Broadcast();
 }
