@@ -49,7 +49,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOreProcessorStateChanged, EOrePro
  * Production OreProcessor flow:
  * real ore pickup -> authored InputPoint parking/delivery point -> input spline visual entry
  * -> capacity-one processing queue
- * -> output spline -> authored OutputPoint.
+ * -> processed iron ingot -> output spline -> authored OutputPoint.
  */
 UCLASS(Blueprintable)
 class MINELEARNING_API AOreProcessorMachine : public AActor, public IItemReceiver
@@ -71,6 +71,12 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category="Mining|Ore Processor")
 	FTransform GetDeliveryPointWorldTransform() const;
+
+	UFUNCTION(BlueprintPure, Category="Mining|Ore Processor")
+	USceneComponent* GetDeliveryPointComponent() const { return CachedInputPoint; }
+
+	UFUNCTION(BlueprintPure, Category="Mining|Ore Processor")
+	FText GetProcessorDisplayName() const { return ProcessorDisplayName; }
 
 	UFUNCTION(BlueprintPure, Category="Mining|Ore Processor")
 	int32 GetQueuedOreCount() const { return QueuedOreCount; }
@@ -98,7 +104,10 @@ protected:
 	float ProcessingTime = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Processing", meta=(ClampMin="1"))
-	int32 OutputCoinAmount = 1;
+	int32 OutputIngotAmount = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Processing")
+	FText ProcessorDisplayName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Queue", meta=(ClampMin="1"))
 	int32 MaxBufferedInputOre = 8;
@@ -107,7 +116,7 @@ protected:
 	float InputOreTravelSpeed = 35.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Transport", meta=(ClampMin="1.0"))
-	float OutputCoinTravelSpeed = 14.0f;
+	float OutputItemTravelSpeed = 14.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Transport", meta=(ClampMin="0.0"))
 	float WaitingOreSpacing = 12.0f;
@@ -134,19 +143,13 @@ protected:
 	TSubclassOf<AItemPickup> InputOrePickupClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Pickup")
-	TSubclassOf<AItemPickup> CoinPickupClass;
+	TSubclassOf<AItemPickup> OutputPickupClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Pickup")
 	TObjectPtr<UStaticMesh> InputOreMesh = nullptr;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Pickup")
-	TObjectPtr<UStaticMesh> CoinMesh = nullptr;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Pickup", meta=(ClampMin="0.01"))
-	float InputOreMeshScale = 1.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Pickup", meta=(ClampMin="0.01"))
-	float CoinMeshScale = MineLearningItemVisual::GoldCoinScale;
+	TObjectPtr<UStaticMesh> OutputIngotMesh = nullptr;
 
 	/** Legacy field retained for serialized compatibility; navigation now uses authored box obstacles. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Mining|Ore Processor|Navigation")
@@ -158,13 +161,17 @@ private:
 	void StartProcessingIfReady();
 	USplineComponent* FindAuthoredSpline(FName ComponentName) const;
 	USceneComponent* FindAuthoredSceneComponent(FName ComponentName) const;
-	AItemPickup* SpawnTransportPickup(const FItemStack& Stack, UStaticMesh* Mesh, float MeshScale, TSubclassOf<AItemPickup> PickupClass, const FTransform& SpawnTransform);
+	AItemPickup* SpawnTransportPickup(
+		const FItemStack& Stack,
+		UStaticMesh* Mesh,
+		TSubclassOf<AItemPickup> PickupClass,
+		const FTransform& SpawnTransform);
 	void UpdateInputTransport(float DeltaSeconds);
 	void UpdateOutputTransport(float DeltaSeconds);
 	void TryAdmitWaitingOre();
 	void AdmitOreAtProcessInput(int32 TransportIndex);
 	void CompleteMachineProcessing();
-	bool SpawnOutputCoin();
+	bool SpawnOutputIngot();
 	void RefreshMachineState();
 	void RefreshTickEnabled();
 	void UpdateMachineVisualState();

@@ -1,9 +1,13 @@
 #include "WarehouseDepot.h"
 
 #include "MineLearning/AI/HaulerCharacter.h"
+#include "ItemLogisticsLibrary.h"
 #include "ItemPickup.h"
-#include "ResourceStorageComponent.h"
+#include "ItemRules.h"
 #include "ItemTypes.h"
+#include "OreProcessorMachine.h"
+#include "ResourceStorageComponent.h"
+#include "SellStation.h"
 #include "Components/BoxComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -11,22 +15,9 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#if WITH_DEV_AUTOMATION_TESTS
-#include "Misc/AutomationTest.h"
-#endif
+#include "GameFramework/Pawn.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
-
-namespace WarehouseTemporaryCoinDispatch
-{
-	constexpr int32 CoinBatchSize = 2;
-	const FName RobotCenterStorageTag(TEXT("RobotCenter.CoinStorage"));
-
-	int32 GetDispatchableCoinCount(int32 StoredCoinCount)
-	{
-		return FMath::Max(StoredCoinCount, 0) / CoinBatchSize * CoinBatchSize;
-	}
-}
 
 AWarehouseDepot::AWarehouseDepot()
 {
@@ -47,11 +38,39 @@ AWarehouseDepot::AWarehouseDepot()
 	InventoryCoinVisual->SetGenerateOverlapEvents(false);
 	InventoryCoinVisual->SetMobility(EComponentMobility::Movable);
 
+	InventoryOreVisual = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WarehouseInventoryOre"));
+	InventoryOreVisual->SetupAttachment(GetRootComponent());
+	InventoryOreVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	InventoryOreVisual->SetGenerateOverlapEvents(false);
+	InventoryOreVisual->SetMobility(EComponentMobility::Movable);
+
+	InventoryIngotVisual = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WarehouseInventoryIngots"));
+	InventoryIngotVisual->SetupAttachment(GetRootComponent());
+	InventoryIngotVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	InventoryIngotVisual->SetGenerateOverlapEvents(false);
+	InventoryIngotVisual->SetMobility(EComponentMobility::Movable);
+
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> GoldCoinMesh(
 		TEXT("/Game/MineLearning/Mining/Resources/Coin/SM_GoldCoin.SM_GoldCoin"));
 	if (GoldCoinMesh.Succeeded())
 	{
 		InventoryCoinVisual->SetStaticMesh(GoldCoinMesh.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> IronOreMesh(
+		TEXT("/Game/MineLearning/Mining/Ores/Iron/Meshes/SM_Ore_Iron_Drop_01.SM_Ore_Iron_Drop_01"));
+	if (IronOreMesh.Succeeded())
+	{
+		OutboundOreMesh = IronOreMesh.Object;
+		InventoryOreVisual->SetStaticMesh(IronOreMesh.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> IronIngotMeshFinder(
+		TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot"));
+	if (IronIngotMeshFinder.Succeeded())
+	{
+		IronIngotMesh = IronIngotMeshFinder.Object;
+		InventoryIngotVisual->SetStaticMesh(IronIngotMeshFinder.Object);
 	}
 }
 
@@ -80,7 +99,24 @@ void AWarehouseDepot::BeginPlay()
 	}
 	UpdateDoorFeedback(false);
 	RefreshInventoryVisual();
-	DispatchCoinBatchesToRobotCenterForTesting();
+}
+
+void AWarehouseDepot::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UResourceStorageComponent* Storage = GetStorageComponent())
+	{
+		Storage->OnStorageChanged.RemoveDynamic(this, &AWarehouseDepot::HandleStorageChanged);
+	}
+
+	for (AItemPickup* Pickup : PendingOrderPickups)
+	{
+		if (IsValid(Pickup))
+		{
+			Pickup->Destroy();
+		}
+	}
+	PendingOrderPickups.Reset();
+	Super::EndPlay(EndPlayReason);
 }
 
 void AWarehouseDepot::Tick(float DeltaSeconds)
@@ -119,85 +155,243 @@ void AWarehouseDepot::CloseWarehouse()
 	UpdateDoorFeedback(false);
 }
 
-int32 AWarehouseDepot::DispatchCoinBatchesToRobotCenterForTesting()
+bool AWarehouseDepot::IsPlayerInInteractionRange(const APawn* PlayerPawn) const
 {
-	if (bTemporaryCoinDispatchInProgress || !HasAuthority())
+	if (!IsValid(PlayerPawn))
 	{
-		return 0;
+		return false;
 	}
 
-	UResourceStorageComponent* WarehouseStorage = GetStorageComponent();
-	UResourceStorageComponent* RobotCenterStorage = nullptr;
-	USceneComponent* PaymentDropPoint = nullptr;
-	USceneComponent* WarehouseDockPoint = FindSceneComponent(TEXT("P_Warehouse_DockPoint"));
-	if (!WarehouseStorage
-		|| !WarehouseDockPoint
-		|| !FindTemporaryRobotCenterDeliveryTarget(RobotCenterStorage, PaymentDropPoint))
+	const FVector PlayerLocation = PlayerPawn->GetActorLocation();
+	if (WorkerInteractionTrigger)
 	{
-		return 0;
+		const FBox TriggerBounds = WorkerInteractionTrigger->Bounds.GetBox();
+		const FBox2D TriggerFootprint(
+			FVector2D(TriggerBounds.Min),
+			FVector2D(TriggerBounds.Max));
+		return TriggerFootprint.ComputeSquaredDistanceToPoint(FVector2D(PlayerLocation))
+			<= FMath::Square(PlayerInteractionRange);
 	}
 
-	TGuardValue<bool> DispatchGuard(bTemporaryCoinDispatchInProgress, true);
-	FItemStack CoinBatch;
-	CoinBatch.ItemType = EItemType::Coin;
-	CoinBatch.Amount = WarehouseTemporaryCoinDispatch::CoinBatchSize;
+	return FVector::DistSquared2D(PlayerLocation, GetActorLocation())
+		<= FMath::Square(PlayerInteractionRange);
+}
 
-	int32 DispatchedCoinCount = 0;
-	while (WarehouseStorage->GetStoredItemAmount(EItemType::Coin) >= CoinBatch.Amount
-		&& RobotCenterStorage->CanAddItem(CoinBatch))
+TArray<FWarehouseItemViewData> AWarehouseDepot::GetInventoryViewData() const
+{
+	TArray<FWarehouseItemViewData> Result;
+	const UResourceStorageComponent* Storage = GetStorageComponent();
+	if (!Storage)
 	{
-		FTransform SpawnTransform = WarehouseDockPoint->GetComponentTransform();
-		SpawnTransform.SetLocation(ResolveOutboundPickupLocation(WarehouseDockPoint));
-		SpawnTransform.SetScale3D(FVector::OneVector);
+		return Result;
+	}
 
-		FActorSpawnParameters SpawnParameters;
-		SpawnParameters.Owner = this;
-		SpawnParameters.SpawnCollisionHandlingOverride =
-			ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		AItemPickup* OutboundCoin = GetWorld()->SpawnActor<AItemPickup>(
+	static const EItemType SupportedItems[] =
+	{
+		EItemType::IronOre,
+		EItemType::IronIngot,
+		EItemType::Coin,
+		EItemType::Ammo
+	};
+	Result.Reserve(UE_ARRAY_COUNT(SupportedItems));
+	for (EItemType ItemType : SupportedItems)
+	{
+		FItemStack LookupItem;
+		LookupItem.ItemType = ItemType;
+		LookupItem.Amount = 1;
+
+		FItemRuleRow Rule;
+		UItemLogisticsLibrary::GetItemRule(LookupItem, Rule);
+
+		FWarehouseItemViewData& ViewData = Result.AddDefaulted_GetRef();
+		ViewData.ItemType = ItemType;
+		ViewData.DisplayName = Rule.DisplayName.IsEmpty()
+			? StaticEnum<EItemType>()->GetDisplayNameTextByValue(static_cast<int64>(ItemType))
+			: Rule.DisplayName;
+		ViewData.Icon = Rule.Icon;
+		ViewData.TotalAmount = Storage->GetStoredItemAmount(ItemType);
+		ViewData.AvailableAmount = Storage->GetAvailableItemAmount(ItemType);
+		ViewData.FrozenAmount = Storage->GetReservedItemAmount(ItemType);
+		ViewData.UnitSellPrice = FMath::Max(Rule.UnitSellPrice, 0);
+
+		AActor* ActiveDestination = nullptr;
+		for (const AItemPickup* Pickup : PendingOrderPickups)
+		{
+			if (IsValid(Pickup)
+				&& Pickup->GetItemStack().ItemType == ItemType
+				&& Pickup->HasUsableExplicitDeliveryTarget())
+			{
+				ActiveDestination = Pickup->GetExplicitDeliveryActor();
+				break;
+			}
+		}
+
+		ASellStation* SellDestination = ViewData.UnitSellPrice > 0
+			? FindSellStation(LookupItem)
+			: nullptr;
+		AOreProcessorMachine* ProcessDestination = ItemType == EItemType::IronOre
+			? FindProcessor()
+			: nullptr;
+		if (const ASellStation* ActiveSellStation = Cast<ASellStation>(ActiveDestination))
+		{
+			ViewData.DeliveryDestination = ActiveSellStation->GetStationDisplayName();
+		}
+		else if (const AOreProcessorMachine* ActiveProcessor = Cast<AOreProcessorMachine>(ActiveDestination))
+		{
+			ViewData.DeliveryDestination = ActiveProcessor->GetProcessorDisplayName();
+		}
+		else if (ProcessDestination && SellDestination)
+		{
+			ViewData.DeliveryDestination = NSLOCTEXT(
+				"MineLearning", "WarehouseIronOreDestinations", "加工机 / 出售点");
+		}
+		else if (ProcessDestination)
+		{
+			ViewData.DeliveryDestination = ProcessDestination->GetProcessorDisplayName();
+		}
+		else if (SellDestination)
+		{
+			ViewData.DeliveryDestination = SellDestination->GetStationDisplayName();
+		}
+		ViewData.bCanSell = ViewData.UnitSellPrice > 0
+			&& ViewData.AvailableAmount > 0
+			&& IsValid(SellDestination);
+		ViewData.bCanProcess = ItemType == EItemType::IronOre
+			&& ViewData.AvailableAmount > 0
+			&& IsValid(ProcessDestination);
+	}
+	return Result;
+}
+
+bool AWarehouseDepot::RequestSell(EItemType ItemType, int32 Amount)
+{
+	if (ItemType != EItemType::IronOre || Amount <= 0
+		|| UItemLogisticsLibrary::GetUnitSellPrice(ItemType) <= 0)
+	{
+		return false;
+	}
+
+	FItemStack SaleItem;
+	SaleItem.ItemType = ItemType;
+	SaleItem.Amount = Amount;
+	ASellStation* Destination = FindSellStation(SaleItem);
+	return Destination && RequestDeliveryOrder(
+		SaleItem,
+		Destination,
+		Destination->GetRobotApproachPoint());
+}
+
+bool AWarehouseDepot::RequestProcess(EItemType ItemType, int32 Amount)
+
+{
+	if (ItemType != EItemType::IronOre || Amount <= 0)
+	{
+		return false;
+	}
+
+	AOreProcessorMachine* Destination = FindProcessor();
+	FItemStack ProcessItem;
+	ProcessItem.ItemType = ItemType;
+	ProcessItem.Amount = Amount;
+	return Destination && RequestDeliveryOrder(
+		ProcessItem,
+		Destination,
+		Destination->GetDeliveryPointComponent());
+}
+
+bool AWarehouseDepot::RequestDeliveryOrder(
+	const FItemStack& Item,
+	AActor* Destination,
+	USceneComponent* DestinationPoint)
+{
+	UResourceStorageComponent* Storage = GetStorageComponent();
+	USceneComponent* DockPoint = FindSceneComponent(TEXT("P_Warehouse_DockPoint"));
+	if (!Storage || !DockPoint || !GetWorld() || !IsValid(OutboundOreMesh)
+		|| !Item.IsValid() || !IsValid(Destination) || !IsValid(DestinationPoint)
+		|| !Destination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
+		|| !Storage->TryReserveItem(Item))
+	{
+		return false;
+	}
+
+	FTransform SpawnTransform = DockPoint->GetComponentTransform();
+	SpawnTransform.SetLocation(ResolveOutboundPickupLocation(DockPoint));
+	SpawnTransform.SetScale3D(FVector::OneVector);
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Owner = this;
+	SpawnParameters.SpawnCollisionHandlingOverride =
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	TArray<TObjectPtr<UStaticMesh>> OreMeshes;
+	OreMeshes.Add(OutboundOreMesh);
+	TArray<AItemPickup*> SpawnedOrders;
+	SpawnedOrders.Reserve(Item.Amount);
+	for (int32 Index = 0; Index < Item.Amount; ++Index)
+	{
+		AItemPickup* OrderPickup = GetWorld()->SpawnActor<AItemPickup>(
 			AItemPickup::StaticClass(),
 			SpawnTransform,
 			SpawnParameters);
-		if (!OutboundCoin)
+		if (!OrderPickup)
 		{
-			break;
+			for (AItemPickup* SpawnedOrder : SpawnedOrders)
+			{
+				SpawnedOrder->Destroy();
+			}
+			Storage->ReleaseReservedItem(Item);
+			return false;
 		}
 
-		TArray<TObjectPtr<UStaticMesh>> CoinMeshes;
-		if (UStaticMesh* CoinMesh = InventoryCoinVisual->GetStaticMesh())
-		{
-			CoinMeshes.Add(CoinMesh);
-		}
-		OutboundCoin->InitializeItem(
-			CoinBatch,
-			CoinMeshes,
-			MineLearningItemVisual::GoldCoinScale);
-		OutboundCoin->ReleaseStationaryForCollection();
-		OutboundCoin->SetExplicitDeliveryTarget(
-			RobotCenterStorage->GetOwner(),
-			RobotCenterStorage,
-			PaymentDropPoint);
-
-		if (!WarehouseStorage->RemoveItem(CoinBatch))
-		{
-			OutboundCoin->Destroy();
-			break;
-		}
-
-		DispatchedCoinCount += CoinBatch.Amount;
+		FItemStack UnitItem;
+		UnitItem.ItemType = Item.ItemType;
+		UnitItem.Amount = 1;
+		OrderPickup->InitializeItem(UnitItem, OreMeshes);
+		OrderPickup->ReleaseStationaryForCollection();
+		OrderPickup->SetWaitingVisualEnabled(false);
+		OrderPickup->SetRequiresHauler(true);
+		OrderPickup->SetExplicitDeliveryTarget(Destination, nullptr, DestinationPoint);
+		SpawnedOrders.Add(OrderPickup);
 	}
 
-	if (DispatchedCoinCount > 0)
+	for (AItemPickup* OrderPickup : SpawnedOrders)
 	{
-		// TODO: Replace this temporary auto-dispatch with a real Warehouse
-		// outbound-order queue. The Hauler movement and PaymentDropPoint delivery
-		// performed after this point are real, not an inventory teleport.
-		UE_LOG(LogTemp, Display,
-			TEXT("[Warehouse][TEMP] Dispatched %d Coin for Hauler delivery to PaymentDropPoint"),
-			DispatchedCoinCount);
+		OrderPickup->SetReservationSource(Storage);
+		PendingOrderPickups.Add(OrderPickup);
+	}
+	BroadcastWarehouseChanged();
+	return true;
+}
+
+int32 AWarehouseDepot::CancelPendingOrder(EItemType ItemType, int32 Amount)
+{
+	if (Amount <= 0)
+	{
+		return 0;
 	}
 
-	return DispatchedCoinCount;
+	CleanupOrderPickups();
+	int32 RemainingToCancel = Amount;
+	int32 CanceledAmount = 0;
+	for (int32 Index = PendingOrderPickups.Num() - 1;
+		Index >= 0 && RemainingToCancel > 0;
+		--Index)
+	{
+		AItemPickup* Pickup = PendingOrderPickups[Index];
+		if (!IsValid(Pickup) || Pickup->GetItemStack().ItemType != ItemType)
+		{
+			continue;
+		}
+
+		const int32 CanceledFromPickup = Pickup->CancelReservedAmount(RemainingToCancel);
+		RemainingToCancel -= CanceledFromPickup;
+		CanceledAmount += CanceledFromPickup;
+	}
+	CleanupOrderPickups();
+	if (CanceledAmount > 0)
+	{
+		BroadcastWarehouseChanged();
+	}
+	return CanceledAmount;
 }
 
 bool AWarehouseDepot::AcceptItem_Implementation(const FItemStack& Item)
@@ -248,49 +442,89 @@ void AWarehouseDepot::HandleWorkerExit(
 
 void AWarehouseDepot::HandleStorageChanged(int32 StoredOreCount)
 {
+	CleanupOrderPickups();
 	RefreshInventoryVisual();
-	DispatchCoinBatchesToRobotCenterForTesting();
+	BroadcastWarehouseChanged();
 }
 
-bool AWarehouseDepot::FindTemporaryRobotCenterDeliveryTarget(
-	UResourceStorageComponent*& OutStorage,
-	USceneComponent*& OutDropPoint) const
+ASellStation* AWarehouseDepot::FindSellStation(const FItemStack& Item) const
 {
-	OutStorage = nullptr;
-	OutDropPoint = nullptr;
+	UWorld* World = GetWorld();
+	if (!World || !Item.IsValid())
+	{
+		return nullptr;
+	}
+
+	ASellStation* NearestStation = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	for (TActorIterator<ASellStation> StationIterator(World); StationIterator; ++StationIterator)
+	{
+		ASellStation* Station = *StationIterator;
+		if (!IsValid(Station)
+			|| Station->IsActorBeingDestroyed()
+			|| !IItemReceiver::Execute_CanAcceptItem(Station, Item))
+		{
+			continue;
+		}
+
+		const float DistanceSquared = FVector::DistSquared(
+			GetActorLocation(),
+			Station->GetActorLocation());
+		if (DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			NearestStation = Station;
+		}
+	}
+	return NearestStation;
+}
+
+AOreProcessorMachine* AWarehouseDepot::FindProcessor() const
+{
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		return false;
+		return nullptr;
 	}
 
-	// TODO: Replace the component tag/name lookup with a formal outbound-order
-	// destination descriptor once the logistics system owns second-leg routes.
-	for (TActorIterator<AActor> ActorIterator(World); ActorIterator; ++ActorIterator)
+	AOreProcessorMachine* NearestProcessor = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	for (TActorIterator<AOreProcessorMachine> ProcessorIterator(World);
+		ProcessorIterator;
+		++ProcessorIterator)
 	{
-		TInlineComponentArray<UResourceStorageComponent*> StorageComponents(*ActorIterator);
-		for (UResourceStorageComponent* CandidateStorage : StorageComponents)
+		AOreProcessorMachine* Processor = *ProcessorIterator;
+		if (!IsValid(Processor)
+			|| Processor->IsActorBeingDestroyed()
+			|| !IsValid(Processor->GetDeliveryPointComponent()))
 		{
-			if (CandidateStorage
-				&& CandidateStorage != GetStorageComponent()
-				&& CandidateStorage->ComponentHasTag(
-					WarehouseTemporaryCoinDispatch::RobotCenterStorageTag))
-			{
-				TInlineComponentArray<USceneComponent*> SceneComponents(*ActorIterator);
-				for (USceneComponent* CandidatePoint : SceneComponents)
-				{
-					if (CandidatePoint && CandidatePoint->GetFName() == TEXT("PaymentDropPoint"))
-					{
-						OutStorage = CandidateStorage;
-						OutDropPoint = CandidatePoint;
-						return true;
-					}
-				}
-			}
+			continue;
+		}
+
+		const float DistanceSquared = FVector::DistSquared(
+			GetActorLocation(),
+			Processor->GetActorLocation());
+		if (DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			NearestProcessor = Processor;
 		}
 	}
+	return NearestProcessor;
+}
 
-	return false;
+void AWarehouseDepot::CleanupOrderPickups()
+{
+	PendingOrderPickups.RemoveAll(
+		[](const AItemPickup* Pickup)
+		{
+			return !IsValid(Pickup) || Pickup->IsActorBeingDestroyed();
+		});
+}
+
+void AWarehouseDepot::BroadcastWarehouseChanged()
+{
+	OnWarehouseChanged.Broadcast();
 }
 
 FVector AWarehouseDepot::ResolveOutboundPickupLocation(const USceneComponent* DockPoint) const
@@ -305,7 +539,7 @@ FVector AWarehouseDepot::ResolveOutboundPickupLocation(const USceneComponent* Do
 	const FVector TraceStart = ProbeLocation + FVector(0.0f, 0.0f, 200.0f);
 	const FVector TraceEnd = ProbeLocation - FVector(0.0f, 0.0f, 500.0f);
 	FHitResult GroundHit;
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WarehouseOutboundCoinGround), false, this);
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WarehouseOutboundOrderGround), false, this);
 	const FCollisionObjectQueryParams ObjectQuery(ECC_WorldStatic);
 	if (const UWorld* World = GetWorld();
 		World && World->LineTraceSingleByObjectType(
@@ -318,8 +552,7 @@ FVector AWarehouseDepot::ResolveOutboundPickupLocation(const USceneComponent* Do
 		return GroundHit.ImpactPoint + FVector(0.0f, 0.0f, 5.0f);
 	}
 
-	// TODO: Remove this fallback with the temporary Warehouse outbound hook.
-	// The actor origin is authored on the work floor, so this remains grounded
+	// The actor origin is authored on the work floor, so orders remain grounded
 	// if a map intentionally has no WorldStatic surface below the dock probe.
 	return FVector(ProbeLocation.X, ProbeLocation.Y, GetActorLocation().Z + 5.0f);
 }
@@ -344,37 +577,79 @@ void AWarehouseDepot::CacheAuthoredComponents()
 		InventoryCoinVisual->AttachToComponent(
 			CargoInside,
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		InventoryOreVisual->AttachToComponent(
+			CargoInside,
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		InventoryIngotVisual->AttachToComponent(
+			CargoInside,
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 	}
 }
 
 void AWarehouseDepot::RefreshInventoryVisual()
 {
-	if (!InventoryCoinVisual)
+	if (!InventoryCoinVisual || !InventoryOreVisual || !InventoryIngotVisual)
 	{
 		return;
 	}
 
 	InventoryCoinVisual->ClearInstances();
+	InventoryOreVisual->ClearInstances();
+	InventoryIngotVisual->ClearInstances();
 	const UResourceStorageComponent* Storage = GetStorageComponent();
 	const int32 CoinCount = Storage
-		? FMath::Min(Storage->GetStoredItemAmount(EItemType::Coin), MaxVisibleCoins)
+		? FMath::Min(Storage->GetStoredItemAmount(EItemType::Coin), MaxVisibleItemsPerType)
+		: 0;
+	const int32 OreCount = Storage
+		? FMath::Min(Storage->GetStoredItemAmount(EItemType::IronOre), MaxVisibleItemsPerType)
+		: 0;
+	const int32 IngotCount = Storage
+		? FMath::Min(Storage->GetStoredItemAmount(EItemType::IronIngot), MaxVisibleItemsPerType)
 		: 0;
 
-	for (int32 Index = 0; Index < CoinCount; ++Index)
+	AddInventoryInstances(InventoryOreVisual, OreCount, -52.0f, 29.0f);
+	AddInventoryInstances(InventoryIngotVisual, IngotCount, 0.0f, 11.0f);
+	AddInventoryInstances(InventoryCoinVisual, CoinCount, 52.0f, 17.0f);
+
+	InventoryOreVisual->SetVisibility(OreCount > 0, true);
+	InventoryIngotVisual->SetVisibility(IngotCount > 0, true);
+	InventoryCoinVisual->SetVisibility(CoinCount > 0, true);
+}
+
+void AWarehouseDepot::AddInventoryInstances(
+	UInstancedStaticMeshComponent* Visual,
+	int32 Count,
+	float GroupWorldOffsetY,
+	float YawStepDegrees)
+{
+	UStaticMesh* Mesh = Visual ? Visual->GetStaticMesh() : nullptr;
+	if (!Visual || !IsValid(Mesh) || Count <= 0)
 	{
-		const int32 Column = Index % 3;
-		const int32 Row = (Index / 3) % 2;
-		const int32 Layer = Index / 6;
-		const FVector Location(
-			(Column - 1) * 38.0f,
-			(Row - 0.5f) * 40.0f,
-			Layer * 9.0f);
-		const FRotator Rotation(0.0f, Index * 17.0f, 0.0f);
-		InventoryCoinVisual->AddInstance(
-			FTransform(Rotation, Location, FVector(MineLearningItemVisual::GoldCoinScale)));
+		return;
 	}
 
-	InventoryCoinVisual->SetVisibility(CoinCount > 0, true);
+	const FVector ParentScale = Visual->GetComponentScale().GetAbs();
+	const FVector InstanceScale = MineLearningItemVisual::GetRelativeScale(Mesh, ParentScale);
+	const FVector WorldSize = MineLearningItemVisual::GetWorldSize(Mesh);
+	const float LocalColumnSpacing = 42.0f / FMath::Max(ParentScale.X, UE_SMALL_NUMBER);
+	const float LocalRowSpacing = 40.0f / FMath::Max(ParentScale.Y, UE_SMALL_NUMBER);
+	const float LocalGroupOffsetY = GroupWorldOffsetY / FMath::Max(ParentScale.Y, UE_SMALL_NUMBER);
+	const float LocalItemHeight = WorldSize.Z / FMath::Max(ParentScale.Z, UE_SMALL_NUMBER);
+	const float LocalVerticalGap = 2.0f / FMath::Max(ParentScale.Z, UE_SMALL_NUMBER);
+
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		const int32 StackIndex = Index / MineLearningItemVisual::DefaultStackHeight;
+		const int32 StackLevel = Index % MineLearningItemVisual::DefaultStackHeight;
+		const int32 Column = StackIndex % 4;
+		const int32 Row = StackIndex / 4;
+		const FVector Location(
+			(Column - 1.5f) * LocalColumnSpacing,
+			LocalGroupOffsetY + Row * LocalRowSpacing,
+			LocalItemHeight * 0.5f + StackLevel * (LocalItemHeight + LocalVerticalGap));
+		const FRotator Rotation(0.0f, Index * YawStepDegrees, 0.0f);
+		Visual->AddInstance(FTransform(Rotation, Location, InstanceScale));
+	}
 }
 
 void AWarehouseDepot::UpdateDoorFeedback(bool bFullyOpen)
@@ -420,29 +695,3 @@ USceneComponent* AWarehouseDepot::FindSceneComponent(FName ComponentName) const
 	}
 	return nullptr;
 }
-
-#if WITH_DEV_AUTOMATION_TESTS
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FWarehouseTemporaryCoinDispatchTest,
-	"MineLearning.Warehouse.TemporaryCoinDispatch.TwoCoinBatches",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FWarehouseTemporaryCoinDispatchTest::RunTest(const FString& Parameters)
-{
-	auto VerifyDispatchAmount = [this](
-		const TCHAR* CaseName,
-		int32 InitialCoinCount,
-		int32 ExpectedDispatchableCoinCount)
-	{
-		TestEqual(
-			CaseName,
-			WarehouseTemporaryCoinDispatch::GetDispatchableCoinCount(InitialCoinCount),
-			ExpectedDispatchableCoinCount);
-	};
-
-	VerifyDispatchAmount(TEXT("One Coin"), 1, 0);
-	VerifyDispatchAmount(TEXT("Two Coins"), 2, 2);
-	VerifyDispatchAmount(TEXT("Four Coins"), 4, 4);
-	return true;
-}
-#endif

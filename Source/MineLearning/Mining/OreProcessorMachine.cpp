@@ -16,7 +16,8 @@ AOreProcessorMachine::AOreProcessorMachine()
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	InputOrePickupClass = AItemPickup::StaticClass();
-	CoinPickupClass = AItemPickup::StaticClass();
+	OutputPickupClass = AItemPickup::StaticClass();
+	ProcessorDisplayName = NSLOCTEXT("MineLearning", "OreProcessorDisplayName", "加工机");
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> IronOreMeshFinder(
 		TEXT("/Game/MineLearning/Mining/Ores/Iron/Meshes/SM_Ore_Iron_Drop_01.SM_Ore_Iron_Drop_01"));
@@ -25,11 +26,11 @@ AOreProcessorMachine::AOreProcessorMachine()
 		InputOreMesh = IronOreMeshFinder.Object;
 	}
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CoinMeshFinder(
-		TEXT("/Game/MineLearning/Mining/Resources/Coin/SM_GoldCoin.SM_GoldCoin"));
-	if (CoinMeshFinder.Succeeded())
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> IronIngotMeshFinder(
+		TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot"));
+	if (IronIngotMeshFinder.Succeeded())
 	{
-		CoinMesh = CoinMeshFinder.Object;
+		OutputIngotMesh = IronIngotMeshFinder.Object;
 	}
 }
 
@@ -135,7 +136,11 @@ bool AOreProcessorMachine::AcceptItem_Implementation(const FItemStack& Item)
 		FItemStack UnitStack;
 		UnitStack.ItemType = EItemType::IronOre;
 		UnitStack.Amount = 1;
-		AItemPickup* Pickup = SpawnTransportPickup(UnitStack, InputOreMesh, InputOreMeshScale, InputOrePickupClass, StartTransform);
+		AItemPickup* Pickup = SpawnTransportPickup(
+			UnitStack,
+			InputOreMesh,
+			InputOrePickupClass,
+			StartTransform);
 		if (!Pickup)
 		{
 			for (AItemPickup* SpawnedPickup : SpawnedPickups)
@@ -218,7 +223,6 @@ USceneComponent* AOreProcessorMachine::FindAuthoredSceneComponent(FName Componen
 AItemPickup* AOreProcessorMachine::SpawnTransportPickup(
 	const FItemStack& Stack,
 	UStaticMesh* Mesh,
-	float MeshScale,
 	TSubclassOf<AItemPickup> PickupClass,
 	const FTransform& SpawnTransform)
 {
@@ -236,13 +240,9 @@ AItemPickup* AOreProcessorMachine::SpawnTransportPickup(
 		SpawnClass = AItemPickup::StaticClass();
 	}
 	// Spline transforms can inherit scale from the placed processor Blueprint.
-	// Transport visuals must use the authored mesh size, otherwise the processor
-	// silently compounds actor scale with InputOreMeshScale / CoinMeshScale.
+	// A pickup owns the one shared world-size rule, so machine transforms stay unit scale.
 	FTransform NormalizedSpawnTransform = SpawnTransform;
-	// Use actor scale for the final world-space visual size. Some pickup
-	// Blueprints restore their inherited Mesh component scale to 1, so relying
-	// on relative component scale alone makes the authored coin look tiny again.
-	NormalizedSpawnTransform.SetScale3D(FVector(FMath::Max(MeshScale, 0.01f)));
+	NormalizedSpawnTransform.SetScale3D(FVector::OneVector);
 	AItemPickup* Pickup = GetWorld()->SpawnActor<AItemPickup>(
 		SpawnClass, NormalizedSpawnTransform, SpawnParameters);
 	if (!Pickup)
@@ -252,11 +252,7 @@ AItemPickup* AOreProcessorMachine::SpawnTransportPickup(
 
 	TArray<TObjectPtr<UStaticMesh>> Meshes;
 	Meshes.Add(Mesh);
-	Pickup->InitializeItem(Stack, Meshes, 1.0f);
-	// Blueprint pickup defaults can reapply their root/component transform during
-	// initialization. Lock the authored world scale after InitializeItem so the
-	// coin keeps the same size on the output belt and at OutputPoint.
-	Pickup->SetActorScale3D(FVector(FMath::Max(MeshScale, 0.01f)));
+	Pickup->InitializeItem(Stack, Meshes);
 	Pickup->SetTransportLocked(true);
 	return Pickup;
 }
@@ -338,10 +334,7 @@ void AOreProcessorMachine::UpdateOutputTransport(float DeltaSeconds)
 			continue;
 		}
 
-		// Keep the transport visual identical to the released pickup even if a
-		// Blueprint construction/default pass has reapplied scale in between.
-		Item.Pickup->SetActorScale3D(FVector(CoinMeshScale));
-		Item.Distance = FMath::Min(Item.Distance + OutputCoinTravelSpeed * DeltaSeconds, SplineLength);
+		Item.Distance = FMath::Min(Item.Distance + OutputItemTravelSpeed * DeltaSeconds, SplineLength);
 		Item.Pickup->SetActorLocationAndRotation(
 			OutputSpline->GetLocationAtDistanceAlongSpline(Item.Distance, ESplineCoordinateSpace::World),
 			OutputSpline->GetQuaternionAtDistanceAlongSpline(Item.Distance, ESplineCoordinateSpace::World));
@@ -351,7 +344,7 @@ void AOreProcessorMachine::UpdateOutputTransport(float DeltaSeconds)
 			if (CachedOutputPoint)
 			{
 				FTransform ReleaseTransform = CachedOutputPoint->GetComponentTransform();
-				ReleaseTransform.SetScale3D(FVector(CoinMeshScale));
+				ReleaseTransform.SetScale3D(FVector::OneVector);
 				Item.Pickup->SetActorTransform(ReleaseTransform);
 				Item.Pickup->ReleaseStationaryForCollection();
 			}
@@ -411,9 +404,11 @@ void AOreProcessorMachine::CompleteMachineProcessing()
 	QueuedOreCount = FMath::Max(QueuedOreCount - 1, 0);
 	OnProcessorQueueChanged.Broadcast(QueuedOreCount, ProcessingQueueCapacity);
 
-	if (!SpawnOutputCoin())
+	if (!SpawnOutputIngot())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[OreProcessor] Failed to spawn output coin. Processor=%s"), *GetNameSafe(this));
+		UE_LOG(LogTemp, Warning,
+			TEXT("[OreProcessor] Failed to spawn output iron ingot. Processor=%s"),
+			*GetNameSafe(this));
 	}
 
 	TryAdmitWaitingOre();
@@ -421,44 +416,32 @@ void AOreProcessorMachine::CompleteMachineProcessing()
 	RefreshTickEnabled();
 }
 
-bool AOreProcessorMachine::SpawnOutputCoin()
+bool AOreProcessorMachine::SpawnOutputIngot()
 {
 	if (!OutputSpline)
 	{
 		return false;
 	}
 
-	// Older placed BP_ProcesserMachine instances can retain the pre-reparent
-	// AItemPickup class override. Keep intentional custom subclasses, but make
-	// the project Coin pickup blueprint the reliable default for legacy actors.
-	TSubclassOf<AItemPickup> PickupClassToSpawn = CoinPickupClass;
-	if (!PickupClassToSpawn || PickupClassToSpawn == AItemPickup::StaticClass())
-	{
-		static const TCHAR* CoinPickupBlueprintPath =
-			TEXT("/Game/MineLearning/Mining/Resources/Coin/BP_CoinPickup.BP_CoinPickup_C");
-		if (UClass* CoinPickupBlueprintClass = StaticLoadClass(
-			AItemPickup::StaticClass(), nullptr, CoinPickupBlueprintPath))
-		{
-			PickupClassToSpawn = CoinPickupBlueprintClass;
-		}
-	}
-
-	FItemStack CoinStack;
-	CoinStack.ItemType = EItemType::Coin;
-	CoinStack.Amount = FMath::Max(OutputCoinAmount, 1);
+	FItemStack IngotStack;
+	IngotStack.ItemType = EItemType::IronIngot;
+	IngotStack.Amount = FMath::Max(OutputIngotAmount, 1);
 	const FTransform StartTransform(
 		OutputSpline->GetQuaternionAtDistanceAlongSpline(0.0f, ESplineCoordinateSpace::World),
 		OutputSpline->GetLocationAtDistanceAlongSpline(0.0f, ESplineCoordinateSpace::World));
-	AItemPickup* CoinPickup = SpawnTransportPickup(
-		CoinStack, CoinMesh, CoinMeshScale, PickupClassToSpawn, StartTransform);
-	if (!CoinPickup)
+	AItemPickup* IngotPickup = SpawnTransportPickup(
+		IngotStack,
+		OutputIngotMesh,
+		OutputPickupClass,
+		StartTransform);
+	if (!IngotPickup)
 	{
 		return false;
 	}
 
 	FOreProcessorTransportItem& Transport = OutputTransportItems.AddDefaulted_GetRef();
-	Transport.Pickup = CoinPickup;
-	Transport.Stack = CoinStack;
+	Transport.Pickup = IngotPickup;
+	Transport.Stack = IngotStack;
 	Transport.Distance = 0.0f;
 	return true;
 }
