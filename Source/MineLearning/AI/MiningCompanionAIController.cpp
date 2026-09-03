@@ -861,7 +861,18 @@ void AMiningCompanionAIController::TickDirectMove(float DeltaSeconds)
 		TargetLocation,
 		DeltaSeconds,
 		DirectMoveSpeed);
-	Companion->SetActorLocation(NewLocation, false);
+	FHitResult MoveHit;
+	Companion->SetActorLocation(NewLocation, true, &MoveHit);
+	if (MoveHit.bBlockingHit
+		&& FVector::DistSquared2D(Companion->GetActorLocation(), TargetLocation)
+			> FMath::Square(AcceptanceRadius))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[MiningAI] Direct fallback blocked by %s; abandoning the unsafe route."),
+			*GetNameSafe(MoveHit.GetActor()));
+		ResetToIdle();
+		return;
+	}
 	if (!Delta.IsNearlyZero())
 	{
 		FRotator Facing = Delta.Rotation();

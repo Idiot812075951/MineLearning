@@ -625,7 +625,18 @@ void AHaulerAIController::TickDirectMove(float DeltaSeconds)
 		TargetLocation,
 		DeltaSeconds,
 		DirectMoveSpeed);
-	Hauler->SetActorLocation(NewLocation, false);
+	FHitResult MoveHit;
+	Hauler->SetActorLocation(NewLocation, true, &MoveHit);
+	if (MoveHit.bBlockingHit
+		&& FVector::DistSquared2D(Hauler->GetActorLocation(), TargetLocation)
+			> FMath::Square(AcceptanceRadius))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[HaulerAI] Direct fallback blocked by %s; abandoning the unsafe route."),
+			*GetNameSafe(MoveHit.GetActor()));
+		ResetToIdle();
+		return;
+	}
 	if (!Delta.IsNearlyZero())
 	{
 		FRotator Facing = Delta.Rotation();

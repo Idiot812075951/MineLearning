@@ -3,6 +3,7 @@
 #include "ItemLogisticsLibrary.h"
 #include "ItemPickup.h"
 #include "ItemTypes.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -29,7 +30,8 @@ ASellStation::ASellStation()
 
 	RobotApproachPoint = CreateDefaultSubobject<USceneComponent>(TEXT("RobotApproachPoint"));
 	RobotApproachPoint->SetupAttachment(SceneRoot);
-	RobotApproachPoint->SetRelativeLocation(FVector(0.0f, 155.0f, 0.0f));
+	// Keep the shared 85 cm navigation capsule clear of the station's simple collision.
+	RobotApproachPoint->SetRelativeLocation(FVector(0.0f, 210.0f, 0.0f));
 
 	StationDisplayName = NSLOCTEXT("MineLearning", "SellStationDisplayName", "出售点");
 	CoinPickupClass = AItemPickup::StaticClass();
@@ -39,6 +41,37 @@ ASellStation::ASellStation()
 	if (CoinMeshFinder.Succeeded())
 	{
 		CoinMesh = CoinMeshFinder.Object;
+	}
+}
+
+void ASellStation::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	EnforceAuthoredCollisionRoles();
+}
+
+void ASellStation::EnforceAuthoredCollisionRoles()
+{
+	TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(this);
+	for (UPrimitiveComponent* Component : PrimitiveComponents)
+	{
+		if (!Component)
+		{
+			continue;
+		}
+
+		if (Component->GetFName() == TEXT("Body"))
+		{
+			Component->SetCollisionProfileName(TEXT("BlockAll"));
+			Component->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			Component->SetCanEverAffectNavigation(true);
+		}
+		else if (Component->GetFName() == TEXT("Screen"))
+		{
+			Component->SetCollisionProfileName(TEXT("NoCollision"));
+			Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Component->SetCanEverAffectNavigation(false);
+		}
 	}
 }
 

@@ -12,6 +12,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
+#include "Navigation/NavigationStandards.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -41,7 +42,7 @@ AMineLearningCharacter::AMineLearningCharacter()
 	// Functional pads in the compact world use an 80 cm visual plinth. Let the
 	// player clear that authored gameplay step without making taller machinery
 	// or cliff faces walkable.
-	GetCharacterMovement()->MaxStepHeight = 85.0f;
+	GetCharacterMovement()->MaxStepHeight = MineLearningNavigation::CharacterStepHeight;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;

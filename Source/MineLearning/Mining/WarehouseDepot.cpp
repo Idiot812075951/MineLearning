@@ -31,23 +31,27 @@ AWarehouseDepot::AWarehouseDepot()
 	WorkerInteractionTrigger->SetCollisionResponseToAllChannels(ECR_Ignore);
 	WorkerInteractionTrigger->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	WorkerInteractionTrigger->SetGenerateOverlapEvents(true);
+	WorkerInteractionTrigger->SetCanEverAffectNavigation(false);
 
 	InventoryCoinVisual = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WarehouseInventoryCoins"));
 	InventoryCoinVisual->SetupAttachment(GetRootComponent());
 	InventoryCoinVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	InventoryCoinVisual->SetGenerateOverlapEvents(false);
+	InventoryCoinVisual->SetCanEverAffectNavigation(false);
 	InventoryCoinVisual->SetMobility(EComponentMobility::Movable);
 
 	InventoryOreVisual = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WarehouseInventoryOre"));
 	InventoryOreVisual->SetupAttachment(GetRootComponent());
 	InventoryOreVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	InventoryOreVisual->SetGenerateOverlapEvents(false);
+	InventoryOreVisual->SetCanEverAffectNavigation(false);
 	InventoryOreVisual->SetMobility(EComponentMobility::Movable);
 
 	InventoryIngotVisual = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WarehouseInventoryIngots"));
 	InventoryIngotVisual->SetupAttachment(GetRootComponent());
 	InventoryIngotVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	InventoryIngotVisual->SetGenerateOverlapEvents(false);
+	InventoryIngotVisual->SetCanEverAffectNavigation(false);
 	InventoryIngotVisual->SetMobility(EComponentMobility::Movable);
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> GoldCoinMesh(
@@ -564,6 +568,22 @@ void AWarehouseDepot::CacheAuthoredComponents()
 	DoorSafetyBlockerComponent = Cast<UPrimitiveComponent>(
 		FindSceneComponent(TEXT("BC_Warehouse_DoorSafetyBlocker")));
 
+	// The doorway opens at runtime while the project uses a static NavMesh. Keep its
+	// changing collision out of navigation so an approaching worker can reach the
+	// overlap trigger that opens it.
+	if (BarrierVisualComponent)
+	{
+		BarrierVisualComponent->SetCanEverAffectNavigation(false);
+	}
+	if (DoorSafetyBlockerComponent)
+	{
+		DoorSafetyBlockerComponent->SetCanEverAffectNavigation(false);
+	}
+	if (UPrimitiveComponent* DoorComponent = Cast<UPrimitiveComponent>(FindSceneComponent(TEXT("Door"))))
+	{
+		DoorComponent->SetCanEverAffectNavigation(false);
+	}
+
 	if (USceneComponent* DockPoint = FindSceneComponent(TEXT("P_Warehouse_DockPoint")))
 	{
 		WorkerInteractionTrigger->AttachToComponent(
@@ -658,6 +678,8 @@ void AWarehouseDepot::UpdateDoorFeedback(bool bFullyOpen)
 	{
 		BarrierVisualComponent->SetVisibility(!bFullyOpen, true);
 		BarrierVisualComponent->SetHiddenInGame(bFullyOpen);
+		BarrierVisualComponent->SetCollisionEnabled(
+			bFullyOpen ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
 	}
 
 	if (DoorSafetyBlockerComponent)

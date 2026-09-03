@@ -21,6 +21,7 @@ APlayerTransformZone::APlayerTransformZone()
 	TransformArea->SetCollisionResponseToAllChannels(ECR_Ignore);
 	TransformArea->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	TransformArea->SetGenerateOverlapEvents(true);
+	TransformArea->SetCanEverAffectNavigation(false);
 
 	static ConstructorHelpers::FClassFinder<APawn> GunnerClass(
 		TEXT("/Game/MineLearning/Characters/Gunner/Blueprints/BP_Gunner"));

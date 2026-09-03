@@ -24,6 +24,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "MineLearning/Mining/MineableOre.h"
 #include "MineLearning/Mining/MiningTypes.h"
+#include "MineLearning/Navigation/NavigationStandards.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
@@ -75,6 +76,7 @@ AGunnerCharacter::AGunnerCharacter()
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 360.0f, 0.0f);
 	GetCharacterMovement()->MaxWalkSpeed = 240.0f;
+	GetCharacterMovement()->MaxStepHeight = MineLearningNavigation::CharacterStepHeight;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 88.0f);
 

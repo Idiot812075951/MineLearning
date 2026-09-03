@@ -27,6 +27,7 @@ class MINELEARNING_API ASellStation : public AActor, public IItemReceiver
 
 public:
 	ASellStation();
+	virtual void OnConstruction(const FTransform& Transform) override;
 
 	UFUNCTION(BlueprintPure, Category="Sell Station")
 	USceneComponent* GetRobotApproachPoint() const { return RobotApproachPoint; }
@@ -67,4 +68,5 @@ private:
 	TObjectPtr<UStaticMesh> CoinMesh;
 
 	bool SpawnCoinPickup(int32 CoinAmount);
+	void EnforceAuthoredCollisionRoles();
 };

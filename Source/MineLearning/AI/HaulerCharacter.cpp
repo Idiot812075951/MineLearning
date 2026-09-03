@@ -10,6 +10,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ItemTypes.h"
+#include "MineLearning/Navigation/NavigationStandards.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -26,6 +27,7 @@ AHaulerCharacter::AHaulerCharacter()
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
 	GetCharacterMovement()->MaxWalkSpeed = 320.0f;
+	GetCharacterMovement()->MaxStepHeight = MineLearningNavigation::CharacterStepHeight;
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CarrierMesh(
 		TEXT("/Game/MineLearning/Characters/Carrier/SK_CarrierRobot.SK_CarrierRobot"));
