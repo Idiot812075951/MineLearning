@@ -1112,7 +1112,7 @@ void AMiningCompanionAIController::DepositCarriedItem()
 	}
 
 	const FItemStack CarriedItem = CarryComponent->GetCurrentItem();
-	if (!IItemReceiver::Execute_AcceptItem(DeliveryTarget, CarriedItem))
+	if (!UItemLogisticsLibrary::DeliverItemToReceiver(DeliveryTarget, CarriedItem))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[MiningAI] Deposit failed: receiver rejected item"));
 		return;

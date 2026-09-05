@@ -1,6 +1,5 @@
 #include "WarehouseDepot.h"
 
-#include "MineLearning/AI/HaulerCharacter.h"
 #include "ItemLogisticsLibrary.h"
 #include "ItemPickup.h"
 #include "ItemRules.h"
@@ -16,7 +15,6 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
-#include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
 AWarehouseDepot::AWarehouseDepot()
@@ -120,6 +118,7 @@ void AWarehouseDepot::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 	}
 	PendingOrderPickups.Reset();
+	ActiveWorkerAccesses.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -157,6 +156,26 @@ void AWarehouseDepot::CloseWarehouse()
 {
 	bDoorOpenRequested = false;
 	UpdateDoorFeedback(false);
+}
+
+void AWarehouseDepot::BeginWorkerAccess(AActor* Worker)
+{
+	if (!IsValid(Worker))
+	{
+		return;
+	}
+
+	ActiveWorkerAccesses.Add(Worker);
+	RefreshDoorRequest();
+}
+
+void AWarehouseDepot::EndWorkerAccess(AActor* Worker)
+{
+	if (Worker)
+	{
+		ActiveWorkerAccesses.Remove(TWeakObjectPtr<AActor>(Worker));
+	}
+	RefreshDoorRequest();
 }
 
 bool AWarehouseDepot::IsPlayerInInteractionRange(const APawn* PlayerPawn) const
@@ -405,14 +424,8 @@ bool AWarehouseDepot::AcceptItem_Implementation(const FItemStack& Item)
 		return false;
 	}
 
-	OpenWarehouse();
 	RefreshInventoryVisual();
-	GetWorldTimerManager().SetTimer(
-		CloseDoorTimer,
-		this,
-		&AWarehouseDepot::TryCloseAfterDelivery,
-		1.0f,
-		false);
+	RefreshDoorRequest();
 	return true;
 }
 
@@ -424,9 +437,8 @@ void AWarehouseDepot::HandleWorkerEnter(
 	bool bFromSweep,
 	const FHitResult& SweepResult)
 {
-	if (AHaulerCharacter* Worker = Cast<AHaulerCharacter>(OtherActor))
+	if (APawn* Visitor = Cast<APawn>(OtherActor))
 	{
-		ActiveWorker = Worker;
 		OpenWarehouse();
 	}
 }
@@ -437,10 +449,9 @@ void AWarehouseDepot::HandleWorkerExit(
 	UPrimitiveComponent* OtherComponent,
 	int32 OtherBodyIndex)
 {
-	if (OtherActor == ActiveWorker)
+	if (Cast<APawn>(OtherActor))
 	{
-		ActiveWorker = nullptr;
-		CloseWarehouse();
+		RefreshDoorRequest();
 	}
 }
 
@@ -466,7 +477,7 @@ ASellStation* AWarehouseDepot::FindSellStation(const FItemStack& Item) const
 		ASellStation* Station = *StationIterator;
 		if (!IsValid(Station)
 			|| Station->IsActorBeingDestroyed()
-			|| !IItemReceiver::Execute_CanAcceptItem(Station, Item))
+			|| !UItemLogisticsLibrary::CanReceiverAcceptItem(Station, Item))
 		{
 			continue;
 		}
@@ -627,9 +638,11 @@ void AWarehouseDepot::RefreshInventoryVisual()
 		? FMath::Min(Storage->GetStoredItemAmount(EItemType::IronIngot), MaxVisibleItemsPerType)
 		: 0;
 
-	AddInventoryInstances(InventoryOreVisual, OreCount, -52.0f, 29.0f);
-	AddInventoryInstances(InventoryIngotVisual, IngotCount, 0.0f, 11.0f);
-	AddInventoryInstances(InventoryCoinVisual, CoinCount, 52.0f, 17.0f);
+	// Use three side-by-side showcase bays. Depth-based grouping made a small
+	// coin stack disappear behind a large ore stack from the gameplay camera.
+	AddInventoryInstances(InventoryOreVisual, OreCount, -74.0f, 28.0f, 29.0f, 1.0f);
+	AddInventoryInstances(InventoryIngotVisual, IngotCount, 0.0f, 28.0f, 11.0f, 1.08f);
+	AddInventoryInstances(InventoryCoinVisual, CoinCount, 74.0f, 28.0f, 17.0f, 1.45f);
 
 	InventoryOreVisual->SetVisibility(OreCount > 0, true);
 	InventoryIngotVisual->SetVisibility(IngotCount > 0, true);
@@ -639,8 +652,10 @@ void AWarehouseDepot::RefreshInventoryVisual()
 void AWarehouseDepot::AddInventoryInstances(
 	UInstancedStaticMeshComponent* Visual,
 	int32 Count,
+	float GroupWorldOffsetX,
 	float GroupWorldOffsetY,
-	float YawStepDegrees)
+	float YawStepDegrees,
+	float DisplayScaleMultiplier)
 {
 	UStaticMesh* Mesh = Visual ? Visual->GetStaticMesh() : nullptr;
 	if (!Visual || !IsValid(Mesh) || Count <= 0)
@@ -649,10 +664,13 @@ void AWarehouseDepot::AddInventoryInstances(
 	}
 
 	const FVector ParentScale = Visual->GetComponentScale().GetAbs();
-	const FVector InstanceScale = MineLearningItemVisual::GetRelativeScale(Mesh, ParentScale);
-	const FVector WorldSize = MineLearningItemVisual::GetWorldSize(Mesh);
-	const float LocalColumnSpacing = 42.0f / FMath::Max(ParentScale.X, UE_SMALL_NUMBER);
+	const FVector InstanceScale = MineLearningItemVisual::GetRelativeScale(Mesh, ParentScale)
+		* FMath::Max(DisplayScaleMultiplier, 0.1f);
+	const FVector WorldSize = MineLearningItemVisual::GetWorldSize(Mesh)
+		* FMath::Max(DisplayScaleMultiplier, 0.1f);
+	const float LocalColumnSpacing = 38.0f / FMath::Max(ParentScale.X, UE_SMALL_NUMBER);
 	const float LocalRowSpacing = 40.0f / FMath::Max(ParentScale.Y, UE_SMALL_NUMBER);
+	const float LocalGroupOffsetX = GroupWorldOffsetX / FMath::Max(ParentScale.X, UE_SMALL_NUMBER);
 	const float LocalGroupOffsetY = GroupWorldOffsetY / FMath::Max(ParentScale.Y, UE_SMALL_NUMBER);
 	const float LocalItemHeight = WorldSize.Z / FMath::Max(ParentScale.Z, UE_SMALL_NUMBER);
 	const float LocalVerticalGap = 2.0f / FMath::Max(ParentScale.Z, UE_SMALL_NUMBER);
@@ -661,10 +679,10 @@ void AWarehouseDepot::AddInventoryInstances(
 	{
 		const int32 StackIndex = Index / MineLearningItemVisual::DefaultStackHeight;
 		const int32 StackLevel = Index % MineLearningItemVisual::DefaultStackHeight;
-		const int32 Column = StackIndex % 4;
-		const int32 Row = StackIndex / 4;
+		const int32 Column = StackIndex % 2;
+		const int32 Row = StackIndex / 2;
 		const FVector Location(
-			(Column - 1.5f) * LocalColumnSpacing,
+			LocalGroupOffsetX + (Column - 0.5f) * LocalColumnSpacing,
 			LocalGroupOffsetY + Row * LocalRowSpacing,
 			LocalItemHeight * 0.5f + StackLevel * (LocalItemHeight + LocalVerticalGap));
 		const FRotator Rotation(0.0f, Index * YawStepDegrees, 0.0f);
@@ -689,20 +707,30 @@ void AWarehouseDepot::UpdateDoorFeedback(bool bFullyOpen)
 	}
 }
 
-void AWarehouseDepot::TryCloseAfterDelivery()
+void AWarehouseDepot::RefreshDoorRequest()
 {
-	if (ActiveWorker && WorkerInteractionTrigger->IsOverlappingActor(ActiveWorker))
+	for (auto AccessIterator = ActiveWorkerAccesses.CreateIterator(); AccessIterator; ++AccessIterator)
 	{
-		GetWorldTimerManager().SetTimer(
-			CloseDoorTimer,
-			this,
-			&AWarehouseDepot::TryCloseAfterDelivery,
-			0.5f,
-			false);
-		return;
+		if (!AccessIterator->IsValid())
+		{
+			AccessIterator.RemoveCurrent();
+		}
 	}
 
-	CloseWarehouse();
+	TArray<AActor*> OverlappingPawns;
+	if (WorkerInteractionTrigger)
+	{
+		WorkerInteractionTrigger->GetOverlappingActors(OverlappingPawns, APawn::StaticClass());
+	}
+
+	if (!ActiveWorkerAccesses.IsEmpty() || !OverlappingPawns.IsEmpty())
+	{
+		OpenWarehouse();
+	}
+	else
+	{
+		CloseWarehouse();
+	}
 }
 
 USceneComponent* AWarehouseDepot::FindSceneComponent(FName ComponentName) const

@@ -43,13 +43,20 @@ enum class EItemReceiverType : uint8
 namespace MineLearningItemVisual
 {
 	inline constexpr float StandardMaxDimensionCm = 30.0f;
+	inline constexpr float CoinMaxDimensionCm = 42.0f;
 	inline constexpr int32 DefaultStackHeight = 3;
 
 	MINELEARNING_API float GetUniformScale(const UStaticMesh* Mesh);
+	MINELEARNING_API float GetUniformScale(const UStaticMesh* Mesh, EItemType ItemType);
 	MINELEARNING_API FVector GetRelativeScale(
 		const UStaticMesh* Mesh,
 		const FVector& ParentWorldScale);
+	MINELEARNING_API FVector GetRelativeScale(
+		const UStaticMesh* Mesh,
+		const FVector& ParentWorldScale,
+		EItemType ItemType);
 	MINELEARNING_API FVector GetWorldSize(const UStaticMesh* Mesh);
+	MINELEARNING_API FVector GetWorldSize(const UStaticMesh* Mesh, EItemType ItemType);
 }
 
 USTRUCT(BlueprintType)

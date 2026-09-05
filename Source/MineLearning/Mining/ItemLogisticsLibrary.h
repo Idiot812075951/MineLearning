@@ -6,6 +6,7 @@
 #include "ItemLogisticsLibrary.generated.h"
 
 class UDataTable;
+class AActor;
 
 UCLASS()
 class MINELEARNING_API UItemLogisticsLibrary : public UBlueprintFunctionLibrary
@@ -27,6 +28,18 @@ public:
 		const UObject* WorldContextObject,
 		const FItemStack& Item,
 		const FVector& SearchOrigin);
+
+	/**
+	 * Routes receiver calls through a native interface address when one exists,
+	 * while preserving Blueprint-only interface implementations as a fallback.
+	 * This avoids UE 5.8 resolving native BlueprintNativeEvent interface calls to
+	 * the interface default implementation.
+	 */
+	static bool TryGetReceiverType(AActor* Receiver, EItemReceiverType& OutReceiverType);
+
+	static bool CanReceiverAcceptItem(AActor* Receiver, const FItemStack& Item);
+
+	static bool DeliverItemToReceiver(AActor* Receiver, const FItemStack& Item);
 
 private:
 	static UDataTable* GetRulesTable();

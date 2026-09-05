@@ -9,7 +9,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
-#include "MineLearning/Mining/ItemTypes.h"
 #include "MineLearning/Navigation/NavigationStandards.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -56,7 +55,7 @@ AHaulerCharacter::AHaulerCharacter()
 	// The Carrier owns player-scheduled warehouse routes in both directions:
 	// ore travels to a SellPoint and the generated currency returns to Warehouse.
 	ResourceCarryComponent->ConfigureAcceptance(
-		1,
+		5,
 		false,
 		{ EItemCategory::Ore, EItemCategory::Currency, EItemCategory::ProcessedMaterial });
 
@@ -72,7 +71,6 @@ AHaulerCharacter::AHaulerCharacter()
 
 	CargoContentVisual = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CargoContentVisual"));
 	CargoContentVisual->SetupAttachment(CarriedItemVisual);
-	CargoContentVisual->SetRelativeLocation(FVector(0.0f, 0.0f, 10.0f));
 	CargoContentVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	CargoContentVisual->SetGenerateOverlapEvents(false);
 	CargoContentVisual->SetCanEverAffectNavigation(false);
@@ -95,12 +93,11 @@ void AHaulerCharacter::BeginPlay()
 
 void AHaulerCharacter::ShowCarriedItem(UStaticMesh* ItemMesh)
 {
-	CargoContentVisual->SetStaticMesh(ItemMesh);
-	CargoContentVisual->SetRelativeScale3D(MineLearningItemVisual::GetRelativeScale(
-		ItemMesh,
-		CarriedItemVisual->GetComponentScale()));
-	CarriedItemVisual->SetVisibility(true, true);
-	CargoContentVisual->SetVisibility(IsValid(ItemMesh), true);
+	// The carry component owns the physical item pile. This component is only
+	// the authored tray, avoiding two independent visual-count systems.
+	CargoContentVisual->SetStaticMesh(nullptr);
+	CargoContentVisual->SetVisibility(false, true);
+	CarriedItemVisual->SetVisibility(IsValid(ItemMesh), true);
 }
 
 void AHaulerCharacter::HideCarriedItem()

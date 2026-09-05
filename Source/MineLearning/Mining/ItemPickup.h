@@ -8,6 +8,7 @@
 class USkeletalMeshComponent;
 class USceneComponent;
 class USphereComponent;
+class UInstancedStaticMeshComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 class UResourceStorageComponent;
@@ -62,6 +63,7 @@ public:
 	AActor* GetExplicitDeliveryActor() const { return ExplicitDeliveryActor; }
 	UResourceStorageComponent* GetExplicitDeliveryStorage() const { return ExplicitDeliveryStorage; }
 	USceneComponent* GetExplicitDeliveryPoint() const { return ExplicitDeliveryPoint; }
+	UResourceStorageComponent* GetReservationSourceStorage() const { return ReservationSourceStorage; }
 
 	UFUNCTION(BlueprintPure, Category="Item|Pickup")
 	int32 GetAmount() const { return ItemStack.Amount; }
@@ -104,6 +106,8 @@ protected:
 	void SelectDropMesh(const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes);
 
 private:
+	UInstancedStaticMeshComponent* FindOrCreateStackVisual();
+	void RefreshStackVisual();
 	void UpdateAttachMovement(float DeltaSeconds);
 
 	UPROPERTY()

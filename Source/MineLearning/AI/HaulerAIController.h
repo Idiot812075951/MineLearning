@@ -7,6 +7,7 @@
 
 class AHaulerCharacter;
 class AItemPickup;
+class AWarehouseDepot;
 struct FItemStack;
 class UResourceCarryComponent;
 class UResourceStorageComponent;
@@ -51,6 +52,7 @@ private:
 	void CacheHauler();
 	void TryFindWork();
 	bool FindNearestValidPickup();
+	bool FindAdditionalCompatiblePickup();
 	bool MoveToCurrentPickup();
 	bool BeginPickupAnimation();
 	bool CollectCurrentPickup();
@@ -58,6 +60,9 @@ private:
 	bool BeginDropOffAnimation();
 	bool DepositCurrentItem();
 	void ResetToIdle();
+	AWarehouseDepot* ResolvePickupWarehouse(const AItemPickup* Pickup) const;
+	void BeginWarehouseAccess(AWarehouseDepot* Warehouse);
+	void EndWarehouseAccess();
 	AActor* ResolvePickupDestination(const AItemPickup* Pickup) const;
 	bool HasValidExplicitDeliveryRoute(const FItemStack& Item) const;
 	FVector GetDestinationLocation() const;
@@ -78,6 +83,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<USceneComponent> ExplicitDeliveryPoint;
+
+	UPROPERTY()
+	TObjectPtr<AWarehouseDepot> ActiveWarehouseAccess;
 
 	UPROPERTY(VisibleAnywhere, Category="Item|Hauler")
 	EHaulerState State = EHaulerState::Idle;

@@ -96,10 +96,13 @@ void URobotCenterCoinDisplayComponent::RefreshDisplay()
 	const int32 CoinCount = FMath::Min(
 		CoinStorage->GetStoredItemAmount(EItemType::Coin),
 		MaxVisibleCoins);
-	const FVector CoinWorldSize = MineLearningItemVisual::GetWorldSize(CoinMesh);
+	const FVector CoinWorldSize = MineLearningItemVisual::GetWorldSize(
+		CoinMesh,
+		EItemType::Coin);
 	const FVector InstanceScale = MineLearningItemVisual::GetRelativeScale(
 		CoinMesh,
-		CoinPileVisual->GetComponentScale());
+		CoinPileVisual->GetComponentScale(),
+		EItemType::Coin);
 	for (int32 Index = 0; Index < CoinCount; ++Index)
 	{
 		const int32 StackIndex = Index / MineLearningItemVisual::DefaultStackHeight;

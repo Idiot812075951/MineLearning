@@ -4,7 +4,6 @@
 #include "ResourceDepot.h"
 #include "WarehouseDepot.generated.h"
 
-class AHaulerCharacter;
 class AItemPickup;
 class AOreProcessorMachine;
 class APawn;
@@ -73,6 +72,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Warehouse|Door")
 	void CloseWarehouse();
 
+	/** Keeps the warehouse accessible for the complete worker transfer, including batched pickups. */
+	void BeginWorkerAccess(AActor* Worker);
+
+	/** Releases a previously acquired worker access session. */
+	void EndWorkerAccess(AActor* Worker);
+
+	bool IsDoorOpenRequested() const { return bDoorOpenRequested; }
+
 	UFUNCTION(BlueprintPure, Category="Warehouse|Interaction")
 	bool IsPlayerInInteractionRange(const APawn* PlayerPawn) const;
 
@@ -130,9 +137,6 @@ private:
 	TObjectPtr<UStaticMesh> IronIngotMesh;
 
 	UPROPERTY()
-	TObjectPtr<AHaulerCharacter> ActiveWorker;
-
-	UPROPERTY()
 	TObjectPtr<USceneComponent> DoorPivotComponent;
 
 	UPROPERTY()
@@ -146,7 +150,7 @@ private:
 
 	bool bDoorOpenRequested = false;
 	float CurrentDoorRoll = 0.0f;
-	FTimerHandle CloseDoorTimer;
+	TSet<TWeakObjectPtr<AActor>> ActiveWorkerAccesses;
 
 	UFUNCTION()
 	void HandleWorkerEnter(
@@ -172,10 +176,12 @@ private:
 	void AddInventoryInstances(
 		UInstancedStaticMeshComponent* Visual,
 		int32 Count,
+		float GroupWorldOffsetX,
 		float GroupWorldOffsetY,
-		float YawStepDegrees);
+		float YawStepDegrees,
+		float DisplayScaleMultiplier);
 	void UpdateDoorFeedback(bool bFullyOpen);
-	void TryCloseAfterDelivery();
+	void RefreshDoorRequest();
 	ASellStation* FindSellStation(const FItemStack& Item) const;
 	AOreProcessorMachine* FindProcessor() const;
 	bool RequestDeliveryOrder(

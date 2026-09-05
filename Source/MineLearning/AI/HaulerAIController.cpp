@@ -8,6 +8,7 @@
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ResourceDepot.h"
 #include "MineLearning/Mining/ResourceStorageComponent.h"
+#include "MineLearning/Mining/WarehouseDepot.h"
 #include "Components/SceneComponent.h"
 #include "TimerManager.h"
 
@@ -32,6 +33,7 @@ void AHaulerAIController::BeginPlay()
 void AHaulerAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	GetWorldTimerManager().ClearTimer(SearchTimerHandle);
+	EndWarehouseAccess();
 	if (IsValid(TargetPickup))
 	{
 		TargetPickup->ReleaseReservation(Hauler);
@@ -158,8 +160,69 @@ bool AHaulerAIController::FindNearestValidPickup()
 
 	TargetPickup = BestPickup;
 	TargetDestination = BestDestination;
+	BeginWarehouseAccess(ResolvePickupWarehouse(TargetPickup));
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] Selected Pickup=%s Destination=%s"),
 		*GetNameSafe(TargetPickup), *GetNameSafe(TargetDestination));
+	return true;
+}
+
+bool AHaulerAIController::FindAdditionalCompatiblePickup()
+{
+	UResourceCarryComponent* CarryComponent = Hauler ? Hauler->GetResourceCarryComponent() : nullptr;
+	if (!CarryComponent || CarryComponent->IsEmpty() || CarryComponent->IsFull()
+		|| !IsValid(TargetDestination) || !GetWorld())
+	{
+		return false;
+	}
+
+	const bool bCurrentRouteIsExplicit = IsValid(ExplicitDeliveryPoint);
+	AItemPickup* BestPickup = nullptr;
+	float BestDistanceSq = TNumericLimits<float>::Max();
+	for (TActorIterator<AItemPickup> It(GetWorld()); It; ++It)
+	{
+		AItemPickup* Pickup = *It;
+		if (!IsValid(Pickup) || Pickup->IsActorBeingDestroyed()
+			|| !Pickup->IsAvailableFor(Hauler)
+			|| !CarryComponent->CanAcceptItem(Pickup->GetItemStack())
+			|| Pickup->HasUsableExplicitDeliveryTarget() != bCurrentRouteIsExplicit)
+		{
+			continue;
+		}
+
+		if (bCurrentRouteIsExplicit)
+		{
+			if (Pickup->GetExplicitDeliveryActor() != TargetDestination
+				|| Pickup->GetExplicitDeliveryStorage() != ExplicitDeliveryStorage
+				|| Pickup->GetExplicitDeliveryPoint() != ExplicitDeliveryPoint)
+			{
+				continue;
+			}
+		}
+		else if (ResolvePickupDestination(Pickup) != TargetDestination)
+		{
+			continue;
+		}
+
+		const float DistanceSq = FVector::DistSquared(
+			Hauler->GetActorLocation(), Pickup->GetActorLocation());
+		if (DistanceSq < BestDistanceSq)
+		{
+			BestDistanceSq = DistanceSq;
+			BestPickup = Pickup;
+		}
+	}
+
+	if (!BestPickup || !BestPickup->TryReserve(Hauler))
+	{
+		return false;
+	}
+
+	TargetPickup = BestPickup;
+	BeginWarehouseAccess(ResolvePickupWarehouse(TargetPickup));
+	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] Continuing compatible batch Pickup=%s Load=%d/%d"),
+		*GetNameSafe(TargetPickup),
+		CarryComponent->GetCurrentItemCount(),
+		CarryComponent->GetCapacity());
 	return true;
 }
 
@@ -283,6 +346,7 @@ bool AHaulerAIController::ResolveAndMoveToDestination()
 		ResetToIdle();
 		return false;
 	}
+	EndWarehouseAccess();
 
 	if (HasValidExplicitDeliveryRoute(CarryComponent->GetCurrentItem()))
 	{
@@ -301,9 +365,10 @@ bool AHaulerAIController::ResolveAndMoveToDestination()
 	}
 	if (!IsValid(TargetDestination))
 	{
-		State = EHaulerState::Idle;
+		ResetToIdle();
 		return false;
 	}
+	BeginWarehouseAccess(Cast<AWarehouseDepot>(TargetDestination));
 
 	State = EHaulerState::MovingToDestination;
 	const FVector DestinationLocation = GetDestinationLocation();
@@ -379,10 +444,10 @@ bool AHaulerAIController::DepositCurrentItem()
 
 		const bool bDelivered = IsValid(ExplicitDeliveryStorage)
 			? ExplicitDeliveryStorage->AddItem(CarriedItem)
-			: IItemReceiver::Execute_AcceptItem(TargetDestination, CarriedItem);
+			: UItemLogisticsLibrary::DeliverItemToReceiver(TargetDestination, CarriedItem);
 		if (!bDelivered)
 		{
-			State = EHaulerState::Idle;
+			ResetToIdle();
 			return false;
 		}
 	}
@@ -395,7 +460,7 @@ bool AHaulerAIController::DepositCurrentItem()
 		if (!IsValid(CurrentDestination)
 			|| !CurrentDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
 		{
-			State = EHaulerState::Idle;
+			ResetToIdle();
 			return false;
 		}
 
@@ -405,9 +470,9 @@ bool AHaulerAIController::DepositCurrentItem()
 			return ResolveAndMoveToDestination();
 		}
 
-		if (!IItemReceiver::Execute_AcceptItem(TargetDestination, CarriedItem))
+		if (!UItemLogisticsLibrary::DeliverItemToReceiver(TargetDestination, CarriedItem))
 		{
-			State = EHaulerState::Idle;
+			ResetToIdle();
 			return false;
 		}
 	}
@@ -440,6 +505,12 @@ void AHaulerAIController::HandlePickupAnimationFinished()
 	{
 		return;
 	}
+	if (FindAdditionalCompatiblePickup())
+	{
+		MoveToCurrentPickup();
+		return;
+	}
+
 	ResolveAndMoveToDestination();
 }
 
@@ -505,6 +576,7 @@ void AHaulerAIController::OnMoveCompleted(
 void AHaulerAIController::ResetToIdle()
 {
 	StopActiveMove();
+	EndWarehouseAccess();
 	if (IsValid(TargetPickup))
 	{
 		TargetPickup->ReleaseReservation(Hauler);
@@ -518,6 +590,38 @@ void AHaulerAIController::ResetToIdle()
 	bPickupCommitted = false;
 	bDropOffCommitted = false;
 	NavigationStallSeconds = 0.0f;
+}
+
+AWarehouseDepot* AHaulerAIController::ResolvePickupWarehouse(const AItemPickup* Pickup) const
+{
+	const UResourceStorageComponent* SourceStorage = Pickup
+		? Pickup->GetReservationSourceStorage()
+		: nullptr;
+	return SourceStorage ? Cast<AWarehouseDepot>(SourceStorage->GetOwner()) : nullptr;
+}
+
+void AHaulerAIController::BeginWarehouseAccess(AWarehouseDepot* Warehouse)
+{
+	if (ActiveWarehouseAccess == Warehouse)
+	{
+		return;
+	}
+
+	EndWarehouseAccess();
+	ActiveWarehouseAccess = Warehouse;
+	if (IsValid(ActiveWarehouseAccess) && IsValid(Hauler))
+	{
+		ActiveWarehouseAccess->BeginWorkerAccess(Hauler);
+	}
+}
+
+void AHaulerAIController::EndWarehouseAccess()
+{
+	if (IsValid(ActiveWarehouseAccess) && IsValid(Hauler))
+	{
+		ActiveWarehouseAccess->EndWorkerAccess(Hauler);
+	}
+	ActiveWarehouseAccess = nullptr;
 }
 
 void AHaulerAIController::StopActiveMove()
@@ -573,8 +677,7 @@ bool AHaulerAIController::HasValidExplicitDeliveryRoute(const FItemStack& Item) 
 			&& ExplicitDeliveryStorage->CanAddItem(Item);
 	}
 
-	return TargetDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
-		&& IItemReceiver::Execute_CanAcceptItem(TargetDestination, Item);
+	return UItemLogisticsLibrary::CanReceiverAcceptItem(TargetDestination, Item);
 }
 
 void AHaulerAIController::TickDirectMove(float DeltaSeconds)

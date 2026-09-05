@@ -69,6 +69,62 @@ int32 UItemLogisticsLibrary::GetUnitSellPrice(EItemType ItemType)
 	return GetItemRule(LookupItem, Rule) ? FMath::Max(Rule.UnitSellPrice, 0) : 0;
 }
 
+bool UItemLogisticsLibrary::TryGetReceiverType(
+	AActor* Receiver,
+	EItemReceiverType& OutReceiverType)
+{
+	if (!IsValid(Receiver)
+		|| !Receiver->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
+	{
+		return false;
+	}
+
+	if (const IItemReceiver* NativeReceiver = Cast<IItemReceiver>(Receiver))
+	{
+		OutReceiverType = NativeReceiver->GetItemReceiverType_Implementation();
+		return true;
+	}
+
+	OutReceiverType = IItemReceiver::Execute_GetItemReceiverType(Receiver);
+	return true;
+}
+
+bool UItemLogisticsLibrary::CanReceiverAcceptItem(
+	AActor* Receiver,
+	const FItemStack& Item)
+{
+	if (!IsValid(Receiver)
+		|| !Receiver->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
+	{
+		return false;
+	}
+
+	if (const IItemReceiver* NativeReceiver = Cast<IItemReceiver>(Receiver))
+	{
+		return NativeReceiver->CanAcceptItem_Implementation(Item);
+	}
+
+	return IItemReceiver::Execute_CanAcceptItem(Receiver, Item);
+}
+
+bool UItemLogisticsLibrary::DeliverItemToReceiver(
+	AActor* Receiver,
+	const FItemStack& Item)
+{
+	if (!IsValid(Receiver)
+		|| !Receiver->GetClass()->ImplementsInterface(UItemReceiver::StaticClass()))
+	{
+		return false;
+	}
+
+	if (IItemReceiver* NativeReceiver = Cast<IItemReceiver>(Receiver))
+	{
+		return NativeReceiver->AcceptItem_Implementation(Item);
+	}
+
+	return IItemReceiver::Execute_AcceptItem(Receiver, Item);
+}
+
 AActor* UItemLogisticsLibrary::ResolveDestination(
 	const UObject* WorldContextObject,
 	const FItemStack& Item,
@@ -94,11 +150,12 @@ AActor* UItemLogisticsLibrary::ResolveDestination(
 		for (TActorIterator<AActor> It(World); It; ++It)
 		{
 			AActor* Candidate = *It;
+			EItemReceiverType CandidateType = EItemReceiverType::Processor;
 			if (!IsValid(Candidate)
 				|| Candidate->IsActorBeingDestroyed()
-				|| !Candidate->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
-				|| IItemReceiver::Execute_GetItemReceiverType(Candidate) != ReceiverType
-				|| !IItemReceiver::Execute_CanAcceptItem(Candidate, Item))
+				|| !TryGetReceiverType(Candidate, CandidateType)
+				|| CandidateType != ReceiverType
+				|| !CanReceiverAcceptItem(Candidate, Item))
 			{
 				continue;
 			}

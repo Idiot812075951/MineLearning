@@ -1,13 +1,53 @@
 #include "ItemPickup.h"
 
-#include "ItemReceiver.h"
+#include "ItemLogisticsLibrary.h"
 #include "MineLearning/AI/HaulerCharacter.h"
 #include "ResourceCarryComponent.h"
 #include "ResourceStorageComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+
+namespace ItemPickupPresentation
+{
+	static const FName StackVisualName(TEXT("ItemStackVisual"));
+	constexpr int32 MaxDisplayedItems = 5;
+
+	FTransform MakeStackTransform(
+		int32 Index,
+		const FVector& ItemWorldSize,
+		const FVector& ParentWorldScale)
+	{
+		static const FVector2D FanOffsets[] =
+		{
+			FVector2D(-0.38f, -0.25f),
+			FVector2D(0.38f, -0.25f),
+			FVector2D(-0.28f, 0.30f),
+			FVector2D(0.31f, 0.34f)
+		};
+		static const float FanAngles[] = {-14.0f, 11.0f, -6.0f, 16.0f};
+
+		const int32 OffsetIndex = FMath::Clamp(
+			Index,
+			0,
+			static_cast<int32>(UE_ARRAY_COUNT(FanOffsets)) - 1);
+		const FVector WorldOffset(
+			ItemWorldSize.X * FanOffsets[OffsetIndex].X,
+			ItemWorldSize.Y * FanOffsets[OffsetIndex].Y,
+			-FMath::Max(ItemWorldSize.Z * 0.16f, 0.75f) * (OffsetIndex + 1));
+		const FVector SafeParentScale(
+			FMath::Max(FMath::Abs(ParentWorldScale.X), UE_SMALL_NUMBER),
+			FMath::Max(FMath::Abs(ParentWorldScale.Y), UE_SMALL_NUMBER),
+			FMath::Max(FMath::Abs(ParentWorldScale.Z), UE_SMALL_NUMBER));
+		const FVector LocalOffset(
+			WorldOffset.X / SafeParentScale.X,
+			WorldOffset.Y / SafeParentScale.Y,
+			WorldOffset.Z / SafeParentScale.Z);
+		return FTransform(FRotator(0.0f, FanAngles[OffsetIndex], 0.0f), LocalOffset);
+	}
+}
 
 AItemPickup::AItemPickup()
 {
@@ -73,6 +113,7 @@ void AItemPickup::SetItemStack(const FItemStack& InItemStack)
 {
 	ItemStack = InItemStack;
 	ItemStack.Amount = FMath::Max(ItemStack.Amount, 0);
+	RefreshStackVisual();
 }
 
 void AItemPickup::SetExplicitDeliveryTarget(
@@ -98,8 +139,7 @@ bool AItemPickup::HasUsableExplicitDeliveryTarget() const
 			&& ExplicitDeliveryStorage->CanAddItem(ItemStack);
 	}
 
-	return ExplicitDeliveryActor->GetClass()->ImplementsInterface(UItemReceiver::StaticClass())
-		&& IItemReceiver::Execute_CanAcceptItem(ExplicitDeliveryActor, ItemStack);
+	return UItemLogisticsLibrary::CanReceiverAcceptItem(ExplicitDeliveryActor, ItemStack);
 }
 
 void AItemPickup::SetReservationSource(UResourceStorageComponent* InSourceStorage)
@@ -126,6 +166,10 @@ int32 AItemPickup::CancelReservedAmount(int32 Amount)
 	{
 		ReservationSourceStorage = nullptr;
 		Destroy();
+	}
+	else
+	{
+		RefreshStackVisual();
 	}
 	return CanceledItem.Amount;
 }
@@ -161,7 +205,82 @@ void AItemPickup::SelectDropMesh(
 	SelectedDropMesh = ValidMeshes[FMath::RandRange(0, ValidMeshes.Num() - 1)];
 	Mesh->SetStaticMesh(SelectedDropMesh);
 	Mesh->SetRelativeScale3D(FVector(
-		MineLearningItemVisual::GetUniformScale(SelectedDropMesh)));
+		MineLearningItemVisual::GetUniformScale(SelectedDropMesh, ItemStack.ItemType)));
+	RefreshStackVisual();
+}
+
+UInstancedStaticMeshComponent* AItemPickup::FindOrCreateStackVisual()
+{
+	TInlineComponentArray<UInstancedStaticMeshComponent*> InstancedMeshes(this);
+	for (UInstancedStaticMeshComponent* InstancedMesh : InstancedMeshes)
+	{
+		if (InstancedMesh && InstancedMesh->GetFName() == ItemPickupPresentation::StackVisualName)
+		{
+			return InstancedMesh;
+		}
+	}
+
+	if (!Mesh || !GetWorld())
+	{
+		return nullptr;
+	}
+
+	UInstancedStaticMeshComponent* StackVisual = NewObject<UInstancedStaticMeshComponent>(
+		this,
+		ItemPickupPresentation::StackVisualName,
+		RF_Transient);
+	if (!StackVisual)
+	{
+		return nullptr;
+	}
+
+	StackVisual->CreationMethod = EComponentCreationMethod::Instance;
+	StackVisual->SetupAttachment(Mesh);
+	StackVisual->SetMobility(EComponentMobility::Movable);
+	StackVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	StackVisual->SetGenerateOverlapEvents(false);
+	StackVisual->SetCanEverAffectNavigation(false);
+	StackVisual->SetCastShadow(true);
+	StackVisual->SetVisibility(false, true);
+	StackVisual->SetHiddenInGame(true);
+	AddInstanceComponent(StackVisual);
+	StackVisual->RegisterComponent();
+	return StackVisual;
+}
+
+void AItemPickup::RefreshStackVisual()
+{
+	UInstancedStaticMeshComponent* StackVisual = FindOrCreateStackVisual();
+	if (!StackVisual)
+	{
+		return;
+	}
+
+	StackVisual->ClearInstances();
+	if (!IsValid(SelectedDropMesh) || ItemStack.Amount <= 1)
+	{
+		StackVisual->SetVisibility(false, true);
+		StackVisual->SetHiddenInGame(true);
+		return;
+	}
+
+	StackVisual->SetStaticMesh(SelectedDropMesh);
+	const int32 VisibleCount = FMath::Min(
+		ItemStack.Amount,
+		ItemPickupPresentation::MaxDisplayedItems);
+	const FVector ItemWorldSize = MineLearningItemVisual::GetWorldSize(
+		SelectedDropMesh,
+		ItemStack.ItemType);
+	const FVector ParentWorldScale = Mesh->GetComponentScale();
+	for (int32 Index = 0; Index < VisibleCount - 1; ++Index)
+	{
+		StackVisual->AddInstance(ItemPickupPresentation::MakeStackTransform(
+			Index,
+			ItemWorldSize,
+			ParentWorldScale));
+	}
+	StackVisual->SetHiddenInGame(false);
+	StackVisual->SetVisibility(true, true);
 }
 
 bool AItemPickup::TryReserve(AActor* Collector)
@@ -377,6 +496,10 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 	{
 		ReservationSourceStorage = nullptr;
 		Destroy();
+	}
+	else
+	{
+		RefreshStackVisual();
 	}
 
 	return true;

@@ -11,9 +11,65 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
+namespace ResourceCarryPresentation
+{
+	static const FName CarrierCargoSocket(TEXT("S_Cargo"));
+	constexpr int32 GeneratedSlotCount = 5;
+	constexpr float TraySurfaceHeightCm = 9.0f;
+	constexpr float ItemGapCm = 2.0f;
+	constexpr float ColumnOffsetCm = 11.0f;
+
+	FTransform MakeGeneratedStackTransform(
+		int32 Index,
+		int32 VisibleCount,
+		const FVector& ItemWorldSize,
+		const FVector& ParentWorldScale)
+	{
+		const float ItemHeight = FMath::Max(ItemWorldSize.Z, 1.0f);
+		const float BaseHeight = TraySurfaceHeightCm + ItemHeight * 0.5f + ItemGapCm;
+		FVector WorldOffset(0.0f, 0.0f, BaseHeight);
+
+		if (VisibleCount == 2)
+		{
+			WorldOffset.X = Index == 0 ? -ColumnOffsetCm : ColumnOffsetCm;
+		}
+		else if (VisibleCount >= 3)
+		{
+			if (Index < 2)
+			{
+				WorldOffset.X = Index == 0 ? -ColumnOffsetCm : ColumnOffsetCm;
+			}
+			else if (Index < 4)
+			{
+				WorldOffset.X = Index == 2 ? -ColumnOffsetCm : ColumnOffsetCm;
+				WorldOffset.Z += ItemHeight + ItemGapCm;
+			}
+			else
+			{
+				WorldOffset.Z += 2.0f * (ItemHeight + ItemGapCm);
+			}
+		}
+
+		const FVector SafeParentScale(
+			FMath::Max(FMath::Abs(ParentWorldScale.X), UE_SMALL_NUMBER),
+			FMath::Max(FMath::Abs(ParentWorldScale.Y), UE_SMALL_NUMBER),
+			FMath::Max(FMath::Abs(ParentWorldScale.Z), UE_SMALL_NUMBER));
+		const FVector LocalOffset(
+			WorldOffset.X / SafeParentScale.X,
+			WorldOffset.Y / SafeParentScale.Y,
+			WorldOffset.Z / SafeParentScale.Z);
+		return FTransform(FRotator(0.0f, Index * 23.0f, 0.0f), LocalOffset);
+	}
+}
+
 UResourceCarryComponent::UResourceCarryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+}
+
+int32 UResourceCarryComponent::GetWorldPreviewItemCount() const
+{
+	return PreviewResourcesMesh ? PreviewResourcesMesh->GetInstanceCount() : 0;
 }
 
 void UResourceCarryComponent::OnRegister()
@@ -245,7 +301,10 @@ void UResourceCarryComponent::RefreshPreviewResources()
 	PreviewResourcesMesh->SetHiddenInGame(false);
 	PreviewResourcesMesh->ClearInstances();
 
-	const int32 PreviewSlotCount = PreviewResourceTransforms.Num();
+	const bool bUseAuthoredTransforms = !PreviewResourceTransforms.IsEmpty();
+	const int32 PreviewSlotCount = bUseAuthoredTransforms
+		? PreviewResourceTransforms.Num()
+		: ResourceCarryPresentation::GeneratedSlotCount;
 	UWorld* World = GetWorld();
 	const int32 DisplayCapacity = FMath::Min(Capacity, PreviewSlotCount);
 	if (DisplayCapacity <= 0)
@@ -266,12 +325,20 @@ void UResourceCarryComponent::RefreshPreviewResources()
 
 	for (int32 Index = 0; Index < VisibleInstanceCount; ++Index)
 	{
-		FTransform InstanceTransform = PreviewResourceTransforms[Index];
+		FTransform InstanceTransform = bUseAuthoredTransforms
+			? PreviewResourceTransforms[Index]
+			: ResourceCarryPresentation::MakeGeneratedStackTransform(
+				Index,
+				VisibleInstanceCount,
+				MineLearningItemVisual::GetWorldSize(ResourceMesh, CurrentItem.ItemType),
+				PreviewResourcesMesh->GetComponentScale());
 		InstanceTransform.SetScale3D(MineLearningItemVisual::GetRelativeScale(
 			ResourceMesh,
-			PreviewResourcesMesh->GetComponentScale()));
+			PreviewResourcesMesh->GetComponentScale(),
+			CurrentItem.ItemType));
 		PreviewResourcesMesh->AddInstance(InstanceTransform);
 	}
+	PreviewResourcesMesh->SetVisibility(VisibleInstanceCount > 0, true);
 }
 
 bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
@@ -280,16 +347,26 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	AActor* Owner = GetOwner();
 	USkeletalMeshComponent* OwnerMesh = FindOwnerSkeletalMesh();
 	UStaticMesh* ResourceMesh = GetPreviewResourceMesh();
-	if (!World || !Owner || !ResourceMesh || PreviewSocketName.IsNone()
-		|| PreviewResourceTransforms.IsEmpty() || !OwnerMesh
-		|| !OwnerMesh->DoesSocketExist(PreviewSocketName))
+	if (!World || !Owner || !ResourceMesh || !OwnerMesh)
+	{
+		return false;
+	}
+	FName ResolvedSocketName = PreviewSocketName;
+	if (ResolvedSocketName.IsNone() || !OwnerMesh->DoesSocketExist(ResolvedSocketName))
+	{
+		ResolvedSocketName = ResourceCarryPresentation::CarrierCargoSocket;
+	}
+	if (!OwnerMesh->DoesSocketExist(ResolvedSocketName))
 	{
 		return false;
 	}
 
 	if (!PreviewResourcesMesh)
 	{
-		PreviewResourcesMesh = NewObject<UInstancedStaticMeshComponent>(Owner, NAME_None, RF_Transient);
+		PreviewResourcesMesh = NewObject<UInstancedStaticMeshComponent>(
+			Owner,
+			TEXT("CarriedItemStackVisual"),
+			RF_Transient);
 		if (!PreviewResourcesMesh)
 		{
 			return false;
@@ -309,12 +386,12 @@ bool UResourceCarryComponent::ConfigurePreviewResourcesMesh()
 	}
 
 	if (PreviewResourcesMesh->GetAttachParent() != OwnerMesh
-		|| PreviewResourcesMesh->GetAttachSocketName() != PreviewSocketName)
+		|| PreviewResourcesMesh->GetAttachSocketName() != ResolvedSocketName)
 	{
 		PreviewResourcesMesh->AttachToComponent(
 			OwnerMesh,
 			FAttachmentTransformRules::SnapToTargetIncludingScale,
-			PreviewSocketName);
+			ResolvedSocketName);
 	}
 
 	if (PreviewResourcesMesh->GetStaticMesh() != ResourceMesh)

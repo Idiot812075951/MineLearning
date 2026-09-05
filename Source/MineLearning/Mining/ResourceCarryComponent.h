@@ -30,6 +30,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Item|Carry")
 	int32 GetCapacity() const { return Capacity; }
 
+	/** Number of physical resource meshes currently shown on the carrier tray. */
+	int32 GetWorldPreviewItemCount() const;
+
 	UFUNCTION(BlueprintPure, Category="Item|Carry")
 	bool IsEmpty() const { return !CurrentItem.IsValid(); }
 

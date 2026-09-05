@@ -633,7 +633,7 @@ void AMiningCompanionCharacter::CommitPlayerDeposit()
 	}
 
 	const FItemStack CarriedItem = ResourceCarryComponent->GetCurrentItem();
-	if (IItemReceiver::Execute_AcceptItem(PlayerInteractionReceiver, CarriedItem))
+	if (UItemLogisticsLibrary::DeliverItemToReceiver(PlayerInteractionReceiver, CarriedItem))
 	{
 		ResourceCarryComponent->ClearItems();
 	}
