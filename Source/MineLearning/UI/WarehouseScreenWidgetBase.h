@@ -6,7 +6,6 @@
 #include "WarehouseScreenWidgetBase.generated.h"
 
 class AWarehouseDepot;
-class UButton;
 class UListView;
 class UTextBlock;
 
@@ -54,27 +53,7 @@ private:
 	UFUNCTION()
 	void HandleWarehouseChanged();
 
-	UFUNCTION()
-	void HandleDecreaseClicked();
-
-	UFUNCTION()
-	void HandleIncreaseClicked();
-
-	UFUNCTION()
-	void HandleMaximumClicked();
-
-	void HandleItemSelectionChanged(UObject* SelectedListItem);
-	void SynchronizeSelectionAmount();
-
-	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional, AllowPrivateAccess="true"))
-	TObjectPtr<UButton> MinusButton;
-
-	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional, AllowPrivateAccess="true"))
-	TObjectPtr<UButton> PlusButton;
-
-	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional, AllowPrivateAccess="true"))
-	TObjectPtr<UButton> MaxButton;
-
+	// Reflected widget contracts only. Visual updates remain in WBP_Warehouse.
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional, AllowPrivateAccess="true"))
 	TObjectPtr<UListView> ItemList;
 
