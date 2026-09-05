@@ -6,8 +6,10 @@
 #include "SellStation.generated.h"
 
 class AItemPickup;
+class UInstancedStaticMeshComponent;
 class USceneComponent;
 class UStaticMesh;
+class UStaticMeshComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FOnSaleCompletedSignature,
@@ -28,6 +30,7 @@ class MINELEARNING_API ASellStation : public AActor, public IItemReceiver
 public:
 	ASellStation();
 	virtual void OnConstruction(const FTransform& Transform) override;
+	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintPure, Category="Sell Station")
 	USceneComponent* GetRobotApproachPoint() const { return RobotApproachPoint; }
@@ -68,5 +71,9 @@ private:
 	TObjectPtr<UStaticMesh> CoinMesh;
 
 	bool SpawnCoinPickup(int32 CoinAmount);
+	bool ConfigureSaleItemStack(const FItemStack& Item);
+	void ClearSaleItemStack();
+	UInstancedStaticMeshComponent* FindOrCreateSaleItemStackVisual();
+	UStaticMeshComponent* FindPresentationItemVisual() const;
 	void EnforceAuthoredCollisionRoles();
 };
