@@ -1,11 +1,181 @@
 #include "MineLearningPlayerController.h"
 
+#include "MineLearning/Mining/ItemPickup.h"
+#include "MineLearning/Mining/ItemTypes.h"
 #include "MineLearning/Mining/WarehouseDepot.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/InputComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
+#include "HAL/IConsoleManager.h"
 #include "InputCoreTypes.h"
+
+#if !UE_BUILD_SHIPPING
+namespace MineLearningGM
+{
+	bool ResolveItem(const FString& Name, EItemType& OutItemType, UStaticMesh*& OutMesh)
+	{
+		const FString NormalizedName = Name.ToLower();
+		const TCHAR* MeshPath = nullptr;
+		if (NormalizedName == TEXT("ironore") || NormalizedName == TEXT("ore"))
+		{
+			OutItemType = EItemType::IronOre;
+			MeshPath = TEXT("/Game/MineLearning/Mining/Ores/Iron/Meshes/SM_Ore_Iron_Drop_01.SM_Ore_Iron_Drop_01");
+		}
+		else if (NormalizedName == TEXT("coin") || NormalizedName == TEXT("gold"))
+		{
+			OutItemType = EItemType::Coin;
+			MeshPath = TEXT("/Game/MineLearning/Mining/Resources/Coin/SM_GoldCoin.SM_GoldCoin");
+		}
+		else if (NormalizedName == TEXT("ironingot") || NormalizedName == TEXT("ingot"))
+		{
+			OutItemType = EItemType::IronIngot;
+			MeshPath = TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot");
+		}
+		else if (NormalizedName == TEXT("ammo"))
+		{
+			OutItemType = EItemType::Ammo;
+			MeshPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
+		}
+
+		OutMesh = MeshPath ? LoadObject<UStaticMesh>(nullptr, MeshPath) : nullptr;
+		return IsValid(OutMesh);
+	}
+
+	FVector ResolveAimSpawnLocation(UWorld* World)
+	{
+		if (!World)
+		{
+			return FVector::ZeroVector;
+		}
+
+		APlayerController* PlayerController = World->GetFirstPlayerController();
+		FVector ViewLocation = FVector::ZeroVector;
+		FRotator ViewRotation = FRotator::ZeroRotator;
+		if (PlayerController)
+		{
+			PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		}
+
+		const FVector TraceEnd = ViewLocation + ViewRotation.Vector() * 10000.0f;
+		FHitResult Hit;
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(GMSpawnPickupsAim), false);
+		if (PlayerController && PlayerController->GetPawn())
+		{
+			QueryParams.AddIgnoredActor(PlayerController->GetPawn());
+		}
+		if (World->LineTraceSingleByChannel(
+			Hit, ViewLocation, TraceEnd, ECC_Visibility, QueryParams))
+		{
+			return Hit.ImpactPoint + FVector(0.0f, 0.0f, 28.0f);
+		}
+
+		if (PlayerController && PlayerController->GetPawn())
+		{
+			return PlayerController->GetPawn()->GetActorLocation()
+				+ PlayerController->GetPawn()->GetActorForwardVector() * 250.0f
+				+ FVector(0.0f, 0.0f, 35.0f);
+		}
+		return FVector(0.0f, 0.0f, 35.0f);
+	}
+
+	void SpawnPickups(UWorld* World, const TArray<FString>& Args, const TOptional<FVector>& ExplicitLocation)
+	{
+		if (!World)
+		{
+			return;
+		}
+
+		const FString ItemName = Args.IsValidIndex(0) ? Args[0] : TEXT("IronOre");
+		const int32 Count = FMath::Clamp(Args.IsValidIndex(1) ? FCString::Atoi(*Args[1]) : 5, 1, 50);
+		EItemType ItemType = EItemType::IronOre;
+		UStaticMesh* ItemMesh = nullptr;
+		if (!ResolveItem(ItemName, ItemType, ItemMesh))
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GM] Unknown pickup '%s'. Use IronOre, Coin, IronIngot, or Ammo."),
+				*ItemName);
+			return;
+		}
+
+		FVector SpawnCenter = ExplicitLocation.Get(ResolveAimSpawnLocation(World));
+		const int32 Columns = FMath::CeilToInt(FMath::Sqrt(static_cast<float>(Count)));
+		TArray<TObjectPtr<UStaticMesh>> ItemMeshes;
+		ItemMeshes.Add(ItemMesh);
+		int32 SpawnedCount = 0;
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			const int32 Column = Index % Columns;
+			const int32 Row = Index / Columns;
+			const FVector GridOffset(
+				(Column - (Columns - 1) * 0.5f) * 44.0f,
+				Row * 44.0f,
+				Index * 0.25f);
+			FActorSpawnParameters SpawnParameters;
+			SpawnParameters.SpawnCollisionHandlingOverride =
+				ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			AItemPickup* Pickup = World->SpawnActor<AItemPickup>(
+				AItemPickup::StaticClass(),
+				SpawnCenter + GridOffset,
+				FRotator(0.0f, Index * 23.0f, 0.0f),
+				SpawnParameters);
+			if (!Pickup)
+			{
+				continue;
+			}
+
+			Pickup->InitializeItem(FItemStack{ItemType, 1}, ItemMeshes);
+			++SpawnedCount;
+		}
+
+		const FString Message = FString::Printf(
+			TEXT("GM generated %d x %s at %s"),
+			SpawnedCount,
+			*ItemName,
+			*SpawnCenter.ToCompactString());
+		UE_LOG(LogTemp, Display, TEXT("[GM] %s"), *Message);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 4.0f, FColor::Yellow, Message);
+		}
+	}
+
+	void SpawnAtAim(const TArray<FString>& Args, UWorld* World)
+	{
+		SpawnPickups(World, Args, TOptional<FVector>());
+	}
+
+	void SpawnAtCoordinates(const TArray<FString>& Args, UWorld* World)
+	{
+		if (Args.Num() < 5)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GM] Usage: MineLearning.GM.SpawnPickupsAt Item Count X Y Z"));
+			return;
+		}
+		SpawnPickups(
+			World,
+			Args,
+			FVector(
+				FCString::Atof(*Args[2]),
+				FCString::Atof(*Args[3]),
+				FCString::Atof(*Args[4])));
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs SpawnPickupsCommand(
+		TEXT("MineLearning.GM.SpawnPickups"),
+		TEXT("Spawn loose pickups at the aimed surface. Usage: MineLearning.GM.SpawnPickups [IronOre|Coin|IronIngot|Ammo] [Count]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&SpawnAtAim));
+
+	FAutoConsoleCommandWithWorldAndArgs SpawnPickupsAtCommand(
+		TEXT("MineLearning.GM.SpawnPickupsAt"),
+		TEXT("Spawn loose pickups at a world position. Usage: MineLearning.GM.SpawnPickupsAt Item Count X Y Z"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&SpawnAtCoordinates));
+}
+#endif
 
 AMineLearningPlayerController::AMineLearningPlayerController()
 {

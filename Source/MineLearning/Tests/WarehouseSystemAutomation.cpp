@@ -2,15 +2,19 @@
 
 #include "Misc/AutomationTest.h"
 
+#include "MineLearning/AI/HaulerCharacter.h"
 #include "MineLearning/Mining/ItemLogisticsLibrary.h"
 #include "MineLearning/Mining/ItemTypes.h"
 #include "MineLearning/Mining/OreProcessorMachine.h"
+#include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "MineLearning/Mining/ResourceStorageComponent.h"
 #include "MineLearning/Mining/SellStation.h"
 #include "MineLearning/Mining/WarehouseDepot.h"
 #include "MineLearning/UI/WarehouseScreenWidgetBase.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "HAL/IConsoleManager.h"
 #include "UObject/UnrealType.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -56,24 +60,31 @@ bool FWarehouseReservationTest::RunTest(const FString& Parameters)
 		UItemLogisticsLibrary::GetItemCategory(EItemType::IronIngot),
 		EItemCategory::ProcessedMaterial);
 
-	const TArray<TPair<FString, FString>> StandardizedMeshes = {
-		{TEXT("Iron ore"), TEXT("/Game/MineLearning/Mining/Ores/Iron/Meshes/SM_Ore_Iron_Drop_01.SM_Ore_Iron_Drop_01")},
-		{TEXT("Coin"), TEXT("/Game/MineLearning/Mining/Resources/Coin/SM_GoldCoin.SM_GoldCoin")},
-		{TEXT("Iron ingot"), TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot")}};
-
-	for (const TPair<FString, FString>& Entry : StandardizedMeshes)
+	struct FVisualSizeExpectation
 	{
-		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Entry.Value);
-		if (!TestNotNull(*FString::Printf(TEXT("%s mesh is loadable"), *Entry.Key), Mesh))
+		FString Label;
+		FString AssetPath;
+		EItemType ItemType;
+		float MaxDimensionCm;
+	};
+	const TArray<FVisualSizeExpectation> StandardizedMeshes = {
+		{TEXT("Iron ore"), TEXT("/Game/MineLearning/Mining/Ores/Iron/Meshes/SM_Ore_Iron_Drop_01.SM_Ore_Iron_Drop_01"), EItemType::IronOre, MineLearningItemVisual::StandardMaxDimensionCm},
+		{TEXT("Coin"), TEXT("/Game/MineLearning/Mining/Resources/Coin/SM_GoldCoin.SM_GoldCoin"), EItemType::Coin, MineLearningItemVisual::CoinMaxDimensionCm},
+		{TEXT("Iron ingot"), TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot"), EItemType::IronIngot, MineLearningItemVisual::StandardMaxDimensionCm}};
+
+	for (const FVisualSizeExpectation& Entry : StandardizedMeshes)
+	{
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Entry.AssetPath);
+		if (!TestNotNull(*FString::Printf(TEXT("%s mesh is loadable"), *Entry.Label), Mesh))
 		{
 			continue;
 		}
 
-		const FVector WorldSize = MineLearningItemVisual::GetWorldSize(Mesh);
+		const FVector WorldSize = MineLearningItemVisual::GetWorldSize(Mesh, Entry.ItemType);
 		const float MaxDimension = FMath::Max3(WorldSize.X, WorldSize.Y, WorldSize.Z);
 		TestTrue(
-			*FString::Printf(TEXT("%s is normalized to the shared 30 cm visual envelope"), *Entry.Key),
-			FMath::IsNearlyEqual(MaxDimension, MineLearningItemVisual::StandardMaxDimensionCm, 0.1f));
+			*FString::Printf(TEXT("%s uses its shared world presentation size"), *Entry.Label),
+			FMath::IsNearlyEqual(MaxDimension, Entry.MaxDimensionCm, 0.1f));
 	}
 
 	TestNotNull(
@@ -140,6 +151,33 @@ bool FWarehouseReservationTest::RunTest(const FString& Parameters)
 		LoadClass<AOreProcessorMachine>(
 			nullptr,
 			TEXT("/Game/MineLearning/Mining/Processing/Blueprints/BP_ProcesserMachine.BP_ProcesserMachine_C")));
+
+	UClass* HaulerClass = LoadClass<AHaulerCharacter>(
+		nullptr,
+		TEXT("/Game/MineLearning/Mining/Logistics/Blueprints/BP_Hauler.BP_Hauler_C"));
+	if (TestNotNull(TEXT("Hauler Blueprint is loadable"), HaulerClass))
+	{
+		AHaulerCharacter* HaulerCDO = Cast<AHaulerCharacter>(HaulerClass->GetDefaultObject());
+		if (TestNotNull(TEXT("Hauler defaults can be inspected"), HaulerCDO))
+		{
+			TestEqual(
+				TEXT("Hauler tray capacity defaults to a configurable five items"),
+				HaulerCDO->GetResourceCarryComponent()->GetCapacity(),
+				5);
+
+			TestEqual(
+				TEXT("Hauler begins with no generated tray items"),
+				HaulerCDO->GetResourceCarryComponent()->GetWorldPreviewItemCount(),
+				0);
+		}
+	}
+
+	TestNotNull(
+		TEXT("Aim-based pickup GM command is registered"),
+		IConsoleManager::Get().FindConsoleObject(TEXT("MineLearning.GM.SpawnPickups")));
+	TestNotNull(
+		TEXT("Coordinate-based pickup GM command is registered"),
+		IConsoleManager::Get().FindConsoleObject(TEXT("MineLearning.GM.SpawnPickupsAt")));
 
 	return !HasAnyErrors();
 }
