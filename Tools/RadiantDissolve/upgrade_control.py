@@ -1,0 +1,150 @@
+"""Independent Actor-level presentation: actual mesh components, no gameplay calls."""
+import unreal as u
+from editor_toolset.toolsets.blueprint import BlueprintTools as BP, ContainerType
+ROOT='/Game/MineLearning/VFX/RadiantDissolve'
+bp=u.load_asset(ROOT+'/BP_RadiantDissolve_Test')
+
+def var(name,typ,array=False):
+    if name not in BP.list_variables(bp):
+        if isinstance(typ,str):BP.add_variable(bp,name,typ,container_type=ContainerType.ARRAY if array else None)
+        else:BP.add_object_variable(bp,name,typ.static_class(),container_type=ContainerType.ARRAY if array else None)
+
+var('TargetActor',u.Actor)
+var('BoundMeshes',u.StaticMeshComponent,True)
+var('OriginalMaterials',u.MaterialInterface,True)
+var('MaterialCounts','int',True)
+var('ActiveParticles',u.NiagaraComponent,True)
+var('MaterialCursor','int')
+var('EffectiveRadius','float')
+var('ParticleSampleRate','float')
+var('PreviewEnabled','bool')
+for name in ['TargetActor','ParticleSampleRate','PreviewEnabled']:
+    BP.set_variable_instance_editable(bp,name,True)
+for name in ['ResolveTargets','PrepareMaterials','RestoreMaterials','SpawnParticles','FinishDissolve']:
+    if not BP.get_graph(bp,name):BP.add_function_graph(bp,name)
+BP.compile_blueprint(bp)
+
+def write(name,body):
+    BP.write_graph_dsl(BP.get_graph(bp,name),body)
+    print('RADIANT_GRAPH',name)
+
+write('ResolveTargets','''(fn ResolveTargets ()
+ (Utilities|Array|Clear (Variables|Default|GetBoundMeshes))
+ (Utilities|IsValid (Variables|Default|GetTargetActor)
+  (:"Is Valid"
+   (Rendering|SetVisibility :self (Variables|Default|GetTargetMesh) :bNewVisibility false)
+   (for component (Actor|GetComponentsByClass :self (Variables|Default|GetTargetActor) :ComponentClass "/Script/Engine.StaticMeshComponent")
+    (bind mesh (Utilities|Casting|CastToStaticMeshComponent :Object component)
+     (:then (Utilities|Array|Add (Variables|Default|GetBoundMeshes) mesh))
+     (:CastFailed))))
+  (:"Is Not Valid"
+   (Rendering|SetVisibility :self (Variables|Default|GetTargetMesh) :bNewVisibility true)
+   (Utilities|Array|Add (Variables|Default|GetBoundMeshes) (Variables|Default|GetTargetMesh)))))''')
+
+write('Initialize','''(fn Initialize ()
+ (CallFunction|ResolveTargets)
+ (Variables|Default|SetEffectiveRadius 0)
+ (bind origin (Transformation|GetWorldLocation :self (Variables|Default|GetDissolveOrigin)))
+ (for mesh (Variables|Default|GetBoundMeshes)
+  (bind (center extent radius) (Collision|GetComponentBounds mesh))
+  (bind reach (+ (+ (Math|Vector|Distance(Vector) center origin) (Math|Vector|VectorLength extent)) 2))
+  (Variables|Default|SetEffectiveRadius (select (> reach (Variables|Default|GetEffectiveRadius)) reach (Variables|Default|GetEffectiveRadius)))))''')
+
+write('PrepareMaterials','''(fn PrepareMaterials ()
+ (for mesh (Variables|Default|GetBoundMeshes)
+  (Utilities|Array|Add (Variables|Default|GetMaterialCounts) (Rendering|Material|GetNumMaterials :self mesh))
+  (for slot (range (Rendering|Material|GetNumMaterials :self mesh))
+   (Utilities|Array|Add (Variables|Default|GetOriginalMaterials) (Rendering|Material|GetMaterial :self mesh :ElementIndex slot))
+   (bind mid (Rendering|Material|CreateDynamicMaterialInstance :self mesh :ElementIndex slot))
+   (Variables|Default|SetDynamicMaterial mid))))''')
+
+write('RestoreMaterials','''(fn RestoreMaterials ()
+ (Variables|Default|SetMaterialCursor 0)
+ (for meshIndex (range (Utilities|Array|Length (Variables|Default|GetMaterialCounts)))
+  (bind mesh (Utilities|Array|Get(acopy) (Variables|Default|GetBoundMeshes) meshIndex))
+  (for slot (range (Utilities|Array|Get(acopy) (Variables|Default|GetMaterialCounts) meshIndex))
+   (Variables|Default|SetMaterialCursor (+ (Variables|Default|GetMaterialCursor) 1))
+   (Utilities|IsValid mesh
+    (:"Is Valid"
+     (Rendering|Material|SetMaterial :self mesh :ElementIndex slot :Material (Utilities|Array|Get(acopy) (Variables|Default|GetOriginalMaterials) (- (Variables|Default|GetMaterialCursor) 1))))
+    (:"Is Not Valid"))))
+ (Utilities|Array|Clear (Variables|Default|GetOriginalMaterials))
+ (Utilities|Array|Clear (Variables|Default|GetMaterialCounts)))''')
+
+write('SpawnParticles','''(fn SpawnParticles ()
+ (for mesh (Variables|Default|GetBoundMeshes)
+  (bind fx (Niagara|SpawnSystemAttached :SystemTemplate "/Game/MineLearning/VFX/RadiantDissolve/NS_RadiantDissolve_Test.NS_RadiantDissolve_Test" :AttachToComponent mesh :bAutoDestroy false :bAutoActivate false :bPreCullCheck false))
+  (Niagara|SetNiagaraStaticMeshComponent :NiagaraSystem fx :OverrideName "User.TargetMesh" :StaticMeshComponent mesh)
+  (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.SpawnRate" :InValue (/ (Variables|Default|GetParticleSampleRate) (Utilities|Array|Length (Variables|Default|GetBoundMeshes))))
+  (Utilities|Array|Add (Variables|Default|GetActiveParticles) fx))
+ (CallFunction|ApplyFrame)
+ (for fx (Variables|Default|GetActiveParticles)
+  (Components|Activation|Activate :self fx :bReset true)))''')
+
+write('ApplyFrame','''(fn ApplyFrame ()
+ (bind duration (Variables|Default|GetDuration))
+ (bind t (/ (Variables|Default|GetElapsed) (select (> duration 0.1) duration 0.1)))
+ (bind reach (select (> (Variables|Default|GetPropagationDistance) (Variables|Default|GetEffectiveRadius)) (Variables|Default|GetPropagationDistance) (Variables|Default|GetEffectiveRadius)))
+ (bind noise (Variables|Default|GetNoiseStrength))
+ (bind travel (+ reach (select (> noise 0) noise (- 0 noise))))
+ (bind heat (- (* t (+ travel 40)) 12))
+ (bind dissolve (- (* t (+ travel 40)) 40))
+ (bind origin (Transformation|GetWorldLocation :self (Variables|Default|GetDissolveOrigin)))
+ (for mesh (Variables|Default|GetBoundMeshes)
+  (Rendering|Material|SetVectorParameterValueOnMaterials :self mesh :ParameterName "DissolveOriginWS" :ParameterValue origin)
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "DissolveProgress" :ParameterValue t)
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "HeatRadius" :ParameterValue heat)
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "DissolveRadius" :ParameterValue dissolve)
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "NoiseStrength" :ParameterValue noise)
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "HeatIntensity" :ParameterValue (Variables|Default|GetHeatIntensity))
+  (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "DissolveEdgeWidth" :ParameterValue (Variables|Default|GetDissolveEdgeWidth)))
+ (for fx (Variables|Default|GetActiveParticles)
+  (Niagara|SetNiagaraVariable(Position) :self fx :InVariableName "User.DissolveOriginWS" :InValue origin)
+  (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.DissolveRadius" :InValue dissolve)
+  (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.NoiseStrength" :InValue noise)))''')
+
+write('Reset','''(fn Reset ()
+ (Utilities|Time|ClearTimerbyFunctionName :Object self :FunctionName "UpdateDissolve")
+ (Variables|Default|SetElapsed 0)
+ (Variables|Default|SetPreviewTime 0)
+ (Variables|Default|SetPreviewEnabled false)
+ (for fx (Variables|Default|GetActiveParticles)
+  (Components|DestroyComponent :self fx))
+ (Utilities|Array|Clear (Variables|Default|GetActiveParticles))
+ (CallFunction|RestoreMaterials)
+ (CallFunction|Initialize)
+ (CallFunction|ApplyFrame))''')
+
+write('TestDissolve','''(fn TestDissolve ()
+ (CallFunction|Reset)
+ (if (> (Utilities|Array|Length (Variables|Default|GetBoundMeshes)) 0)
+  (CallFunction|PrepareMaterials)
+  (CallFunction|SpawnParticles)
+  (Variables|Default|SetStartTime (Utilities|Time|GetGameTimeinSeconds))
+  (Utilities|Time|SetTimerbyFunctionName :Object self :FunctionName "UpdateDissolve" :Time 0.0166667 :bLooping true :bMaxOncePerFrame true)
+  (else (Development|PrintString "Radiant Dissolve: target has no supported StaticMeshComponent."))))''')
+
+write('FinishDissolve','''(fn FinishDissolve ()
+ (Utilities|Time|ClearTimerbyFunctionName :Object self :FunctionName "UpdateDissolve")
+ (for fx (Variables|Default|GetActiveParticles)
+  (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.SpawnRate" :InValue 0)
+  (Components|Activation|Deactivate :self fx)))''')
+
+write('UpdateDissolve','''(fn UpdateDissolve ()
+ (Variables|Default|SetElapsed (- (Utilities|Time|GetGameTimeinSeconds) (Variables|Default|GetStartTime)))
+ (CallFunction|ApplyFrame)
+ (if (>= (Variables|Default|GetElapsed) (Variables|Default|GetDuration)) (CallFunction|FinishDissolve)))''')
+
+write('UserConstructionScript','''(fn ConstructionScript ()
+ (CallFunction|Initialize)
+ (Variables|Default|SetElapsed (select (Variables|Default|GetPreviewEnabled) (Variables|Default|GetPreviewTime) 0))
+ (CallFunction|ApplyFrame))''')
+
+# Existing short P/R and BeginPlay chains stay intact.
+BP.compile_blueprint(bp)
+cdo=BP.get_default_object(bp)
+cdo.set_editor_property('ParticleSampleRate',1000.)
+cdo.set_editor_property('PreviewEnabled',False)
+BP.compile_blueprint(bp)
+u.EditorAssetLibrary.save_loaded_asset(bp)
+print('RADIANT_REUSABLE_CONTROL_READY')

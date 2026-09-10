@@ -1,0 +1,59 @@
+[
+  {
+    "label": "heat",
+    "elapsed": 0.4796154908835888,
+    "heat": 34.6292839050293,
+    "dissolve": 6.629283905029297,
+    "particle_count": 0,
+    "fx_active": true
+  },
+  {
+    "label": "front",
+    "elapsed": 1.0420726910233498,
+    "heat": 89.3126220703125,
+    "dissolve": 61.3126220703125,
+    "particle_count": 48,
+    "fx_active": true
+  },
+  {
+    "label": "complete",
+    "elapsed": 1.818831693381071,
+    "heat": 164.8308563232422,
+    "dissolve": 136.8308563232422,
+    "particle_count": 0,
+    "fx_active": false
+  },
+  {
+    "label": "reset_check",
+    "elapsed": 0.0,
+    "heat": -12.0,
+    "dissolve": -40.0,
+    "particle_count": 0,
+    "fx_active": false
+  },
+  {
+    "label": "complete_again",
+    "elapsed": 1.8134927973151207,
+    "heat": 164.31179809570312,
+    "dissolve": 136.31179809570312,
+    "particle_count": 0,
+    "fx_active": false
+  },
+  {
+    "label": "origin_check",
+    "material_origin": [
+      -20.0,
+      38.0,
+      32.0
+    ],
+    "scene_origin": "<Struct 'Vector' (0x000001FB952825E0) {x: -20.000000, y: 38.000000, z: 32.000000}>"
+  },
+  {
+    "label": "final_reset",
+    "elapsed": 0.0,
+    "heat": -12.0,
+    "dissolve": -40.0,
+    "particle_count": 0,
+    "fx_active": true
+  }
+]

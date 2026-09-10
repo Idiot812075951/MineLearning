@@ -1,0 +1,56 @@
+[
+  {
+    "label": "idle",
+    "elapsed": 0.0,
+    "meshes": 1,
+    "progress": [
+      0.0
+    ],
+    "particle_count": 0
+  },
+  {
+    "label": "heat",
+    "elapsed": 0.536700900644064,
+    "meshes": 1,
+    "progress": [
+      0.2981671690940857
+    ],
+    "particle_count": 21
+  },
+  {
+    "label": "front",
+    "elapsed": 0.975484099239111,
+    "meshes": 1,
+    "progress": [
+      0.5419356226921082
+    ],
+    "particle_count": 40
+  },
+  {
+    "label": "residue",
+    "elapsed": 1.6557850018143654,
+    "meshes": 1,
+    "progress": [
+      0.9198805689811707
+    ],
+    "particle_count": 0
+  },
+  {
+    "label": "complete",
+    "elapsed": 1.8163825012743473,
+    "meshes": 1,
+    "progress": [
+      1.009101390838623
+    ],
+    "particle_count": 0
+  },
+  {
+    "label": "reset_check",
+    "elapsed": 0.0,
+    "meshes": 1,
+    "progress": [
+      0.0
+    ],
+    "particle_count": 0
+  }
+]

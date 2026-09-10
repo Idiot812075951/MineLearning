@@ -1,0 +1,81 @@
+import unreal as u
+from pathlib import Path
+from editor_toolset.toolsets.blueprint import BlueprintTools as BP
+from editor_toolset.toolsets.actor import ActorTools as AT
+
+ROOT='/Game/MineLearning/VFX/RadiantDissolve'
+bp=u.load_asset(ROOT+'/BP_RadiantDissolve_Test')
+if 'StartTime' not in BP.list_variables(bp): BP.add_variable(bp,'StartTime','float')
+BP.compile_blueprint(bp)
+
+def write(name,body):
+    g=BP.get_graph(bp,name)
+    BP.write_graph_dsl(g,body)
+
+write('Initialize','''(fn Initialize ()
+ (bind mesh (Variables|Default|GetTargetMesh))
+ (bind mid (Rendering|Material|CreateDynamicMaterialInstance :self mesh :ElementIndex 0 :SourceMaterial "/Game/MineLearning/VFX/RadiantDissolve/MI_RadiantDissolve_Test.MI_RadiantDissolve_Test"))
+ (Variables|Default|SetDynamicMaterial mid)
+ (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "NoiseStrength" :ParameterValue (Variables|Default|GetNoiseStrength))
+ (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "HeatIntensity" :ParameterValue (Variables|Default|GetHeatIntensity))
+ (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "DissolveEdgeWidth" :ParameterValue (Variables|Default|GetDissolveEdgeWidth)))''')
+write('ApplyFrame','''(fn ApplyFrame ()
+ (bind mesh (Variables|Default|GetTargetMesh))
+ (bind fx (Variables|Default|GetDissolveParticles))
+ (bind origin (Transformation|GetWorldLocation :self (Variables|Default|GetDissolveOrigin)))
+ (bind duration (Variables|Default|GetDuration))
+ (bind t (/ (Variables|Default|GetElapsed) (select (> duration 0.1) duration 0.1)))
+ (bind travel (Variables|Default|GetPropagationDistance))
+ (bind heat (- (* t (+ travel 40)) 12))
+ (bind dissolve (- (* t (+ travel 40)) 40))
+ (Rendering|Material|SetVectorParameterValueOnMaterials :self mesh :ParameterName "DissolveOriginWS" :ParameterValue origin)
+ (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "HeatRadius" :ParameterValue heat)
+ (Rendering|Material|SetScalarParameterValueOnMaterials :self mesh :ParameterName "DissolveRadius" :ParameterValue dissolve)
+ (Niagara|SetNiagaraVariable(Position) :self fx :InVariableName "User.DissolveOriginWS" :InValue origin)
+ (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.DissolveRadius" :InValue dissolve)
+ (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.NoiseStrength" :InValue (Variables|Default|GetNoiseStrength)))''')
+write('Reset','''(fn Reset ()
+ (Utilities|Time|ClearTimerbyFunctionName :Object self :FunctionName "UpdateDissolve")
+ (Variables|Default|SetElapsed 0)
+ (CallFunction|Initialize)
+ (bind fx (Variables|Default|GetDissolveParticles))
+ (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.SpawnRate" :InValue 0)
+ (Niagara|ReinitializeSystem :self fx)
+ (Components|Activation|Deactivate :self fx)
+ (CallFunction|ApplyFrame))''')
+write('TestDissolve','''(fn TestDissolve ()
+ (CallFunction|Reset)
+ (Variables|Default|SetStartTime (Utilities|Time|GetGameTimeinSeconds))
+ (bind fx (Variables|Default|GetDissolveParticles))
+ (Niagara|SetNiagaraVariable(Float) :self fx :InVariableName "User.SpawnRate" :InValue 1800)
+ (Components|Activation|Activate :self fx :bReset true)
+ (Utilities|Time|SetTimerbyFunctionName :Object self :FunctionName "UpdateDissolve" :Time 0.0166667 :bLooping true :bMaxOncePerFrame true))''')
+write('UpdateDissolve','''(fn UpdateDissolve ()
+ (Variables|Default|SetElapsed (- (Utilities|Time|GetGameTimeinSeconds) (Variables|Default|GetStartTime)))
+ (CallFunction|ApplyFrame)
+ (if (>= (Variables|Default|GetElapsed) (Variables|Default|GetDuration))
+   (Utilities|Time|ClearTimerbyFunctionName :Object self :FunctionName "UpdateDissolve")
+   (Niagara|SetNiagaraVariable(Float) :self (Variables|Default|GetDissolveParticles) :InVariableName "User.SpawnRate" :InValue 0)
+   (Components|Activation|Deactivate :self (Variables|Default|GetDissolveParticles))))''')
+write('EventGraph','''(event EventBeginPlay
+ (CallFunction|Reset)
+ (Input|EnableInput :PlayerController (Game|GetPlayerController :PlayerIndex 0)))''')
+# Key events have no input execution pin; keep each key as a separate two-node chain.
+g=BP.get_graph(bp,'EventGraph')
+for key,fn,y in [('P','TestDissolve',400),('R','Reset',700)]:
+    n=BP.create_node(g,'Input|KeyboardEvents|'+key,u.IntPoint(0,y))
+    c=BP.create_node(g,'CallFunction|'+fn,u.IntPoint(300,y))
+    ni,ci=BP.get_node_infos([n,c])
+    BP.connect_pins(next(p.pin_id for p in ni.output_pins if p.name=='Pressed'),next(p.pin_id for p in ci.input_pins if p.type_id=='Exec'))
+write('UserConstructionScript','''(fn ConstructionScript ()
+ (CallFunction|Initialize)
+ (Variables|Default|SetElapsed (Variables|Default|GetPreviewTime))
+ (CallFunction|ApplyFrame))''')
+BP.compile_blueprint(bp)
+cdo=BP.get_default_object(bp)
+cdo.set_editor_property('PropagationDistance',135.)
+for c in AT.get_components(cdo):
+    if c.get_name().startswith('DissolveOrigin'):c.set_editor_property('relative_location',u.Vector(-35,-30,35))
+u.EditorAssetLibrary.save_loaded_asset(bp)
+
+
