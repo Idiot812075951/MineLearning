@@ -33,13 +33,13 @@ Q 在 `BPC_GurenQPresentation → Event Graph → RadiationChanged` 内仍覆盖
 
 控制器保持 `Dissolve(Target, OriginWS)`、材质恢复、可见性恢复与资源清理。Q 的目标搜索、转向、抓取、动画、镜头和销毁时机均未改动。
 
-## 验证与回退
+## 既有验证与复核要点
 
 - Blueprint 编译通过，两个 Niagara System 均为 UpToDate、无错误/警告。
 - 实际 Q 的六个采样阶段均 `OutlineAmount = 0`；粒子阶段表面遮罩为 0；散开后生成率为 0。
 - 在转换中取消：敌人可见，两个材质槽恢复为原对象，特效 Actor 数量为 0，移动解锁。
 - 随后再次执行完整 Q：目标销毁、特效 Actor 数量为 0、移动解锁；使用原有处决镜头验收。
-- 截图与验证记录：`Tools/RadiantDissolve/FinalScatter/`。`qa_q.py` 以固定观察镜头和 0.25 时间倍率检查阶段；`qa_lifecycle.py` 使用正常速度和原有处决镜头。
-- 编辑前的 UE 资产快照：`Saved/RadiantFinalScatter/Before/`。回退须先关闭编辑器，按同名资产恢复到对应 VFX 文件夹，勿在编辑器持有资产时直接覆盖文件。
 
 原有通用目标限制仍适用：未新增 ISM/HISM、Geometry Collection、任意主材质自动注入支持。本轮验收对象是当前关卡里的 Q 抓取敌人，不代表所有任意拓扑都具有精确内部填充。
+
+以上为效果交付时的验证摘要；一次性脚本、原始记录、预览截图和外部备份已清理。当前版本以 UE 资产为准，本次文件清理未重跑 PIE。复核时在测试地图执行完整 Q、转换中取消、再次执行，检查目标材质/可见性恢复、特效清理和控制解锁。

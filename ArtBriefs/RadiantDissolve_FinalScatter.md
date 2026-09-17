@@ -10,4 +10,4 @@ Protected: source meshes, Blender files, skeletons, animations, materials outsid
 
 Implementation: reuse the current GPU mesh samplers with inward normal offsets at randomized depths; this is a visually filled interior layer, not a watertight volume/SDF solver. Expose depth and useful normalized phase boundaries on the controller. Keep particle lifetimes inside the existing Q radiation window.
 
-Acceptance: Blueprint and both Niagara systems compile; real Q shows an intact bright sweep, no persistent outline, readable dense white particles and a clean empty end. Verify reset/cancel and repeated execution. Save a baseline before editing, authoring scripts and actual UE captures.
+Acceptance: Blueprint and both Niagara systems compile; real Q shows an intact bright sweep, no persistent outline, readable dense white particles and a clean empty end. Verify reset/cancel and repeated execution. Keep the current brief and configuration notes; do not retain authoring scripts, validation captures or external backups.
