@@ -157,6 +157,6 @@ Q 运行时在调用前明确覆盖两个值：
 
 停止 Play 后改参数并保存，再 Play 测试。重启 Play 会恢复被删除的目标。近距离测试先走到 200 cm 内；远距离走到 200–2000 cm；不要同时把多个目标摆在搜索范围内靠得太近，否则 Q 会按最近目标选择。
 
-建议先看正常完整处决，再测试抓取中取消和溶解中取消。检查镜头回转、鼠标转向恢复、时间倍率恢复和原滚轮距离。源码位置：`Source/MineLearning/Manifestation/Guren/GurenQPresentationComponent.h/.cpp` 与 `GurenQSkillComponent.h/.cpp`。Python 仅用于编辑器施工和验证，运行时不依赖 Python。
+建议先看正常完整处决，再测试抓取中取消和溶解中取消。检查镜头回转、鼠标转向恢复、时间倍率恢复和原滚轮距离。源码位置：`Source/MineLearning/Manifestation/Guren/GurenQPresentationComponent.h/.cpp` 与 `GurenQSkillComponent.h/.cpp`。一次性 Python 施工和验证文件已清理，运行时不依赖 Python。
 
-本轮验证：完整执行时采集到的震动只属于 Radiation；绕行中取消没有震动，溶解开始时取消会立即停止震动。三种路径均恢复测试前控制旋转 `(-18°,25°,0°)`、臂长 680 cm、TargetOffset `(5,9,12)`、FOV 90、时间倍率 1，移动与鼠标转向解锁，表现 Tick 停止。记录保存在 `Saved/GurenQ/qa_execution_camera.json`。已在当前地图观察正面提起与溶解构图。
+本轮验证：完整执行时采集到的震动只属于 Radiation；绕行中取消没有震动，溶解开始时取消会立即停止震动。三种路径均恢复测试前控制旋转 `(-18°,25°,0°)`、臂长 680 cm、TargetOffset `(5,9,12)`、FOV 90、时间倍率 1，移动与鼠标转向解锁，表现 Tick 停止。这里只保留既有验证结论，原始检查记录已清理。已在当前地图观察正面提起与溶解构图。

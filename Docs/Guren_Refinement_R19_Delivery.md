@@ -1,6 +1,6 @@
 # 红莲 R19：结构精简、曲面与 Q 朝向修复
 
-本轮结果已进入正式 UE 角色和 `L_Guren_Retarget_Test` 关卡。源文件为 `ArtSource/Characters/GurenSeitenHakkyoShiki/V027A_R19_Refinement.blend`。原 R18 与本轮开始时含未保存状态的 `Refinement_R19/00_UserLive_R18.blend` 保留。
+本轮结果已进入正式 UE 角色和 `L_Guren_Retarget_Test` 关卡。源文件为 `ArtSource/Characters/GurenSeitenHakkyoShiki/V027A_R19_Refinement.blend`。只保留此最新源文件；历史版本和外部回退文件已清理。
 
 ## 模型改动与原因
 
@@ -25,7 +25,7 @@
 
 开发版常规构建成功，随后重新打开 UE，验证正式二进制。重启后实际 PIE 的 8 组测试全部通过：正面初始背对、背后初始背对、背后正对、左右两侧、目标旋转 127°、近距离背后、1900 cm 背后完整处决。检查转身方向、冲刺移动方向、实际右手附着和移动解锁；本次重启后到位误差约 **0.2～1.8 cm**。
 
-测试脚本为 `Tools/GurenQ/qa_approach_direction.py`，结果在 `Saved/GurenR19/q_direction_results.json`。为隔离朝向问题，测试暂时关闭 PIE 障碍碰撞，保留关卡地面；结束 PIE 后恢复原关卡。关闭后台限帧进行正式回归，随后恢复偏好。另一次 3 FPS 后台检查中，斜向接近出现 56.8 cm 残余误差，触发原有 55 cm 保护并取消；本轮未放宽该保护。
+以下为 R19 交付时的验证摘要；一次性测试脚本和原始记录已清理。为隔离朝向问题，测试暂时关闭 PIE 障碍碰撞，保留关卡地面；结束 PIE 后恢复原关卡。关闭后台限帧进行正式回归，随后恢复偏好。另一次 3 FPS 后台检查中，斜向接近出现 56.8 cm 残余误差，触发原有 55 cm 保护并取消；本轮未放宽该保护。
 
 ## UE 交付与检查
 
@@ -37,15 +37,6 @@
 - 主光 `Sun` 的 Forward Shading Priority 为 1，补光为 0。灯光强度保持原值，重启后编辑器截图确认竞争警告消失。
 - 实际关卡已查看头部、右手、背部和整机近景；另外实际执行背后冲刺与抓头并截图，确认朝向和新手部外形。
 
-网格和关卡的发布前备份在 `Saved/GurenR19/BeforePublish`；构建日志在 `Saved/GurenR19/FullBuild.log`。
+## 文件保留
 
-## 图像与复现材料
-
-图像均在 `ArtSource/Characters/GurenSeitenHakkyoShiki/Refinement_R19/`：
-
-- `05_Final_threequarter.png`：Blender 整机。
-- `05_Final_legs.png`：去除穿出侧甲后的腿背面。
-- `06_UE_Head.png`、`07_UE_Hand.png`、`08_UE_Back.png`、`09_UE_Hero.png`：UE 头部、手部、背部、整机。
-- `10_UE_RearApproach.png`、`11_UE_RearGrip.png`：实际背后接近和抓取。
-
-同目录保留 `r19.py`、`export_r19.py`、UE 导入/发布配方与 JSON 校验结果。建模配方从 R18 备份的新 R19 副本执行一次；不应在已处理好的 R19 上重复运行 `apply()` 或 `precise_finish()`。
+仅保留当前 R19 `.blend`、当前说明与设计参考图。施工脚本、FBX、检查记录、预览截图、旧版及外部备份已移除；本次清理没有修改 UE 资产，也没有重新执行上述历史 PIE 验收。
