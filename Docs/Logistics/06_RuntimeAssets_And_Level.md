@@ -36,10 +36,10 @@
 
 ## 最终源文件
 
-- 搬运工：`ArtSource/Characters/CarrierRobot/CarrierRobot_V08_ArmPosePolish.blend`、`CarrierRobot.fbx`。
-- 金币：`ArtSource/Items/GoldCoin/SM_GoldCoin.blend`、`SM_GoldCoin.fbx`。
-- 处理机：`ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend`；当前结构化导入源 `OreProcessor_V21_UEAssetStructure.fbx`。
-- 仓库：`ArtSource/Warehouse/Warehouse_V06_UEExportReady.blend`、`SM_Warehouse.fbx`。
+- 搬运工：`ArtSource/Characters/CarrierRobot/CarrierRobot_V08_ArmPosePolish.blend`。
+- 金币：`ArtSource/Items/GoldCoin/SM_GoldCoin.blend`。
+- 处理机：`ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend`。
+- 仓库：`ArtSource/Warehouse/Warehouse_V06_UEExportReady.blend`。
 
 ## ThirdPersonMap 装配
 

@@ -57,7 +57,7 @@
 - 目标：后续可拆分进入 UE 的 Static Mesh 部件。
 - 本轮不制作骨骼、动画、UV、贴图、重拓扑或大规模减面。
 - Blender Source of Truth：`ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend`。
-- 保留导入基线，并另存本轮清理版本。
+- 只保留当前 V26 源文件，历史由 Git 管理，不额外保留导出副本或检查点。
 - 必须保护现有材质槽、UV、整体比例和已确认主轮廓；UE 只负责皮带、滚轮、中央核心等运行时动态表现。
 
 ## 9. 本轮任务范围
