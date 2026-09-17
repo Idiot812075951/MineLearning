@@ -66,11 +66,32 @@ Content/**/_NotifyFixBackups/
 # Local generated review patch
 /MineLearning_CodeChanges*.patch
 
-# Art source is versioned separately: keep new Blender sources visible while
-# ignoring generated exports, previews, scripts, notes, and caches here.
+# Current art sources only. New final sources/references must be selected
+# deliberately; do not unignore entire revision, preview, or backup folders.
 /ArtSource/**
 !/ArtSource/**/
-!/ArtSource/**/*.blend
+!/ArtSource/Characters/CarrierRobot/CarrierRobot_V08_ArmPosePolish.blend
+!/ArtSource/Characters/GurenSeitenHakkyoShiki/V027A_R19_Refinement.blend
+!/ArtSource/Environment/MiningArea/MiningArea_P2_Environment_Source.blend
+!/ArtSource/Environment/RobotCenter/RobotCenter.blend
+!/ArtSource/IronIngot/IronIngot.blend
+!/ArtSource/Items/GoldCoin/SM_GoldCoin.blend
+!/ArtSource/OreProcessor/OreProcessor_V26_InclineBeltCleanSlab.blend
+!/ArtSource/SellStation/SellStation.blend
+!/ArtSource/ThiefHound/ThiefHound_P06A_AnimationRecovery.blend
+!/ArtSource/Warehouse/Warehouse_V06_UEExportReady.blend
+!/ArtSource/Characters/GurenSeitenHakkyoShiki/References/REFERENCE_INDEX.md
+!/ArtSource/Environment/MiningArea/References/MiningArea_UEImportBrief.md
+!/ArtSource/Environment/RobotCenter/References/RobotCenter_P03_LayoutBrief.md
+!/ArtSource/IronIngot/IronIngot_AssetBrief.md
+!/ArtSource/SellStation/References/SellStation_AssetBrief.md
+!/ArtSource/SellStation/References/SellStation_UEIntegrationNotes.md
+
+# One-off art construction and validation output is not a deliverable.
+/Tools/GurenQ/
+/Tools/RadiantDissolve/
+/Docs/VFX/*
+!/Docs/VFX/*.md
 
 # UE local/editor generated
 /Binaries/
