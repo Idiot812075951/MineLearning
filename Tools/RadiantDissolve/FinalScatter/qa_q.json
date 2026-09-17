@@ -1,0 +1,89 @@
+{
+  "phase": "tail",
+  "at": 18.123766224831343,
+  "shots": [
+    "01_sweep",
+    "02_full_surface",
+    "03_conversion",
+    "04_filled_particles",
+    "05_scatter",
+    "06_fade"
+  ],
+  "samples": [
+    {
+      "phase": 0.12256869227483227,
+      "label": "01_sweep",
+      "outline": 0.0,
+      "opacity": 1.0,
+      "fx_rate": [
+        [
+          0.0,
+          true
+        ]
+      ]
+    },
+    {
+      "phase": 0.2852690414476511,
+      "label": "02_full_surface",
+      "outline": 0.0,
+      "opacity": 1.0,
+      "fx_rate": [
+        [
+          0.0,
+          true
+        ]
+      ]
+    },
+    {
+      "phase": 0.4248123065699822,
+      "label": "03_conversion",
+      "outline": 0.0,
+      "opacity": 1.0,
+      "fx_rate": [
+        [
+          18000.0,
+          true
+        ]
+      ]
+    },
+    {
+      "phase": 0.5412267707139016,
+      "label": "04_filled_particles",
+      "outline": 0.0,
+      "opacity": 0.0,
+      "fx_rate": [
+        [
+          18000.0,
+          true
+        ]
+      ]
+    },
+    {
+      "phase": 0.704250859163398,
+      "label": "05_scatter",
+      "outline": 0.0,
+      "opacity": 0.0,
+      "fx_rate": [
+        [
+          0.0,
+          true
+        ]
+      ]
+    },
+    {
+      "phase": 0.9013045894579362,
+      "label": "06_fade",
+      "outline": 0.0,
+      "opacity": 0.0,
+      "fx_rate": [
+        [
+          0.0,
+          true
+        ]
+      ]
+    }
+  ],
+  "slowed": true,
+  "target_valid": false,
+  "movement_unlocked": true
+}

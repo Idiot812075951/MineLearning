@@ -1,5 +1,7 @@
 # Radiant Dissolve VFX Prototype
 
+Visual design superseded on 2026-09-15 by [RadiantDissolve_FinalScatter.md](RadiantDissolve_FinalScatter.md). The held-outline stages and historical timing below are archived requirements.
+
 Status: incomplete. This is a reviewable VFX prototype, not a finished production dissolve feature.
 
 Scope: standalone UE 5.8 visual prototype for ordinary Static Mesh and Skeletal Mesh components. The current user prompt is the visual acceptance brief.

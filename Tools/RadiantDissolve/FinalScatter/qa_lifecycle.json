@@ -1,0 +1,18 @@
+{
+  "cancel": {
+    "target_valid": true,
+    "visible": true,
+    "exact_materials_restored": [
+      true,
+      true
+    ],
+    "fx_actors": 0,
+    "movement_unlocked": true
+  },
+  "repeat": {
+    "target_destroyed": true,
+    "fx_actors": 0,
+    "movement_unlocked": true,
+    "default_camera_capture": true
+  }
+}

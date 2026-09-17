@@ -1,0 +1,141 @@
+{
+  "defaults": {
+    "RadiantTarget": "None",
+    "RadiantFallbackMaterial": "<Object '/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface' (0x0000019D3FBCD200) Class 'Material'>",
+    "RadiantAutoPlaceOrigin": "True",
+    "RadiantShowOriginMarker": "True",
+    "RadiantPreviewEnabled": "False",
+    "RadiantOriginHeightRatio": "0.22",
+    "RadiantDuration": "2.0",
+    "RadiantTravelDistance": "0.0",
+    "RadiantNoiseStrength": "12.0",
+    "RadiantHeatIntensity": "200.0",
+    "RadiantEdgeWidth": "5.0",
+    "RadiantDissolveStart": "0.24",
+    "RadiantOutlineHoldStart": "0.66",
+    "RadiantOutlineFadeStart": "0.84",
+    "RadiantMeshGone": "0.96",
+    "RadiantParticleRate": "5000.0",
+    "RadiantParticleFrontWidth": "4.5",
+    "RadiantPreviewTime": "0.0",
+    "RadiantElapsed": "0.0",
+    "RadiantStartTime": "0.0",
+    "RadiantEffectiveRadius": "0.0",
+    "RadiantMaterialCursor": "0",
+    "RadiantStaticMaterialCounts": "[]",
+    "RadiantSkeletalMaterialCounts": "[]",
+    "RadiantStaticMeshes": "[]",
+    "RadiantSkeletalMeshes": "[]",
+    "RadiantOriginalStaticMaterials": "[]",
+    "RadiantOriginalSkeletalMaterials": "[]",
+    "RadiantActiveParticles": "[]",
+    "RadiantParticleStart": "0.1",
+    "RadiantParticleSpeed": "100.0"
+  },
+  "graphs": {
+    "RadiantApplyFrame": "(fn RadiantApplyFrame ()\n  (bind _returnvalue 0.1)\n  (bind _returnvalue_1 0.1)\n  (bind _returnvalue_2 1)\n  (bind _returnvalue_3 1)\n  (bind _returnvalue_4 0)\n  (bind _returnvalue_5 0)\n  (bind _returnvalue_6 0)\n  (bind _returnvalue_7 0)\n  (bind _returnvalue_8 0)\n  (bind _returnvalue_9 0.22)\n  (bind _returnvalue_10 0.01)\n  (bind _returnvalue_11 0.01)\n  (bind _returnvalue_12 1)\n  (bind _returnvalue_13 1)\n  (bind _returnvalue_14 0)\n  (bind _returnvalue_15 0)\n  (bind _returnvalue_16 0.01)\n  (bind _returnvalue_17 0.01)\n  (bind _returnvalue_18 1)\n  (bind _returnvalue_19 1)\n  (bind _returnvalue_20 0)\n  (bind _returnvalue_21 0)\n  (bind _returnvalue_22 0.08)\n  (bind _returnvalue_23 0.92)\n  (bind _returnvalue_24 0.92)\n  (bind _returnvalue_25 0.01)\n  (bind _returnvalue_26 0.01)\n  (bind _returnvalue_27 1)\n  (bind _returnvalue_28 1)\n  (bind _returnvalue_29 0)\n  (bind _returnvalue_30 0)\n  (bind _returnvalue_31 24)\n  (bind _returnvalue_32 14)\n  (bind _returnvalue_33 45)\n  (bind _returnvalue_34 1)\n  (bind _returnvalue_35 1)\n  (bind _returnvalue_36 0.01)\n  (bind _returnvalue_37 0.01)\n  (bind _returnvalue_38 1)\n  (bind _returnvalue_39 1)\n  (bind _returnvalue_40 0)\n  (bind _returnvalue_41 0)\n  (bind _dissolveorigin (Variables|Default|GetDissolveOrigin))\n  (bind _returnvalue_42 (Transformation|GetWorldLocation _dissolveorigin))\n  (bind _returnvalue_43 (Math|Conversions|ToFloat(Integer) _returnvalue_3))\n  (bind _returnvalue_44 (Math|Conversions|ToFloat(Integer) _returnvalue_5))\n  (bind _returnvalue_45 (Math|Conversions|ToFloat(Integer) _returnvalue_13))\n  (bind _returnvalue_46 (Math|Conversions|ToFloat(Integer) _returnvalue_15))\n  (bind _returnvalue_47 (Math|Conversions|ToFloat(Integer) _returnvalue_19))\n  (bind _returnvalue_48 (Math|Conversions|ToFloat(Integer) _returnvalue_21))\n  (bind _returnvalue_49 (Math|Conversions|ToFloat(Integer) _returnvalue_28))\n  (bind _returnvalue_50 (Math|Conversions|ToFloat(Integer) _returnvalue_30))\n  (bind _returnvalue_51 (Math|Conversions|ToFloat(Integer) _returnvalue_35))\n  (bind _returnvalue_52 (Math|Conversions|ToFloat(Integer) _returnvalue_39))\n  (bind _returnvalue_53 (Math|Conversions|ToFloat(Integer) _returnvalue_41))\n  (bind _radiantduration (Variables|RadiantDissolve|GetRadiantDuration))\n  (bind _returnvalue_54 (> _radiantduration _returnvalue))\n  (bind _returnvalue_55 (select _returnvalue_54 _radiantduration _returnvalue_1))\n  (bind _radiantelapsed (Variables|RadiantInternal|GetRadiantElapsed))\n  (bind _returnvalue_56 (/ _radiantelapsed _returnvalue_55))\n  (bind _radiantpreviewenabled (Variables|RadiantInternal|GetRadiantPreviewEnabled))\n  (bind _radiantpreviewtime (Variables|RadiantInternal|GetRadiantPreviewTime))\n  (bind _returnvalue_57 (select _radiantpreviewenabled _radiantpreviewtime _returnvalue_56))\n  (bind _returnvalue_58 (> _returnvalue_57 _returnvalue_2))\n  (bind _returnvalue_59 (< _returnvalue_57 _returnvalue_4))\n  (bind _radianttraveldistance (Variables|RadiantInternal|GetRadiantTravelDistance))\n  (bind _returnvalue_60 (> _radianttraveldistance _returnvalue_6))\n  (bind _radiantnoisestrength (Variables|RadiantDissolve|GetRadiantNoiseStrength))\n  (bind _returnvalue_61 (- _returnvalue_7 _radiantnoisestrength))\n  (bind _returnvalue_62 (> _radiantnoisestrength _returnvalue_8))\n  (bind _radianttraveldistance_1 (Variables|RadiantInternal|GetRadiantTravelDistance))\n  (bind _radianteffectiveradius (Variables|RadiantInternal|GetRadiantEffectiveRadius))\n  (bind _returnvalue_63 (select _returnvalue_60 _radianttraveldistance_1 _radianteffectiveradius))\n  (bind _returnvalue_64 (* _returnvalue_63 _returnvalue_9))\n  (bind _returnvalue_65 (select _returnvalue_62 _radiantnoisestrength _returnvalue_61))\n  (bind _returnvalue_66 (> _returnvalue_65 _returnvalue_64))\n  (bind _returnvalue_67 (select _returnvalue_66 _returnvalue_64 _returnvalue_65))\n  (bind _returnvalue_68 (+ _returnvalue_63 _returnvalue_67))\n  (bind _radiantdissolvestart (Variables|RadiantInternal|GetRadiantDissolveStart))\n  (bind _returnvalue_69 (select _returnvalue_58 _returnvalue_43 _returnvalue_57))\n  (bind _returnvalue_70 (select _returnvalue_59 _returnvalue_44 _returnvalue_69))\n  (bind _returnvalue_71 (- _returnvalue_70 _radiantdissolvestart))\n  (bind _radiantoutlineholdstart (Variables|RadiantInternal|GetRadiantOutlineHoldStart))\n  (bind _returnvalue_72 (- _radiantoutlineholdstart _radiantdissolvestart))\n  (bind _returnvalue_73 (- _radiantoutlineholdstart _radiantdissolvestart))\n  (bind _returnvalue_74 (> _returnvalue_73 _returnvalue_10))\n  (bind _returnvalue_75 (select _returnvalue_74 _returnvalue_72 _returnvalue_11))\n  (bind _returnvalue_76 (/ _returnvalue_71 _returnvalue_75))\n  (bind _returnvalue_77 (> _returnvalue_76 _returnvalue_12))\n  (bind _returnvalue_78 (< _returnvalue_76 _returnvalue_14))\n  (bind _radiantoutlinefadestart (Variables|RadiantInternal|GetRadiantOutlineFadeStart))\n  (bind _returnvalue_79 (- _returnvalue_70 _radiantoutlinefadestart))\n  (bind _radiantmeshgone (Variables|RadiantInternal|GetRadiantMeshGone))\n  (bind _returnvalue_80 (- _radiantmeshgone _radiantoutlinefadestart))\n  (bind _returnvalue_81 (- _radiantmeshgone _radiantoutlinefadestart))\n  (bind _returnvalue_82 (> _returnvalue_81 _returnvalue_16))\n  (bind _returnvalue_83 (select _returnvalue_82 _returnvalue_80 _returnvalue_17))\n  (bind _returnvalue_84 (/ _returnvalue_79 _returnvalue_83))\n  (bind _returnvalue_85 (> _returnvalue_84 _returnvalue_18))\n  (bind _returnvalue_86 (< _returnvalue_84 _returnvalue_20))\n  (bind _returnvalue_87 (select _returnvalue_85 _returnvalue_47 _returnvalue_84))\n  (bind _returnvalue_88 (select _returnvalue_86 _returnvalue_48 _returnvalue_87))\n  (bind _returnvalue_89 (* _returnvalue_88 _returnvalue_22))\n  (bind _returnvalue_90 (+ _returnvalue_23 _returnvalue_89))\n  (bind _returnvalue_91 (select _returnvalue_77 _returnvalue_45 _returnvalue_76))\n  (bind _returnvalue_92 (select _returnvalue_78 _returnvalue_46 _returnvalue_91))\n  (bind _returnvalue_93 (* _returnvalue_92 _returnvalue_24))\n  (bind _returnvalue_94 (< _returnvalue_70 _radiantoutlinefadestart))\n  (bind _returnvalue_95 (> _radiantoutlineholdstart _returnvalue_25))\n  (bind _returnvalue_96 (select _returnvalue_95 _radiantoutlineholdstart _returnvalue_26))\n  (bind _returnvalue_97 (/ _returnvalue_70 _returnvalue_96))\n  (bind _returnvalue_98 (> _returnvalue_97 _returnvalue_27))\n  (bind _returnvalue_99 (< _returnvalue_97 _returnvalue_29))\n  (bind _radiantedgewidth (Variables|RadiantDissolve|GetRadiantEdgeWidth))\n  (bind _returnvalue_100 (+ _returnvalue_67 _radiantedgewidth))\n  (bind _returnvalue_101 (+ _returnvalue_100 _returnvalue_31))\n  (bind _returnvalue_102 (+ _returnvalue_67 _returnvalue_32))\n  (bind _returnvalue_103 (+ _returnvalue_68 _returnvalue_102))\n  (bind _returnvalue_104 (+ _returnvalue_103 _returnvalue_33))\n  (bind _returnvalue_105 (select _returnvalue_98 _returnvalue_49 _returnvalue_97))\n  (bind _returnvalue_106 (select _returnvalue_99 _returnvalue_50 _returnvalue_105))\n  (bind _returnvalue_107 (* _returnvalue_106 _returnvalue_104))\n  (bind _returnvalue_108 (- _returnvalue_107 _returnvalue_102))\n  (bind _returnvalue_109 (+ _returnvalue_68 _returnvalue_101))\n  (bind _returnvalue_110 (select _returnvalue_94 _returnvalue_93 _returnvalue_90))\n  (bind _returnvalue_111 (* _returnvalue_110 _returnvalue_109))\n  (bind _returnvalue_112 (- _returnvalue_111 _returnvalue_101))\n  (bind _returnvalue_113 (- _returnvalue_34 _returnvalue_88))\n  (bind _returnvalue_114 (< _returnvalue_70 _radiantoutlinefadestart))\n  (bind _returnvalue_115 (> _radiantdissolvestart _returnvalue_36))\n  (bind _returnvalue_116 (select _returnvalue_115 _radiantdissolvestart _returnvalue_37))\n  (bind _returnvalue_117 (/ _returnvalue_70 _returnvalue_116))\n  (bind _returnvalue_118 (> _returnvalue_117 _returnvalue_38))\n  (bind _returnvalue_119 (< _returnvalue_117 _returnvalue_40))\n  (bind _returnvalue_120 (select _returnvalue_114 _returnvalue_51 _returnvalue_113))\n  (bind _returnvalue_121 (select _returnvalue_118 _returnvalue_52 _returnvalue_117))\n  (bind _returnvalue_122 (select _returnvalue_119 _returnvalue_53 _returnvalue_121))\n  (bind _returnvalue_123 (* _returnvalue_122 _returnvalue_120))\n  (for _array_element (Variables|RadiantInternal|GetRadiantStaticMeshes)\n    (Rendering|Material|SetVectorParameterValueOnMaterials _array_element \"DissolveOriginWS\" _returnvalue_42)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"DissolveProgress\" _returnvalue_70)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"HeatRadius\" _returnvalue_108)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"DissolveRadius\" _returnvalue_112)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"NoiseStrength\" _returnvalue_67)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"HeatIntensity\" (Variables|RadiantDissolve|GetRadiantHeatIntensity))\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"DissolveEdgeWidth\" _radiantedgewidth)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"OutlineAmount\" _returnvalue_123)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element \"OpacityFade\" _returnvalue_120))\n  (for _array_element_1 (Variables|RadiantInternal|GetRadiantSkeletalMeshes)\n    (Rendering|Material|SetVectorParameterValueOnMaterials _array_element_1 \"DissolveOriginWS\" _returnvalue_42)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"DissolveProgress\" _returnvalue_70)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"HeatRadius\" _returnvalue_108)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"DissolveRadius\" _returnvalue_112)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"NoiseStrength\" _returnvalue_67)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"HeatIntensity\" (Variables|RadiantDissolve|GetRadiantHeatIntensity))\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"DissolveEdgeWidth\" _radiantedgewidth)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"OutlineAmount\" _returnvalue_123)\n    (Rendering|Material|SetScalarParameterValueOnMaterials _array_element_1 \"OpacityFade\" _returnvalue_120))\n  (for _array_element_2 (Variables|RadiantInternal|GetRadiantActiveParticles)\n    (Niagara|SetNiagaraVariable(Position) _array_element_2 \"User.DissolveOriginWS\" _returnvalue_42)\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.DissolveRadius\" _returnvalue_112)\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.NoiseStrength\" _returnvalue_67)\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.FrontWidth\" (* (Variables|RadiantInternal|GetRadiantParticleFrontWidth) (+ 1 (* _returnvalue_88 0.45))))\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.ParticleSpeed\" (Variables|RadiantDissolve|GetRadiantParticleSpeed))\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.SpawnRate\" (/ (* (Variables|RadiantDissolve|GetRadiantParticleRate) (select (>= _returnvalue_70 (Variables|RadiantDissolve|GetRadiantParticleStart)) 1 0)) (select (> (+ (Utilities|Array|Length (Variables|RadiantInternal|GetRadiantStaticMeshes)) (Utilities|Array|Length (Variables|RadiantInternal|GetRadiantSkeletalMeshes))) 0) (+ (Utilities|Array|Length (Variables|RadiantInternal|GetRadiantStaticMeshes)) (Utilities|Array|Length (Variables|RadiantInternal|GetRadiantSkeletalMeshes))) 1)))))\n",
+    "RadiantSpawnSkeletalParticles": "(fn RadiantSpawnSkeletalParticles ()\n  (for _array_element (Variables|RadiantInternal|GetRadiantSkeletalMeshes)\n    (bind _returnvalue (Niagara|SpawnSystemAttached \"/Game/MineLearning/VFX/RadiantDissolve/NS_RadiantDissolve_Skeletal.NS_RadiantDissolve_Skeletal\" _array_element \"None\" \"0, 0, 0\" \"0, 0, 0\" \"KeepRelativeOffset\" false false \"None\" false))\n    (Niagara|SetNiagaraSkeletalMeshComponent _returnvalue \"User.TargetSkeletalMesh\" _array_element)\n    (Utilities|Array|Add (Variables|RadiantInternal|GetRadiantActiveParticles) _returnvalue)))\n",
+    "RadiantFinish": "(fn RadiantFinish ()\n  (Utilities|Time|ClearTimerbyFunctionName self \"RadiantUpdate\")\n  (for _array_element (Variables|RadiantInternal|GetRadiantStaticMeshes)\n    (Rendering|SetVisibility _array_element))\n  (for _array_element_1 (Variables|RadiantInternal|GetRadiantSkeletalMeshes)\n    (Rendering|SetVisibility _array_element_1))\n  (for _array_element_2 (Variables|RadiantInternal|GetRadiantActiveParticles)\n    (Niagara|SetNiagaraVariable(Float) _array_element_2 \"User.SpawnRate\")\n    (Components|Activation|Deactivate _array_element_2)))\n",
+    "RadiantUpdate": "(fn RadiantUpdate ()\n  (Variables|RadiantInternal|SetRadiantElapsed (- (Utilities|Time|GetGameTimeInSeconds) (Variables|RadiantInternal|GetRadiantStartTime)))\n  (CallFunction|RadiantApplyFrame)\n  (if (>= (Variables|RadiantInternal|GetRadiantElapsed) (Variables|RadiantDissolve|GetRadiantDuration))\n    (CallFunction|RadiantFinish)\n    (else\n      (CallFunction|RadiantNoOp))))\n"
+  },
+  "presentation": "(event EventBeginPlay)\n\n(event QEffects|EventRadiationChanged (bActive Target Origin)\n  (bind _dissolvefx (Variables|Default|GetDissolveFX))\n  (if bActive\n    (bind _returnvalue (Game|SpawnActorBPRadiantDissolveTest \"/Game/MineLearning/VFX/RadiantDissolve/BP_RadiantDissolve_Test.BP_RadiantDissolve_Test_C\" (Math|Transform|MakeTransform \"0,0,-10000\") \"Undefined\" \"MultiplyWithRoot\" 0 0))\n    (Variables|Default|SetDissolveFX _returnvalue)\n    (Rendering|SetActorHiddenInGame _returnvalue true)\n    (Collision|SetActorEnableCollision _returnvalue)\n    (Class|BPRadiantDissolveTest|SetRadiantShowOriginMarker false _returnvalue)\n    (Class|BPRadiantDissolveTest|SetRadiantDuration 2.866667 _returnvalue)\n    (Class|BPRadiantDissolveTest|Dissolve _returnvalue Target Origin)\n    (else\n      (Utilities|IsValid (Variables|Default|GetDissolveFX)\n        (:\"Is Valid\"\n          (Class|BPRadiantDissolveTest|RadiantReset _dissolvefx)\n          (Actor|DestroyActor _dissolvefx))))))\n\n(event EventTick (DeltaSeconds))\n",
+  "materials": {
+    "M_RadiantDissolve_Surface": [
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_9",
+        "description": "Heat surface plus held cartoon silhouette",
+        "code": "float3 heated=Base+Masks.x*float3(.055,.003,.006); float shell=saturate(Outline)*smoothstep(.34,.82,saturate(Fresnel)); float hot=saturate(Masks.y); return lerp(heated,heated+float3(.20,.006,.018),shell*.50) +hot*float3(.18,.006,.014);",
+        "inputs": [
+          "Base",
+          "Masks",
+          "Outline",
+          "Fresnel"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_10",
+        "description": "Red heat, white-pink front and lingering silhouette",
+        "code": "float front=pow(saturate(Masks.y),1.45); float shell=saturate(Outline)*smoothstep(.30,.78,saturate(Fresnel)); return Intensity*(pow(saturate(Masks.x),1.45)*float3(1,.008,.018)*.34 +front*float3(1,.42,.58)*2.15+shell*.90*float3(1,.025,.07));",
+        "inputs": [
+          "Masks",
+          "Intensity",
+          "Outline",
+          "Fresnel"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_6",
+        "description": "Heat surface plus held cartoon silhouette",
+        "code": "float3 heated=Base+Masks.x*float3(.055,.003,.006); float shell=saturate(Outline)*smoothstep(.34,.82,saturate(Fresnel)); float hot=saturate(Masks.y); return lerp(heated,heated+float3(.20,.006,.018),shell*.50) +hot*float3(.18,.006,.014);",
+        "inputs": [
+          "Base",
+          "Masks",
+          "Outline",
+          "Fresnel"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_8",
+        "description": "Blue-noise silhouette fade",
+        "code": "return (Fade<=.001)?0:step(saturate(Noise*.5+.5),saturate(Fade));",
+        "inputs": [
+          "Fade",
+          "Noise"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_11",
+        "description": "Blue-noise silhouette fade",
+        "code": "return (Fade<=.001)?0:step(saturate(Noise*.5+.5),saturate(Fade));",
+        "inputs": [
+          "Fade",
+          "Noise"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_12",
+        "description": "Keep a readable Fresnel silhouette after the interior dissolves",
+        "code": "float shell=step(.48,saturate(Fresnel))*saturate(Outline); return max(Remaining,shell);",
+        "inputs": [
+          "Remaining",
+          "Outline",
+          "Fresnel"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/M_RadiantDissolve_Surface.M_RadiantDissolve_Surface:MaterialExpressionCustom_13",
+        "description": "World-position silhouette fade",
+        "code": "float n=frac(sin(dot(Position.xyz,float3(12.9898,78.233,37.719)))*43758.5453); return (Fade<=.001)?0:step(n,saturate(Fade));",
+        "inputs": [
+          "Fade",
+          "Position"
+        ]
+      }
+    ],
+    "MF_RadiantDissolve": [
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/MF_RadiantDissolve.MF_RadiantDissolve:MaterialExpressionCustom_0",
+        "description": "Contact anchored noise; amplitude fades near the origin",
+        "code": "float d=length(P-Origin); float3 q=P*.075; float n=sin(q.x+sin(q.z*1.31))*sin(q.y*1.17-q.z*.43)*.72+sin(q.x*3.7+q.z*2.1)*sin(q.y*3.1-q.x)*.28; return d+min(abs(Strength),d*.45)*n;",
+        "inputs": [
+          "P",
+          "Origin",
+          "Strength"
+        ]
+      },
+      {
+        "path": "/Game/MineLearning/VFX/RadiantDissolve/MF_RadiantDissolve.MF_RadiantDissolve:MaterialExpressionCustom_1",
+        "description": "Explicit idle and complete states. RGB: heat / edge / opacity",
+        "code": "if(Progress*Supported<=0) return float3(0,0,1); if(Progress>=1) return float3(0,0,0); float h=smoothstep(0,22,Heat-D); float rim=(1-smoothstep(0,max(Width,.1),D-Dissolve))*step(Dissolve,D)*step(0,Dissolve); return float3(h,rim,step(Dissolve,D));",
+        "inputs": [
+          "D",
+          "Heat",
+          "Dissolve",
+          "Width",
+          "Progress",
+          "Supported"
+        ]
+      }
+    ]
+  }
+}
