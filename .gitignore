@@ -34,6 +34,10 @@ Desktop.ini
 # Logs
 *.log
 
+# Python tooling caches
+__pycache__/
+*.py[cod]
+
 # Crash reports
 Crashes/
 
