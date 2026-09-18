@@ -2,6 +2,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
 #include "GameFramework/Character.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PoseableMeshComponent.h"
@@ -10,12 +12,20 @@
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 
 UGurenQPresentationComponent::UGurenQPresentationComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	PrimaryComponentTick.TickGroup = TG_PostPhysics;
+	FRichCurve* IntensityCurve = RadiationIntensity.GetRichCurve();
+	IntensityCurve->AddKey(0.f, 0.18f);
+	IntensityCurve->AddKey(0.18f, 0.45f);
+	IntensityCurve->AddKey(0.65f, 0.72f);
+	IntensityCurve->AddKey(0.9f, 1.f);
+	IntensityCurve->AddKey(1.f, 0.8f);
 }
 
 void UGurenQPresentationComponent::BeginPlay()
@@ -31,26 +41,55 @@ void UGurenQPresentationComponent::BeginPlay()
 	CameraBoom = GetOwner()->FindComponentByClass<USpringArmComponent>();
 }
 
+float UGurenQPresentationComponent::GetRadiationDuration() const
+{
+	float Start = 0.f;
+	float End = 0.f;
+	if (GrabMontage)
+	{
+		for (const FAnimNotifyEvent& Notify : GrabMontage->Notifies)
+		{
+			if (const UAnimNotify_GurenQEvent* Event = Cast<UAnimNotify_GurenQEvent>(Notify.Notify))
+			{
+				if (Event->Event == TEXT("StartDissolve"))
+				{
+					Start = Notify.GetTriggerTime();
+				}
+				else if (Event->Event == TEXT("DissolveFinish"))
+				{
+					End = Notify.GetTriggerTime();
+				}
+			}
+		}
+	}
+	return FMath::Max(0.01f, End - Start);
+}
+
 void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Target)
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UAnimInstance* Anim = Character ? Character->GetMesh()->GetAnimInstance() : nullptr;
-	if (!Anim)
+	if (!Anim && Stage != EGurenQStage::Idle && Stage != EGurenQStage::Release)
 	{
 		Skill->Cancel();
 		return;
 	}
 	if (Stage == EGurenQStage::Dash || Stage == EGurenQStage::Grab)
 	{
+		FramingScale = Skill->GetExecutionScale();
 		LastRealTime = GetWorld()->GetRealTimeSeconds();
 		SetComponentTickEnabled(true);
+		if (FramingScale > 1.f && !bExecutionCameraActive)
+		{
+			BeginExecutionCamera();
+		}
 		float PlayRate = 1.f;
 		if (Stage == EGurenQStage::Dash && DashMontage && Target)
 		{
 			const float Distance = FVector::Dist2D(Character->GetActorLocation(), Target->GetActorLocation());
-			const float Duration = FMath::Clamp(0.48f + Distance / 3500.f, 0.57f, 1.05f);
+			const float Duration = FMath::Clamp(DashBaseDuration + Distance / FMath::Max(1.f, DashTravelSpeed), static_cast<float>(DashDurationRange.X), static_cast<float>(DashDurationRange.Y));
 			PlayRate = DashMontage->GetPlayLength() / Duration;
-			NextAfterimageAt = LastRealTime + 0.12;
+			NextAfterimageAt = LastRealTime + AfterimageDelay;
 		}
 		// Remove the old completion callback before the next montage interrupts it.
 		FOnMontageEnded EmptyDelegate;
@@ -73,19 +112,32 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 		ShakeStartedAt = GetWorld()->GetRealTimeSeconds();
 		ShakeAmplitude = ImpactStrength;
 		ShakeDuration = DissolveShakeDuration;
-		RadiatingMesh = Target ? Target->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
-		OriginalMaterials.Reset();
-		if (RadiatingMesh.IsValid())
+		RestoreTargetMaterials();
+		TInlineComponentArray<UMeshComponent*> Meshes(Target);
+		for (UMeshComponent* Mesh : Meshes)
 		{
-			for (int32 Index = 0; Index < RadiatingMesh->GetNumMaterials(); ++Index)
+			FGurenQMaterialSnapshot& Snapshot = MaterialSnapshots.AddDefaulted_GetRef();
+			Snapshot.Mesh = Mesh;
+			Snapshot.bVisible = Mesh->IsVisible();
+			Snapshot.bHiddenInGame = Mesh->bHiddenInGame;
+			for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
 			{
-				OriginalMaterials.Add(RadiatingMesh->GetMaterial(Index));
+				Snapshot.Materials.Add(Mesh->GetMaterial(Index));
 			}
 		}
-		RadiationChanged(true, Target, Character->GetMesh()->GetSocketLocation(TEXT("Q_GrabHead")));
+		RadiationChanged(true, Target, Skill->GetGripLocation());
 	}
 	else if (Stage == EGurenQStage::Release || Stage == EGurenQStage::Idle)
 	{
+		if (Stage == EGurenQStage::Release && IsValid(PalmRadiation) && RadiationHeatTail > 0.f)
+		{
+			RadiationTailEndsAt = GetWorld()->GetTimeSeconds() + RadiationHeatTail;
+			UpdatePalmRadiation();
+		}
+		else if (RadiationTailEndsAt <= 0.0)
+		{
+			StopPalmRadiation();
+		}
 		RestoreTimeDilation();
 		ReturnExecutionCamera();
 		if (Stage == EGurenQStage::Idle)
@@ -94,18 +146,8 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 			ClearAfterimages();
 		}
 		RadiationChanged(false, Target, FVector::ZeroVector);
-		// The shared effect's editor Reset creates fresh preview MIDs. A cancelled
-		// gameplay effect must return the exact materials it replaced instead.
-		if (RadiatingMesh.IsValid())
-		{
-			for (int32 Index = 0; Index < OriginalMaterials.Num(); ++Index)
-			{
-				RadiatingMesh->SetMaterial(Index, OriginalMaterials[Index]);
-			}
-		}
-		RadiatingMesh.Reset();
-		OriginalMaterials.Reset();
-		if (Stage == EGurenQStage::Idle && PlayingMontage)
+		RestoreTargetMaterials();
+		if (Stage == EGurenQStage::Idle && PlayingMontage && Anim)
 		{
 			FOnMontageEnded EmptyDelegate;
 			Anim->Montage_SetEndDelegate(EmptyDelegate, PlayingMontage);
@@ -115,8 +157,26 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 	}
 }
 
+void UGurenQPresentationComponent::RestoreTargetMaterials()
+{
+	for (const FGurenQMaterialSnapshot& Snapshot : MaterialSnapshots)
+	{
+		if (UMeshComponent* Mesh = Snapshot.Mesh.Get())
+		{
+			for (int32 Index = 0; Index < Snapshot.Materials.Num(); ++Index)
+			{
+				Mesh->SetMaterial(Index, Snapshot.Materials[Index]);
+			}
+			Mesh->SetVisibility(Snapshot.bVisible);
+			Mesh->SetHiddenInGame(Snapshot.bHiddenInGame);
+		}
+	}
+	MaterialSnapshots.Reset();
+}
+
 void UGurenQPresentationComponent::GrabContact()
 {
+	StartPalmRadiation();
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character || !Character->IsLocallyControlled())
 	{
@@ -131,6 +191,137 @@ void UGurenQPresentationComponent::GrabContact()
 		PreviousTimeDilation = UGameplayStatics::GetGlobalTimeDilation(this);
 		UGameplayStatics::SetGlobalTimeDilation(this, PreviousTimeDilation * ContactTimeScale);
 		SlowMotionUntil = GetWorld()->GetRealTimeSeconds() + ContactSlowMotionDuration;
+	}
+}
+
+void UGurenQPresentationComponent::StartPalmRadiation()
+{
+	if (RadiationTailEndsAt > 0.0)
+	{
+		StopPalmRadiation();
+	}
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (IsValid(PalmRadiation) || !PalmRadiationSystem || !Character || GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	USkeletalMeshComponent* Mesh = Character->GetMesh();
+	if (!Mesh || PalmRadiationSocket.IsNone() || !Mesh->DoesSocketExist(PalmRadiationSocket))
+	{
+		return;
+	}
+	// Own this component for the whole contact window. An interrupted skill must
+	// remove every particle immediately, even if its Niagara emitter loops forever.
+	PalmRadiation = UNiagaraFunctionLibrary::SpawnSystemAttached(PalmRadiationSystem, Mesh,
+		PalmRadiationSocket, PalmRadiationOffset.GetLocation(), PalmRadiationOffset.Rotator(),
+		PalmRadiationOffset.GetScale3D(), EAttachLocation::KeepRelativeOffset, false,
+		ENCPoolMethod::None, true, false);
+	if (!PalmRadiation)
+	{
+		return;
+	}
+	RadiantMaterialIndex = Mesh->GetMaterialIndex(RadiantMaterialSlot);
+	if (RadiantMaterialIndex != INDEX_NONE)
+	{
+		OriginalRadiantMaterial = Mesh->GetMaterial(RadiantMaterialIndex);
+		RadiantMaterial = Mesh->CreateDynamicMaterialInstance(RadiantMaterialIndex);
+	}
+	if (RadiationLightIntensity > 0.f)
+	{
+		RadiationLight = NewObject<UPointLightComponent>(GetOwner());
+		RadiationLight->SetupAttachment(PalmRadiation);
+		RadiationLight->SetRelativeLocation(FVector(0.f, -8.f, 0.f));
+		RadiationLight->SetCastShadows(false);
+		RadiationLight->SetLightColor(FLinearColor(1.f, 0.035f, 0.055f));
+		RadiationLight->SetIntensityUnits(ELightUnits::Lumens);
+		RadiationLight->RegisterComponent();
+	}
+	SetComponentTickEnabled(true);
+	UpdatePalmRadiation();
+}
+
+void UGurenQPresentationComponent::StopPalmRadiation()
+{
+	if (RadiationLight)
+	{
+		RadiationLight->DestroyComponent();
+		RadiationLight = nullptr;
+	}
+	if (const ACharacter* Character = Cast<ACharacter>(GetOwner()))
+	{
+		if (OriginalRadiantMaterial && Character->GetMesh()->GetMaterial(RadiantMaterialIndex) == RadiantMaterial)
+		{
+			Character->GetMesh()->SetMaterial(RadiantMaterialIndex, OriginalRadiantMaterial);
+		}
+	}
+	RadiantMaterial = nullptr;
+	OriginalRadiantMaterial = nullptr;
+	RadiantMaterialIndex = INDEX_NONE;
+	RadiationTailEndsAt = 0.0;
+	if (IsValid(PalmRadiation))
+	{
+		PalmRadiation->DestroyComponent();
+	}
+	PalmRadiation = nullptr;
+}
+
+void UGurenQPresentationComponent::UpdatePalmRadiation()
+{
+	if (!IsValid(PalmRadiation))
+	{
+		return;
+	}
+	float Intensity = 1.f;
+	float Heat = 1.f;
+	if (RadiationTailEndsAt > 0.0)
+	{
+		Heat = FMath::Clamp(static_cast<float>(RadiationTailEndsAt - GetWorld()->GetTimeSeconds()) / FMath::Max(0.001f, RadiationHeatTail), 0.f, 1.f);
+		if (Heat <= 0.f)
+		{
+			StopPalmRadiation();
+			return;
+		}
+		Intensity = 0.f;
+		Heat *= 0.45f;
+	}
+	else if (GrabMontage)
+	{
+		const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
+		const UAnimInstance* Anim = Character->GetMesh()->GetAnimInstance();
+		float Start = 0.f;
+		float End = GrabMontage->GetPlayLength();
+		for (const FAnimNotifyEvent& Notify : GrabMontage->Notifies)
+		{
+			if (const UAnimNotify_GurenQEvent* Event = Cast<UAnimNotify_GurenQEvent>(Notify.Notify))
+			{
+				if (Event->Event == TEXT("GrabContact"))
+				{
+					Start = Notify.GetTriggerTime();
+				}
+				else if (Event->Event == TEXT("DissolveFinish"))
+				{
+					End = Notify.GetTriggerTime();
+				}
+			}
+		}
+		const float Time = Anim ? FMath::Max(0.f, Anim->Montage_GetPosition(GrabMontage) - Start) : 0.f;
+		const float Progress = FMath::Clamp(Time / FMath::Max(0.01f, End - Start), 0.f, 1.f);
+		const float Pulse = 1.f - RadiationPulseDepth * (0.5f - 0.5f * FMath::Cos(Time * RadiationPulseFrequency * UE_TWO_PI));
+		Intensity = FMath::Clamp(RadiationIntensity.GetRichCurveConst()->Eval(Progress) * Pulse, 0.f, 1.f);
+		Heat = Intensity;
+	}
+	PalmRadiation->SetVariableFloat(TEXT("User.Intensity"), Intensity);
+	PalmRadiation->SetVariableFloat(TEXT("User.HeatIntensity"), Heat);
+	if (RadiantMaterial)
+	{
+		RadiantMaterial->SetScalarParameterValue(TEXT("RadiantIntensity"), Intensity);
+	}
+	if (RadiationLight)
+	{
+		const float Scale = PalmRadiation->GetComponentScale().GetAbsMax();
+		// A larger source needs proportionally more flux to keep equal surface illumination.
+		RadiationLight->SetIntensity(RadiationLightIntensity * Intensity * Scale * Scale);
+		RadiationLight->SetAttenuationRadius(RadiationLightRadius * Scale);
 	}
 }
 
@@ -208,8 +399,10 @@ void UGurenQPresentationComponent::UpdateExecutionCamera(double Now)
 	const float LinearAlpha = FMath::Clamp(static_cast<float>(Now - OrbitStartedAt) / FMath::Max(Duration, 0.01f), 0.f, 1.f);
 	const float Alpha = FMath::SmoothStep(0.f, 1.f, LinearAlpha);
 	const FRotator GoalRotation = bReturningCamera ? OriginalViewRotation : ExecutionViewRotation;
-	const float GoalArmLength = bReturningCamera ? OriginalArmLength : ExecutionCameraDistance;
-	const FVector GoalOffset = bReturningCamera ? OriginalTargetOffset : OriginalTargetOffset + FVector(0.f, 0.f, ExecutionCameraHeight);
+	const float GoalArmLength = bReturningCamera ? OriginalArmLength : ExecutionCameraDistance * FramingScale;
+	const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
+	const float Height = ExecutionCameraHeight * FramingScale + Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * (FramingScale - 1.f);
+	const FVector GoalOffset = bReturningCamera ? OriginalTargetOffset : OriginalTargetOffset + FVector(0.f, 0.f, Height);
 	// Interpolate shortest yaw/pitch arcs without introducing quaternion roll.
 	const FRotator RotationDelta = (GoalRotation - OrbitStartRotation).GetNormalized();
 	CameraController->SetControlRotation(OrbitStartRotation + RotationDelta * Alpha);
@@ -233,7 +426,7 @@ void UGurenQPresentationComponent::RestoreTimeDilation()
 void UGurenQPresentationComponent::SpawnAfterimage(double Now)
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	if (!AfterimageMaterial || !Character || Afterimages.Num() >= 4)
+	if (!AfterimageMaterial || !Character || Afterimages.Num() >= MaximumAfterimages)
 	{
 		return;
 	}
@@ -248,7 +441,7 @@ void UGurenQPresentationComponent::SpawnAfterimage(double Now)
 	Image.Mesh->RegisterComponent();
 	Image.Mesh->CopyPoseFromSkeletalComponent(Source);
 	Image.Material = UMaterialInstanceDynamic::Create(AfterimageMaterial, this);
-	Image.Material->SetScalarParameterValue(TEXT("Opacity"), 0.24f);
+	Image.Material->SetScalarParameterValue(TEXT("Opacity"), AfterimageOpacity);
 	for (int32 Index = 0; Index < Source->GetNumMaterials(); ++Index)
 	{
 		Image.Mesh->SetMaterial(Index, Image.Material);
@@ -273,6 +466,7 @@ void UGurenQPresentationComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	const float RealDelta = FMath::Clamp(static_cast<float>(Now - LastRealTime), 0.f, 0.25f);
 	LastRealTime = Now;
 	UpdateExecutionCamera(Now);
+	UpdatePalmRadiation();
 	if (SlowMotionUntil > 0.0 && Now >= SlowMotionUntil)
 	{
 		RestoreTimeDilation();
@@ -281,7 +475,7 @@ void UGurenQPresentationComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	for (int32 Index = Afterimages.Num() - 1; Index >= 0; --Index)
 	{
 		FGurenQAfterimage& Image = Afterimages[Index];
-		const float Alpha = 1.f - static_cast<float>(Now - Image.BornAt) / 0.24f;
+		const float Alpha = 1.f - static_cast<float>(Now - Image.BornAt) / FMath::Max(0.01f, AfterimageLifetime);
 		if (Alpha <= 0.f)
 		{
 			Image.Mesh->DestroyComponent();
@@ -289,13 +483,13 @@ void UGurenQPresentationComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		}
 		else
 		{
-			Image.Material->SetScalarParameterValue(TEXT("Opacity"), 0.24f * Alpha * Alpha);
+			Image.Material->SetScalarParameterValue(TEXT("Opacity"), AfterimageOpacity * Alpha * Alpha);
 		}
 	}
-	if (Stage == EGurenQStage::Dash && Now >= NextAfterimageAt && GetOwner()->GetVelocity().SizeSquared2D() > FMath::Square(300.f))
+	if (Stage == EGurenQStage::Dash && Now >= NextAfterimageAt && GetOwner()->GetVelocity().SizeSquared2D() > FMath::Square(AfterimageMinimumSpeed))
 	{
 		SpawnAfterimage(Now);
-		NextAfterimageAt = Now + 0.065;
+		NextAfterimageAt = Now + AfterimageInterval;
 	}
 	const float DesiredZoom = Stage == EGurenQStage::Radiation ? -CloseUpFOV
 		: Stage == EGurenQStage::Grab ? -CloseUpFOV * 0.65f
@@ -313,7 +507,7 @@ void UGurenQPresentationComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		Camera->ClearAdditiveOffset();
 		Camera->AddAdditiveOffset(FTransform(Rotation, Offset), ZoomOffset);
 	}
-	if (Stage == EGurenQStage::Idle && !bExecutionCameraActive && FMath::Abs(ZoomOffset) < 0.01f && Envelope <= 0.f && Afterimages.IsEmpty())
+	if (Stage == EGurenQStage::Idle && !PalmRadiation && !bExecutionCameraActive && FMath::Abs(ZoomOffset) < 0.01f && Envelope <= 0.f && Afterimages.IsEmpty())
 	{
 		if (Camera.IsValid())
 		{
@@ -351,6 +545,7 @@ void UGurenQPresentationComponent::EndPlay(const EEndPlayReason::Type Reason)
 	}
 	RestoreTimeDilation();
 	ReturnExecutionCamera(true);
+	StopPalmRadiation();
 	ClearAfterimages();
 	if (Camera.IsValid())
 	{
