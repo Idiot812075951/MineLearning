@@ -19,6 +19,8 @@
 
 ## Q 朝向修复
 
+以下为 R19 当时的修复记录。当前 Q 已扩展为通用可抓取组件，配置、流程与最新验证以 [红莲 Q 技能说明](Guren_Q_Configuration.md) 为准。
+
 原实现直接采用敌人 `GrabStandPoint` 的世界旋转和固定站位，角色从另一侧接近时仍被转到同一方向。现在按“角色 → 敌人”的水平向量求朝向，并把原本校准好的右手抓取偏移绕目标一起旋转。冲刺、站位和抓取使用同一空间方向。
 
 只修改 `Source/MineLearning/Manifestation/Guren/GurenQSkillComponent.cpp` 的 `TryCast` 站位计算。原 Root Motion、Motion Warping、Montage、Notify、抓取挂点、取消恢复和阻挡检查保留。

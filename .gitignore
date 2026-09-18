@@ -86,6 +86,7 @@ Content/**/_NotifyFixBackups/
 !/ArtSource/IronIngot/IronIngot_AssetBrief.md
 !/ArtSource/SellStation/References/SellStation_AssetBrief.md
 !/ArtSource/SellStation/References/SellStation_UEIntegrationNotes.md
+!/ArtSource/UI/Guren/T_GurenGrabClaw.png
 
 # One-off art construction and validation output is not a deliverable.
 /Tools/GurenQ/

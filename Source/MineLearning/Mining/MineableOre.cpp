@@ -6,6 +6,7 @@
 #include "ResourcePickup.h"
 #include "ResourceHitFeedbackComponent.h"
 #include "OreVisualComponent.h"
+#include "MineLearning/Interaction/GrabbableComponent.h"
 
 AMineableOre::AMineableOre()
 {
@@ -39,7 +40,30 @@ void AMineableOre::BeginPlay()
     }
 
     ApplyDamageVisual();
+	if (UGrabbableComponent* Grabbable = FindComponentByClass<UGrabbableComponent>())
+	{
+		Grabbable->OnGrabCompleted.AddDynamic(this, &AMineableOre::HandleGrabCompleted);
+	}
 
+}
+
+void AMineableOre::HandleGrabCompleted(AActor* InstigatorActor)
+{
+	FMiningHitRequest Request;
+	Request.InstigatorActor = InstigatorActor;
+	Request.HitLocation = GetActorLocation();
+	Request.HitNormal = FVector::UpVector;
+	Request.bPlayTargetHitFeedback = false;
+	ApplyFatalMiningHit(Request);
+}
+
+void AMineableOre::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (UGrabbableComponent* Grabbable = FindComponentByClass<UGrabbableComponent>())
+	{
+		Grabbable->OnGrabCompleted.RemoveDynamic(this, &AMineableOre::HandleGrabCompleted);
+	}
+	Super::EndPlay(Reason);
 }
 
 void AMineableOre::SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition)

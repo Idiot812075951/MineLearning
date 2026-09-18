@@ -79,5 +79,6 @@ private:
 
 	void StartBoost();
 	void StartQSkill();
+	void CycleQTarget();
 	void StopBoost();
 };

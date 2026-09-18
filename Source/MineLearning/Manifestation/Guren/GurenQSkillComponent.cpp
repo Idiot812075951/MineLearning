@@ -1,6 +1,6 @@
 #include "GurenQSkillComponent.h"
-#include "QGrabTestDummy.h"
-#include "Components/ArrowComponent.h"
+
+#include "MineLearning/Interaction/GrabbableComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EngineUtils.h"
@@ -18,82 +18,187 @@ UGurenQSkillComponent::UGurenQSkillComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
+void UGurenQSkillComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	GetWorld()->GetTimerManager().SetTimer(SelectionTimer, this, &UGurenQSkillComponent::RefreshTargets, SelectionInterval, true);
+	RefreshTargets();
+}
+
 AActor* UGurenQSkillComponent::GetTarget() const
 {
-	return Target.Get();
+	return Target.IsValid() ? Target->GetOwner() : nullptr;
+}
+
+TArray<UGrabbableComponent*> UGurenQSkillComponent::GetCandidates() const
+{
+	TArray<UGrabbableComponent*> Result;
+	for (const TWeakObjectPtr<UGrabbableComponent>& Candidate : Candidates)
+	{
+		if (Candidate.IsValid())
+		{
+			Result.Add(Candidate.Get());
+		}
+	}
+	return Result;
+}
+
+FVector UGurenQSkillComponent::GetGripLocation() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	return Character ? Character->GetMesh()->GetSocketLocation(GripSocket) : GetOwner()->GetActorLocation();
+}
+
+float UGurenQSkillComponent::CalculateScale(const UGrabbableComponent* Candidate) const
+{
+	const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
+	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float FeetZ = Character->GetActorLocation().Z - HalfHeight;
+	const float HeightScale = (Candidate->GetComponentLocation().Z - FeetZ) / FMath::Max(1.f, ContactOffset.Z + HalfHeight);
+	return FMath::Max3(1.f, Candidate->GetGripDiameter() / FMath::Max(1.f, ClawDiameter), HeightScale);
+}
+
+bool UGurenQSkillComponent::CanSelect(UGrabbableComponent* Candidate) const
+{
+	if (!IsValid(Candidate) || !Candidate->CanGrab(GetOwner()) || CalculateScale(Candidate) > MaximumScale
+		|| FVector::DistSquared(GetOwner()->GetActorLocation(), Candidate->GetComponentLocation()) > FMath::Square(SelectionRange))
+	{
+		return false;
+	}
+	if (bRequireLineOfSight)
+	{
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GurenQSelection), false, GetOwner());
+		if (GetWorld()->LineTraceSingleByChannel(Hit, GetOwner()->GetActorLocation(), Candidate->GetComponentLocation(), ECC_Visibility, Params)
+			&& Hit.GetActor() != Candidate->GetOwner())
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void UGurenQSkillComponent::RefreshTargets()
+{
+	TArray<TWeakObjectPtr<UGrabbableComponent>> NewCandidates;
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!IsQActive() && Character && Character->IsLocallyControlled() && Character->GetCharacterMovement()->IsMovingOnGround())
+	{
+		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+		{
+			UGrabbableComponent* Candidate = It->FindComponentByClass<UGrabbableComponent>();
+			if (CanSelect(Candidate))
+			{
+				NewCandidates.Add(Candidate);
+			}
+		}
+		// Stable cycle order while objects move. Nearest is only the initial/fallback selection.
+		NewCandidates.Sort([](const TWeakObjectPtr<UGrabbableComponent>& A, const TWeakObjectPtr<UGrabbableComponent>& B)
+		{
+			return A->GetOwner()->GetPathName() < B->GetOwner()->GetPathName();
+		});
+	}
+	UGrabbableComponent* NewSelection = SelectedTarget.Get();
+	if (!NewCandidates.Contains(NewSelection))
+	{
+		NewSelection = nullptr;
+		float NearestDistance = TNumericLimits<float>::Max();
+		for (const TWeakObjectPtr<UGrabbableComponent>& Candidate : NewCandidates)
+		{
+			const float Distance = FVector::DistSquared(GetOwner()->GetActorLocation(), Candidate->GetComponentLocation());
+			if (Distance < NearestDistance)
+			{
+				NearestDistance = Distance;
+				NewSelection = Candidate.Get();
+			}
+		}
+	}
+	if (Candidates != NewCandidates || SelectedTarget.Get() != NewSelection)
+	{
+		Candidates = MoveTemp(NewCandidates);
+		SelectedTarget = NewSelection;
+		OnTargetsChanged.Broadcast();
+	}
+}
+
+void UGurenQSkillComponent::CycleTarget()
+{
+	if (IsQActive())
+	{
+		return;
+	}
+	RefreshTargets();
+	if (Candidates.Num() > 1)
+	{
+		SelectedTarget = Candidates[(Candidates.IndexOfByKey(SelectedTarget) + 1) % Candidates.Num()];
+		OnTargetsChanged.Broadcast();
+	}
 }
 
 void UGurenQSkillComponent::SetStage(EGurenQStage NewStage)
 {
 	Stage = NewStage;
-	UE_LOG(LogGurenQ, Display, TEXT("Q stage=%s target=%s"), *UEnum::GetValueAsString(Stage), *GetNameSafe(Target.Get()));
-	OnStageChanged.Broadcast(Stage, Target.Get());
+	UE_LOG(LogGurenQ, Verbose, TEXT("Q stage=%s target=%s"), *UEnum::GetValueAsString(Stage), *GetNameSafe(GetTarget()));
+	OnStageChanged.Broadcast(Stage, GetTarget());
 }
 
 void UGurenQSkillComponent::TryCast()
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	if (IsQActive() || !Character || !Character->GetCharacterMovement()->IsMovingOnGround())
+	if (IsQActive() || bStarting || bFinishing || !Character || !Character->HasAuthority() || !Character->GetCharacterMovement()->IsMovingOnGround())
 	{
 		return;
 	}
-	float Nearest = SelectionRange;
-	for (TActorIterator<AQGrabTestDummy> It(GetWorld()); It; ++It)
+	TGuardValue<bool> StartingGuard(bStarting, true);
+	RefreshTargets();
+	UGrabbableComponent* Candidate = SelectedTarget.Get();
+	if (!CanSelect(Candidate) || !Character->GetMesh()->DoesSocketExist(GripSocket))
 	{
-		const float Distance = FVector::Dist2D(Character->GetActorLocation(), It->GetActorLocation());
-		if (Distance <= Nearest && !It->GetAttachParentActor())
-		{
-			Nearest = Distance;
-			Target = *It;
-		}
-	}
-	if (!Target.IsValid())
-	{
-		UE_LOG(LogGurenQ, Display, TEXT("Q rejected: no target within %.0f cm"), SelectionRange);
 		return;
 	}
-	if (!Character->GetMesh()->DoesSocketExist(GripSocket))
+	if (!Candidate->Reserve(Character))
 	{
-		UE_LOG(LogGurenQ, Error, TEXT("Q missing grip socket %s"), *GripSocket.ToString());
-		Target.Reset();
+		RefreshTargets();
 		return;
 	}
-	OriginalTargetTransform = Target->GetActorTransform();
-	bOriginalCollision = Target->GetActorEnableCollision();
-	StandTransform = Target->GrabStandPoint->GetComponentTransform();
-	FVector ApproachDirection = (Target->GetActorLocation() - Character->GetActorLocation()).GetSafeNormal2D();
-	if (ApproachDirection.IsNearlyZero())
+	Target = Candidate;
+	OriginalMeshTransform = Character->GetMesh()->GetRelativeTransform();
+	ExecutionScale = CalculateScale(Candidate);
+	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	FTransform ScaledMesh = OriginalMeshTransform;
+	ScaledMesh.SetScale3D(OriginalMeshTransform.GetScale3D() * ExecutionScale);
+	ScaledMesh.SetLocation((OriginalMeshTransform.GetLocation() + FVector(0.f, 0.f, HalfHeight)) * ExecutionScale - FVector(0.f, 0.f, HalfHeight));
+	Character->GetMesh()->SetRelativeTransform(ScaledMesh);
+	FVector Direction = (Candidate->GetComponentLocation() - Character->GetActorLocation()).GetSafeNormal2D();
+	if (Direction.IsNearlyZero())
 	{
-		ApproachDirection = Character->GetActorForwardVector().GetSafeNormal2D();
+		Direction = Character->GetActorForwardVector();
 	}
-	const FQuat ApproachRotation = ApproachDirection.Rotation().Quaternion();
-	// Rotate the calibrated right-hand reach around the target, so approaches
-	// from behind or either side do not inherit the target's fixed facing.
-	const FQuat AlignmentRotation = ApproachRotation * StandTransform.GetRotation().Inverse();
-	const FVector StandOffset = StandTransform.GetLocation() - Target->GetActorLocation();
-	FVector StandLocation = Target->GetActorLocation() + AlignmentRotation.RotateVector(StandOffset);
+	const FQuat Facing = Direction.Rotation().Quaternion();
+	FVector StandLocation = Candidate->GetComponentLocation() - Facing.RotateVector(ContactOffset * ExecutionScale);
 	StandLocation.Z = Character->GetActorLocation().Z;
-	StandTransform.SetRotation(ApproachRotation);
-	StandTransform.SetLocation(StandLocation);
+	StandTransform = FTransform(Facing, StandLocation);
 	Character->StopJumping();
 	Character->GetCharacterMovement()->StopMovementImmediately();
 	Character->ConsumeMovementInputVector();
 	bOriginalOrientToMovement = Character->GetCharacterMovement()->bOrientRotationToMovement;
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
-	Character->SetActorRotation(StandTransform.Rotator());
+	Character->SetActorRotation(Facing);
 	LockedController = Character->GetController();
 	if (LockedController.IsValid())
 	{
 		LockedController->SetIgnoreMoveInput(true);
 	}
-	Target->OnDestroyed.AddDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
+	Candidate->GetOwner()->OnDestroyed.AddDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
 	if (UMotionWarpingComponent* Warp = Character->FindComponentByClass<UMotionWarpingComponent>())
 	{
 		Warp->AddOrUpdateWarpTargetFromTransform(TEXT("Q_DashTarget"), StandTransform);
 	}
 	SetComponentTickEnabled(true);
-	GetWorld()->GetTimerManager().SetTimer(Watchdog, this, &UGurenQSkillComponent::Cancel, 8.f, false);
-	SetStage(Nearest > DirectGrabRange ? EGurenQStage::Dash : EGurenQStage::Grab);
+	GetWorld()->GetTimerManager().SetTimer(Watchdog, this, &UGurenQSkillComponent::Cancel, ExecutionTimeout, false);
+	const float Distance = FVector::Dist2D(Character->GetActorLocation(), StandLocation);
+	SetStage(Distance > DirectGrabRange ? EGurenQStage::Dash : EGurenQStage::Grab);
+	RefreshTargets();
 }
 
 void UGurenQSkillComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -104,39 +209,34 @@ void UGurenQSkillComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 		Cancel();
 		return;
 	}
-	// Only the short direct-grab reach is aligned here. The dash is entirely root motion.
 	if (Stage == EGurenQStage::Grab && !bAttached)
 	{
-		GetOwner()->SetActorLocation(FMath::VInterpTo(GetOwner()->GetActorLocation(), StandTransform.GetLocation(), DeltaTime, 25.f), true);
+		GetOwner()->SetActorLocation(FMath::VInterpTo(GetOwner()->GetActorLocation(), StandTransform.GetLocation(), DeltaTime, ReachSpeed), true);
 	}
 }
 
 void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 {
-	if (!IsQActive())
+	if (!IsQActive() || bFinishing)
 	{
 		return;
 	}
 	ACharacter* Character = CastChecked<ACharacter>(GetOwner());
-	if (Event == TEXT("DashArrival") && Stage == EGurenQStage::Dash)
+	if (Event == TEXT("DashArrival") && Stage == EGurenQStage::Dash && !GetWorld()->GetTimerManager().TimerExists(DashArrivalTimer))
 	{
-		// Notifies run while extracting the pose, before CharacterMovement applies this
-		// frame's root motion. Check the endpoint after movement, including at low FPS.
-		GetWorld()->GetTimerManager().SetTimerForNextTick(this, &UGurenQSkillComponent::FinishDash);
+		DashArrivalTimer = GetWorld()->GetTimerManager().SetTimerForNextTick(this, &UGurenQSkillComponent::FinishDash);
 	}
 	else if (Event == TEXT("GrabContact") && Stage == EGurenQStage::Grab && !bAttached)
 	{
-		if (!Target.IsValid() || FVector::Dist(Character->GetMesh()->GetSocketLocation(GripSocket), Target->GetActorLocation()) > 100.f)
+		// Low objects lift to the hand pose; horizontal contact must still be reachable.
+		if (!Target.IsValid() || FVector::Dist2D(GetGripLocation(), Target->GetComponentLocation()) > ContactTolerance * ExecutionScale
+			|| !Target->AttachToGrip(Character->GetMesh(), GripSocket))
 		{
 			Cancel();
 			return;
 		}
-		Target->SetActorEnableCollision(false);
-		Target->GetRootComponent()->SetAbsolute(false, true, true);
-		Target->AttachToComponent(Character->GetMesh(), FAttachmentTransformRules(EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, false), GripSocket);
 		bAttached = true;
 		OnGrabContact.Broadcast();
-		UE_LOG(LogGurenQ, Display, TEXT("Q GrabContact attached to right claw"));
 	}
 	else if (Event == TEXT("StartDissolve") && Stage == EGurenQStage::Grab && bAttached)
 	{
@@ -147,15 +247,15 @@ void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 		SetStage(EGurenQStage::Release);
 		if (Target.IsValid())
 		{
-			Target->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
-			Target->Destroy();
+			Target->GetOwner()->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
+			Target->Release(true);
 		}
 		Target.Reset();
 		bAttached = false;
 	}
 	else if (Event == TEXT("SkillEnd"))
 	{
-		Finish(Stage != EGurenQStage::Release);
+		Finish();
 	}
 }
 
@@ -165,42 +265,40 @@ void UGurenQSkillComponent::FinishDash()
 	{
 		return;
 	}
-	ACharacter* Character = CastChecked<ACharacter>(GetOwner());
-	const float Error = FVector::Dist2D(Character->GetActorLocation(), StandTransform.GetLocation());
-	if (!Target.IsValid() || Error > 55.f)
+	const float Error = FVector::Dist2D(GetOwner()->GetActorLocation(), StandTransform.GetLocation());
+	if (!Target.IsValid() || Error > ArrivalTolerance)
 	{
-		UE_LOG(LogGurenQ, Warning, TEXT("Q dash obstructed or warp endpoint missed: %.1f cm"), Error);
+		UE_LOG(LogGurenQ, Verbose, TEXT("Q blocked at %.1f cm from arrival"), Error);
 		Cancel();
 		return;
 	}
-	UE_LOG(LogGurenQ, Display, TEXT("Q warp endpoint error %.1f cm"), Error);
-	Character->GetCharacterMovement()->StopMovementImmediately();
+	CastChecked<ACharacter>(GetOwner())->GetCharacterMovement()->StopMovementImmediately();
 	SetStage(EGurenQStage::Grab);
 }
 
-void UGurenQSkillComponent::Finish(bool bCancelled)
+void UGurenQSkillComponent::Finish()
 {
-	if (!IsQActive())
+	if (!IsQActive() || bFinishing)
 	{
 		return;
 	}
-	GetWorld()->GetTimerManager().ClearTimer(Watchdog);
+	TGuardValue<bool> FinishingGuard(bFinishing, true);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(Watchdog);
+		World->GetTimerManager().ClearTimer(DashArrivalTimer);
+	}
 	SetComponentTickEnabled(false);
-	// Subscribers reset their effects while the target still exists.
+	// Restore presentation while the target still exists.
 	SetStage(EGurenQStage::Idle);
 	if (Target.IsValid())
 	{
-		Target->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
-		if (bAttached)
-		{
-			Target->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-			Target->GetRootComponent()->SetAbsolute(false, false, false);
-		}
-		Target->SetActorTransform(OriginalTargetTransform);
-		Target->SetActorEnableCollision(bOriginalCollision);
+		Target->GetOwner()->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
+		Target->Release(false);
 	}
 	Target.Reset();
 	bAttached = false;
+	ExecutionScale = 1.f;
 	if (LockedController.IsValid())
 	{
 		LockedController->SetIgnoreMoveInput(false);
@@ -208,6 +306,7 @@ void UGurenQSkillComponent::Finish(bool bCancelled)
 	LockedController.Reset();
 	if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
 	{
+		Character->GetMesh()->SetRelativeTransform(OriginalMeshTransform);
 		Character->GetCharacterMovement()->StopMovementImmediately();
 		Character->GetCharacterMovement()->bOrientRotationToMovement = bOriginalOrientToMovement;
 		if (UMotionWarpingComponent* Warp = Character->FindComponentByClass<UMotionWarpingComponent>())
@@ -215,12 +314,12 @@ void UGurenQSkillComponent::Finish(bool bCancelled)
 			Warp->RemoveWarpTarget(TEXT("Q_DashTarget"));
 		}
 	}
-	UE_LOG(LogGurenQ, Display, TEXT("Q %s; movement restored"), bCancelled ? TEXT("cancelled") : TEXT("complete"));
+	RefreshTargets();
 }
 
 void UGurenQSkillComponent::Cancel()
 {
-	Finish(true);
+	Finish();
 }
 
 void UGurenQSkillComponent::TargetDestroyed(AActor* DestroyedActor)
@@ -231,5 +330,12 @@ void UGurenQSkillComponent::TargetDestroyed(AActor* DestroyedActor)
 void UGurenQSkillComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
 	Cancel();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SelectionTimer);
+	}
+	Candidates.Reset();
+	SelectedTarget.Reset();
+	OnTargetsChanged.Broadcast();
 	Super::EndPlay(Reason);
 }

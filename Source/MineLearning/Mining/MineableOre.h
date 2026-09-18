@@ -61,6 +61,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	UStaticMeshComponent* OreMesh;
@@ -90,6 +91,7 @@ protected:
 	UMaterialInstanceDynamic* DynamicMaterial;
 
 private:
+	UFUNCTION() void HandleGrabCompleted(AActor* InstigatorActor);
 	void InitializeStatsFromDefinition();
 	void ApplyDamageVisual();
 	void SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation);

@@ -41,5 +41,6 @@
 - 机器人中心、出售处和偷矿兽 `References`：保留概念图及有功能标注的设计动线图。
 - `ArtSource/UI/Gunner`：只保留金色 v001、银色 v002 正式源图；Chroma 中间图和旧银色 v001 已移除。
 - `ArtSource/UI/Transformation`：保留 Human、Gunner、OreBuddy 三张正式头像源图。
+- `ArtSource/UI/Guren/T_GurenGrabClaw.png`：当前 Q 抓取目标图标，由 UE 抓头姿势图标编辑为大掌心、短五指的透明图，保留作为唯一正式 UI 源图。
 
 清理前已只读打开十个保留的 `.blend`，没有对待删除文件的外部依赖；红莲镜片图像已内嵌。清理不修改这些 `.blend` 的内容，也不修改当前打开的 Blender 未保存状态。UE 导入产物保持原样，需要重新导入时从上述源文件重新导出，不再依赖旧 FBX。

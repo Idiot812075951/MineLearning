@@ -153,6 +153,7 @@ void AGurenCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AGurenCharacter::StartQSkill);
+	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AGurenCharacter::CycleQTarget);
 
 	if (UEnhancedInputComponent* EnhancedInputComponent =
 		Cast<UEnhancedInputComponent>(PlayerInputComponent))
@@ -184,4 +185,9 @@ void AGurenCharacter::StopBoost()
 void AGurenCharacter::StartQSkill()
 {
 	QSkill->TryCast();
+}
+
+void AGurenCharacter::CycleQTarget()
+{
+	QSkill->CycleTarget();
 }
