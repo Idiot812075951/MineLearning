@@ -93,7 +93,7 @@ void AMineableOre::InitializeStatsFromDefinition()
 
 bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
 {
-    if (IsDestroyed())
+    if (IsDestroyed() || !CanBeDamaged())
     {
         return false;
     }
@@ -129,7 +129,7 @@ bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
 
 bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
 {
-    if (IsDestroyed())
+    if (IsDestroyed() || !CanBeDamaged())
     {
         return false;
     }

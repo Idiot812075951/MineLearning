@@ -116,6 +116,13 @@ bool FRadiantSurfaceCoverageTest::RunTest(const FString& Parameters)
 			float Value = 0.f;
 			TestTrue(FString::Printf(TEXT("%s exposes %s"), Path, *Name.ToString()), Material->GetScalarParameterValue(Name, Value));
 		}
+		// Arrival shares this function with Q; its heat style must remain opt-in on each isolated MID.
+		for (const FName Name : { FName(TEXT("RadiantStress")), FName(TEXT("RadiantCritical")) })
+		{
+			float Value = -1.f;
+			TestTrue(FString::Printf(TEXT("%s exposes %s"), Path, *Name.ToString()), Material->GetScalarParameterValue(Name, Value));
+			TestEqual(FString::Printf(TEXT("%s defaults %s to disabled"), Path, *Name.ToString()), Value, 0.f);
+		}
 	}
 	return true;
 }

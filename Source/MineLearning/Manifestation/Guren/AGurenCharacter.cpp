@@ -8,11 +8,13 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "GurenQSkillComponent.h"
+#include "GurenUltimateComponent.h"
 #include "MotionWarpingComponent.h"
 
 AGurenCharacter::AGurenCharacter()
 {
 	QSkill = CreateDefaultSubobject<UGurenQSkillComponent>(TEXT("QSkill"));
+	Ultimate = CreateDefaultSubobject<UGurenUltimateComponent>(TEXT("Ultimate"));
 	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
 	GetCharacterMovement()->MaxFlySpeed = NormalFlySpeed;
 	GetCharacterMovement()->BrakingDecelerationFlying = 2000.f;
@@ -27,7 +29,7 @@ void AGurenCharacter::BeginPlay()
 
 void AGurenCharacter::Jump()
 {
-	if (QSkill->IsQActive())
+	if (QSkill->IsQActive() || Ultimate->IsUltimateActive())
 	{
 		return;
 	}
@@ -54,6 +56,10 @@ bool AGurenCharacter::IsFlightActive() const
 void AGurenCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (Ultimate->IsUltimateActive())
+	{
+		return;
+	}
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	FlightGraceRemaining = FMath::Max(0.f, FlightGraceRemaining - DeltaSeconds);
 	if (Movement->IsFalling() && bFlightHeld && !bFlightExhausted && FlightEnergy > 0.f)
@@ -130,6 +136,7 @@ void AGurenCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint
 
 void AGurenCharacter::UnPossessed()
 {
+	Ultimate->Abort();
 	QSkill->Cancel();
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
@@ -153,6 +160,7 @@ void AGurenCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AGurenCharacter::StartQSkill);
+	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &AGurenCharacter::StartUltimate);
 	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AGurenCharacter::CycleQTarget);
 
 	if (UEnhancedInputComponent* EnhancedInputComponent =
@@ -184,10 +192,21 @@ void AGurenCharacter::StopBoost()
 
 void AGurenCharacter::StartQSkill()
 {
-	QSkill->TryCast();
+	if (!Ultimate->IsUltimateActive())
+	{
+		QSkill->TryCast();
+	}
+}
+
+void AGurenCharacter::StartUltimate()
+{
+	Ultimate->TryStart();
 }
 
 void AGurenCharacter::CycleQTarget()
 {
-	QSkill->CycleTarget();
+	if (!Ultimate->IsUltimateActive())
+	{
+		QSkill->CycleTarget();
+	}
 }

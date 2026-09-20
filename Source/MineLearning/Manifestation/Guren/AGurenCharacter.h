@@ -7,6 +7,7 @@
 
 class UInputAction;
 class UGurenQSkillComponent;
+class UGurenUltimateComponent;
 class UMotionWarpingComponent;
 class UInputMappingContext;
 struct FInputActionValue;
@@ -22,6 +23,8 @@ public:
 	AGurenCharacter();
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Q Skill")
 	TObjectPtr<UGurenQSkillComponent> QSkill;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrival")
+	TObjectPtr<UGurenUltimateComponent> Ultimate;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Q Skill")
 	TObjectPtr<UMotionWarpingComponent> MotionWarping;
 	virtual void Jump() override;
@@ -79,6 +82,7 @@ private:
 
 	void StartBoost();
 	void StartQSkill();
+	void StartUltimate();
 	void CycleQTarget();
 	void StopBoost();
 };
