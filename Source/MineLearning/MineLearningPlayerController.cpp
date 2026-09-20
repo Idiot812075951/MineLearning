@@ -196,9 +196,11 @@ void AMineLearningPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::Zero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMineLearningPlayerController::SelectOreBuddyForm);
 	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AMineLearningPlayerController::SelectGunnerForm);
+	InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AMineLearningPlayerController::SelectGurenForm);
 	InputComponent->BindKey(EKeys::NumPadZero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
 	InputComponent->BindKey(EKeys::NumPadOne, IE_Pressed, this, &AMineLearningPlayerController::SelectOreBuddyForm);
 	InputComponent->BindKey(EKeys::NumPadTwo, IE_Pressed, this, &AMineLearningPlayerController::SelectGunnerForm);
+	InputComponent->BindKey(EKeys::NumPadThree, IE_Pressed, this, &AMineLearningPlayerController::SelectGurenForm);
 }
 
 void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -357,6 +359,11 @@ void AMineLearningPlayerController::SelectOreBuddyForm()
 void AMineLearningPlayerController::SelectGunnerForm()
 {
 	SelectTransformationForm(EPlayerTransformationForm::Gunner);
+}
+
+void AMineLearningPlayerController::SelectGurenForm()
+{
+	SelectTransformationForm(EPlayerTransformationForm::Guren);
 }
 
 void AMineLearningPlayerController::SetTransformationSelectionOpen(const bool bOpen)

@@ -54,6 +54,7 @@ private:
 	void SelectHumanForm();
 	void SelectOreBuddyForm();
 	void SelectGunnerForm();
+	void SelectGurenForm();
 	void SetTransformationSelectionOpen(bool bOpen);
 
 	UPROPERTY(EditDefaultsOnly, Category="Warehouse|UI")

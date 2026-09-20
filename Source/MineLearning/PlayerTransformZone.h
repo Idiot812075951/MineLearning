@@ -13,7 +13,8 @@ enum class EPlayerTransformationForm : uint8
 {
 	Human,
 	OreBuddy,
-	Gunner
+	Gunner,
+	Guren
 };
 
 /** Transformation area that owns the shared human/robot pawn-swap transaction. */
@@ -60,6 +61,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category="Transformation")
 	TSubclassOf<APawn> HumanPawnClass;
+
+	UPROPERTY(EditAnywhere, Category="Transformation")
+	TSoftClassPtr<APawn> GurenPawnClass;
 
 	static APlayerTransformZone* FindOverlappingZone(APlayerController* PlayerController);
 	bool TrySwapPawn(APlayerController* PlayerController, TSubclassOf<APawn> TargetPawnClass);

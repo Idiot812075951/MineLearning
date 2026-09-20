@@ -34,6 +34,8 @@ APlayerTransformZone::APlayerTransformZone()
 	static ConstructorHelpers::FClassFinder<APawn> HumanClass(
 		TEXT("/Game/MineLearning/Player/Blueprints/BP_ThirdPersonCharacter"));
 	HumanPawnClass = HumanClass.Class;
+	GurenPawnClass = TSoftClassPtr<APawn>(FSoftObjectPath(
+		TEXT("/Game/MineLearning/Characters/Guren/Blueprints/BP_GurenPlayer.BP_GurenPlayer_C")));
 }
 
 bool APlayerTransformZone::TryTransform(APlayerController* PlayerController)
@@ -73,6 +75,9 @@ bool APlayerTransformZone::TrySelectForm(
 		break;
 	case EPlayerTransformationForm::Gunner:
 		TargetPawnClass = RobotPawnClass;
+		break;
+	case EPlayerTransformationForm::Guren:
+		TargetPawnClass = GurenPawnClass.LoadSynchronous();
 		break;
 	default:
 		return false;
