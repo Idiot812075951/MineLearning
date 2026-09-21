@@ -19,6 +19,8 @@ struct FArrivalTarget
 	float Radius = 100.f;
 	bool bDamageEnabled = true;
 	bool bPierced = false;
+	bool bExecuted = false;
+	bool bExecuteEligible = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGurenUltimateStageChanged, EGurenUltimateStage, Stage);

@@ -1,4 +1,6 @@
 #include "GurenQSkillComponent.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
+#include "MineLearning/Combat/HealthComponent.h"
 
 #include "MineLearning/Interaction/GrabbableComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -60,7 +62,7 @@ float UGurenQSkillComponent::CalculateScale(const UGrabbableComponent* Candidate
 
 bool UGurenQSkillComponent::CanSelect(UGrabbableComponent* Candidate) const
 {
-	if (!IsValid(Candidate) || !Candidate->CanGrab(GetOwner()) || CalculateScale(Candidate) > MaximumScale
+	if (!IsValid(Candidate) || !Candidate->CanGrab(GetOwner()) || !CanExecuteTarget(Candidate->GetOwner()) || CalculateScale(Candidate) > MaximumScale
 		|| FVector::DistSquared(GetOwner()->GetActorLocation(), Candidate->GetComponentLocation()) > FMath::Square(SelectionRange))
 	{
 		return false;
@@ -229,17 +231,31 @@ void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 	else if (Event == TEXT("GrabContact") && Stage == EGurenQStage::Grab && !bAttached)
 	{
 		// Low objects lift to the hand pose; horizontal contact must still be reachable.
-		if (!Target.IsValid() || FVector::Dist2D(GetGripLocation(), Target->GetComponentLocation()) > ContactTolerance * ExecutionScale
+		if (!Target.IsValid() || !CanExecuteTarget(Target->GetOwner()) || FVector::Dist2D(GetGripLocation(), Target->GetComponentLocation()) > ContactTolerance * ExecutionScale
 			|| !Target->AttachToGrip(Character->GetMesh(), GripSocket))
 		{
 			Cancel();
 			return;
 		}
 		bAttached = true;
+		FCombatDamageRequest Request;
+		Request.Source = GetOwner();
+		Request.Target = GetTarget();
+		Request.SkillId = TEXT("QGrab");
+		Request.bNonLethal = true;
+		Request.HitLocation = GetGripLocation();
+		GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
 		OnGrabContact.Broadcast();
 	}
 	else if (Event == TEXT("StartDissolve") && Stage == EGurenQStage::Grab && bAttached)
 	{
+		FCombatDamageRequest Request;
+		Request.Source = GetOwner();
+		Request.Target = GetTarget();
+		Request.SkillId = TEXT("QRadiation");
+		Request.bNonLethal = true;
+		Request.HitLocation = GetGripLocation();
+		GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
 		SetStage(EGurenQStage::Radiation);
 	}
 	else if (Event == TEXT("DissolveFinish") && Stage == EGurenQStage::Radiation)
@@ -248,7 +264,16 @@ void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 		if (Target.IsValid())
 		{
 			Target->GetOwner()->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
-			Target->Release(true);
+			AActor* Victim = GetTarget();
+			Target->Release(false);
+			FCombatDamageRequest Request;
+			Request.Source = GetOwner();
+			Request.Target = Victim;
+			Request.SkillId = TEXT("QRadiation");
+			// Contact already locked execution. Healing never invalidates the captured target.
+			Request.bExecute = bAttached;
+			Request.HitLocation = GetGripLocation();
+			GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
 		}
 		Target.Reset();
 		bAttached = false;
@@ -338,4 +363,19 @@ void UGurenQSkillComponent::EndPlay(const EEndPlayReason::Type Reason)
 	SelectedTarget.Reset();
 	OnTargetsChanged.Broadcast();
 	Super::EndPlay(Reason);
+}
+
+float UGurenQSkillComponent::GetExecuteThreshold(float MaxHealth) const
+{
+	return FMath::Max(FMath::Max(0.f, ExecuteHealthFlat), FMath::Max(0.f, MaxHealth) * FMath::Clamp(ExecuteHealthPercent, 0.f, 1.f));
+}
+
+bool UGurenQSkillComponent::CanExecuteTarget(AActor* Actor) const
+{
+	if (!UCombatDamageSubsystem::CanDamageTarget(GetOwner(), Actor))
+	{
+		return false;
+	}
+	const UHealthComponent* Health = Actor->FindComponentByClass<UHealthComponent>();
+	return Health && Health->GetHealth() <= GetExecuteThreshold(Health->GetMaxHealth());
 }

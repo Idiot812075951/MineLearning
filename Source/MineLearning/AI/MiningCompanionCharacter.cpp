@@ -1,4 +1,7 @@
-﻿#include "MiningCompanionCharacter.h"
+#include "MiningCompanionCharacter.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
@@ -35,6 +38,11 @@
 
 AMiningCompanionCharacter::AMiningCompanionCharacter()
 {
+	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	Health->Faction = ECombatFaction::Player;
+	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
+	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_OreBuddyCombat.DA_OreBuddyCombat")));
+
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);

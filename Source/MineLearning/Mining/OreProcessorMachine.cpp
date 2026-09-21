@@ -1,4 +1,7 @@
 #include "OreProcessorMachine.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include "ItemPickup.h"
 #include "Components/SceneComponent.h"
@@ -12,6 +15,11 @@
 
 AOreProcessorMachine::AOreProcessorMachine()
 {
+	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	Health->Faction = ECombatFaction::Player;
+	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
+	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_ProcessorCombat.DA_ProcessorCombat")));
+
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 

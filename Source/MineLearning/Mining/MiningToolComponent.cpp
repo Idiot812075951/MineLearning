@@ -1,4 +1,6 @@
 #include "MiningToolComponent.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
 
 #include "MineableOre.h"
 #include "MiningTypes.h"
@@ -459,11 +461,12 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
         return false;
     }
 
-    FMiningHitRequest Request;
-    Request.MiningPower = MiningPower;
-    Request.ToolEfficiency = 1.0f;
-    Request.InstigatorActor = Owner;
-    Request.bPlayTargetHitFeedback = false;
+    FCombatDamageRequest Request;
+    Request.Source = Owner;
+    Request.Target = TargetOre;
+    const UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>();
+    Request.SkillId = Combat ? Combat->PrimarySkillId : NAME_None;
+    Request.bPlayHitFeedback = false;
 
     const FVector HitCenter = GetMiningHitCenter();
     Request.HitLocation = TargetOre->GetActorLocation();
@@ -489,7 +492,7 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
         Request.HitNormal = FVector::UpVector;
     }
 
-    if (!TargetOre->ApplyMiningHit(Request))
+    if (!GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).bAccepted)
     {
         return false;
     }

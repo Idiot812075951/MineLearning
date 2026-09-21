@@ -216,9 +216,9 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 		UEnhancedInputComponent* InputComponent = NewObject<UEnhancedInputComponent>(Gunner);
 		Gunner->SetupPlayerInputComponent(InputComponent);
 		TestEqual(
-			TEXT("Five player actions provide seven trigger bindings"),
+			TEXT("Movement, look, fire and reload provide six trigger bindings"),
 			InputComponent->GetActionEventBindings().Num(),
-			7);
+			6);
 
 		const FEnhancedInputActionEventBinding* FireStartedBinding = nullptr;
 		const FEnhancedInputActionEventBinding* FireCompletedBinding = nullptr;

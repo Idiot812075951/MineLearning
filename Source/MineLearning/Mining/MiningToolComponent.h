@@ -52,8 +52,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining")
 	bool bIsMining = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool")
-	float MiningPower = 20.0f;
+
 
 	/** Confirmed hits distributed evenly through one Loop segment. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Tool", meta=(ClampMin="1", ClampMax="5", UIMin="1", UIMax="5"))

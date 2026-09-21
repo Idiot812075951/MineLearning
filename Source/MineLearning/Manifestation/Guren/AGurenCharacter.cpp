@@ -1,4 +1,10 @@
 #include "AGurenCharacter.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 
 #include "EnhancedInputComponent.h"
@@ -13,6 +19,9 @@
 
 AGurenCharacter::AGurenCharacter()
 {
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontage(TEXT("/Game/MineLearning/Characters/Guren/Animations/AM_Guren_NormalAttackCombo_FX"));
+	PrimaryAttackMontage = AttackMontage.Object;
+	FindComponentByClass<UCombatComponent>()->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_GurenCombat.DA_GurenCombat")));
 	QSkill = CreateDefaultSubobject<UGurenQSkillComponent>(TEXT("QSkill"));
 	Ultimate = CreateDefaultSubobject<UGurenUltimateComponent>(TEXT("Ultimate"));
 	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
@@ -25,6 +34,10 @@ void AGurenCharacter::BeginPlay()
 	FlightEnergy = MaxFlightEnergy;
 	GetCharacterMovement()->MaxFlySpeed = NormalFlySpeed;
 	Super::BeginPlay();
+	if (UAnimInstance* Anim = GetMesh()->GetAnimInstance())
+	{
+		Anim->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &AGurenCharacter::HandlePrimaryAttackNotify);
+	}
 }
 
 void AGurenCharacter::Jump()
@@ -159,6 +172,7 @@ void AGurenCharacter::UnPossessed()
 void AGurenCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AGurenCharacter::TryPrimaryAttack);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AGurenCharacter::StartQSkill);
 	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &AGurenCharacter::StartUltimate);
 	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AGurenCharacter::CycleQTarget);
@@ -209,4 +223,68 @@ void AGurenCharacter::CycleQTarget()
 	{
 		QSkill->CycleTarget();
 	}
+}
+
+void AGurenCharacter::TryPrimaryAttack()
+{
+	UAnimInstance* Anim = GetMesh()->GetAnimInstance();
+	if (!HasAuthority() || QSkill->IsQActive() || Ultimate->IsUltimateActive() || IsFlightActive()
+		|| !Anim || !PrimaryAttackMontage || Anim->Montage_IsPlaying(PrimaryAttackMontage))
+	{
+		return;
+	}
+	Anim->Montage_Play(PrimaryAttackMontage);
+}
+
+void AGurenCharacter::HandlePrimaryAttackNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
+{
+	if (!HasAuthority() || QSkill->IsQActive() || Ultimate->IsUltimateActive()
+		|| (NotifyName != TEXT("HIT_A1") && NotifyName != TEXT("HIT_A2") && NotifyName != TEXT("HIT_A3")))
+	{
+		return;
+	}
+	const UAnimInstance* Anim = GetMesh()->GetAnimInstance();
+	const FAnimMontageInstance* Instance = Anim ? Anim->GetActiveInstanceForMontage(PrimaryAttackMontage) : nullptr;
+	if (!Instance || Instance->GetInstanceID() != Payload.MontageInstanceID)
+	{
+		return;
+	}
+	const FVector Start = GetActorLocation();
+	const FVector End = Start + GetActorForwardVector() * PrimaryAttackReach;
+	TArray<FHitResult> Hits;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GurenPrimary), false, this);
+	GetWorld()->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
+		FCollisionObjectQueryParams::AllObjects, FCollisionShape::MakeSphere(PrimaryAttackRadius), Params);
+	TSet<AActor*> AppliedTargets;
+	for (const FHitResult& Hit : Hits)
+	{
+		AActor* Target = Hit.GetActor();
+		if (AppliedTargets.Contains(Target) || !UCombatDamageSubsystem::CanDamageTarget(this, Target))
+		{
+			continue;
+		}
+		FCollisionQueryParams SightParams(SCENE_QUERY_STAT(GurenPrimarySight), false, this);
+		SightParams.AddIgnoredActor(Target);
+		if (GetWorld()->LineTraceTestByChannel(Start, Target->GetActorLocation(), ECC_Visibility, SightParams))
+		{
+			continue;
+		}
+		AppliedTargets.Add(Target);
+		FCombatDamageRequest Request;
+		Request.Source = this;
+		Request.Target = Target;
+		Request.SkillId = TEXT("Primary");
+		Request.HitLocation = Hit.ImpactPoint;
+		Request.HitNormal = Hit.ImpactNormal;
+		GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
+	}
+}
+
+void AGurenCharacter::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (UAnimInstance* Anim = GetMesh()->GetAnimInstance())
+	{
+		Anim->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AGurenCharacter::HandlePrimaryAttackNotify);
+	}
+	Super::EndPlay(Reason);
 }

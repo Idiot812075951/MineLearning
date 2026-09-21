@@ -1,4 +1,7 @@
 #include "HaulerCharacter.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include "HaulerAIController.h"
 #include "CarrierAnimInstance.h"
@@ -15,6 +18,11 @@
 
 AHaulerCharacter::AHaulerCharacter()
 {
+	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	Health->Faction = ECombatFaction::Player;
+	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
+	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_CarrierCombat.DA_CarrierCombat")));
+
 	PrimaryActorTick.bCanEverTick = false;
 	GetCapsuleComponent()->InitCapsuleSize(36.0f, 64.0f);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);

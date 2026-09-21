@@ -1,4 +1,6 @@
 #include "GurenUltimateComponent.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
+#include "MineLearning/Combat/HealthComponent.h"
 #include "GurenQSkillComponent.h"
 #include "MineLearning/Interaction/GrabbableComponent.h"
 #include "AIController.h"
@@ -44,7 +46,7 @@ bool UGurenUltimateComponent::IsValidTarget(AActor* Candidate) const
 		return false;
 	}
 	const UGrabbableComponent* Grab = Candidate->FindComponentByClass<UGrabbableComponent>();
-	if (!Grab || !Grab->CanGrab(GetOwner()))
+	if (!Grab || !Grab->CanGrab(GetOwner()) || !UCombatDamageSubsystem::CanDamageTarget(GetOwner(), Candidate))
 	{
 		return false;
 	}
@@ -313,8 +315,23 @@ void UGurenUltimateComponent::HandleBeat(EGurenUltimateStage Beat)
 	{
 		return;
 	}
-	SetStage(Beat);
-	if (Stage != Beat || bExiting)
+	if (Beat == EGurenUltimateStage::Arrival)
+	{
+		// Capture the pre-hit decision before the final dissolve begins. The whole
+		// finisher is one transaction; its own damage cannot create eligibility.
+		const UGurenQSkillComponent* Q = GetOwner()->FindComponentByClass<UGurenQSkillComponent>();
+		for (FArrivalTarget& Entry : Targets)
+		{
+			const UHealthComponent* Health = Entry.Actor.IsValid() ? Entry.Actor->FindComponentByClass<UHealthComponent>() : nullptr;
+			Entry.bExecuteEligible = Entry.bDamageEnabled && Q && Health && !Health->IsDead()
+				&& Health->GetHealth() <= Q->GetExecuteThreshold(Health->GetMaxHealth());
+		}
+	}
+	if (Beat != EGurenUltimateStage::Burst)
+	{
+		SetStage(Beat);
+	}
+	if ((Beat != EGurenUltimateStage::Burst && Stage != Beat) || bExiting)
 	{
 		return;
 	}
@@ -329,10 +346,22 @@ void UGurenUltimateComponent::HandleBeat(EGurenUltimateStage Beat)
 			}
 			if (Entry.Reservation.IsValid())
 			{
-				Entry.Reservation->Release(Entry.bPierced);
+				Entry.Reservation->Release(false);
 			}
 			Entry.Reservation.Reset();
+			if (Entry.Actor.IsValid() && Entry.bPierced)
+			{
+				FCombatDamageRequest Request;
+				Request.Source = GetOwner();
+				Request.Target = Entry.Actor.Get();
+				Request.SkillId = TEXT("Arrival");
+				Request.HitLocation = Entry.Location;
+				Request.bExecute = Entry.bExecuteEligible;
+				Request.bNonLethal = !Request.bExecute;
+				Entry.bExecuted = GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).bExecuted;
+			}
 		}
+		SetStage(Beat);
 	}
 }
 

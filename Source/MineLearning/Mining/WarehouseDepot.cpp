@@ -1,4 +1,7 @@
 #include "WarehouseDepot.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include "ItemLogisticsLibrary.h"
 #include "ItemPickup.h"
@@ -19,6 +22,11 @@
 
 AWarehouseDepot::AWarehouseDepot()
 {
+	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	Health->Faction = ECombatFaction::Player;
+	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
+	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_WarehouseCombat.DA_WarehouseCombat")));
+
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 

@@ -24,6 +24,10 @@ class MINELEARNING_API UGurenQSkillComponent : public UActorComponent
 	GENERATED_BODY()
 public:
 	UGurenQSkillComponent();
+	UFUNCTION(BlueprintPure, Category = "Combat") bool CanExecuteTarget(AActor* Actor) const;
+	UFUNCTION(BlueprintPure, Category = "Combat") float GetExecuteThreshold(float MaxHealth) const;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Execution", meta = (ClampMin = "0", ClampMax = "1")) float ExecuteHealthPercent = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Execution", meta = (ClampMin = "0")) float ExecuteHealthFlat = 1000.f;
 	UFUNCTION(BlueprintCallable, Category = "Q Skill") void TryCast();
 	UFUNCTION(BlueprintCallable, Category = "Q Skill") void CycleTarget();
 	UFUNCTION(BlueprintCallable, Category = "Q Skill") void RefreshTargets();

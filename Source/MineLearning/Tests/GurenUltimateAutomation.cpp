@@ -1,6 +1,10 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "MineLearning/Manifestation/Guren/GurenQSkillComponent.h"
 #include "MineLearning/Manifestation/Guren/GurenUltimateComponent.h"
 #include "MineLearning/Interaction/GrabbableComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -29,6 +33,19 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 	APlayerController* Player = World->SpawnActor<APlayerController>();
 	Player->SetPlayer(NewObject<ULocalPlayer>(GEngine));
 	ACharacter* Character = World->SpawnActor<ACharacter>();
+	UHealthComponent* SourceHealth = NewObject<UHealthComponent>(Character);
+	SourceHealth->Faction = ECombatFaction::Player;
+	SourceHealth->RegisterComponent();
+	UCombatComponent* Combat = NewObject<UCombatComponent>(Character);
+	UCombatConfig* Config = NewObject<UCombatConfig>(Combat);
+	FSkillDamageSpec Spec;
+	Spec.SkillId = TEXT("Arrival");
+	Spec.BaseDamage = 400.f;
+	Config->Skills.Add(Spec);
+	Combat->Config = Config;
+	Combat->RegisterComponent();
+	UGurenQSkillComponent* Q = NewObject<UGurenQSkillComponent>(Character);
+	Q->RegisterComponent();
 	Player->Possess(Character);
 	TestTrue(TEXT("Test pawn is locally controlled"), Character->IsLocallyControlled());
 	Character->EnableInput(Player);
@@ -37,6 +54,9 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 	UGurenUltimateComponent* Skill = NewObject<UGurenUltimateComponent>(Character);
 	Skill->RegisterComponent();
 	AActor* Target = World->SpawnActor<AActor>();
+	UHealthComponent* TargetHealth = NewObject<UHealthComponent>(Target);
+	TargetHealth->RegisterComponent();
+	TargetHealth->InitializeHealth(10000.f);
 	UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(Target);
 	Mesh->SetMobility(EComponentMobility::Movable);
 	Mesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
@@ -128,7 +148,9 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 			UGrabbableComponent* Grabbable = NewObject<UGrabbableComponent>(Actor);
 			Grabbable->SetupAttachment(Root);
 			Grabbable->RegisterComponent();
-			Grabbable->Completion = EGrabCompletion::Destroy;
+			UHealthComponent* Health = NewObject<UHealthComponent>(Actor);
+			Health->RegisterComponent();
+			Health->InitializeHealth(5000.f);
 		}
 		return Actor;
 	};
@@ -137,6 +159,11 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 	AActor* First = MakeMeshActor(FVector(600, 0, 300), true);
 	AActor* Second = MakeMeshActor(FVector(900, 500, 300), true);
 	AActor* Third = MakeMeshActor(FVector(1000, -600, 300), true);
+	UCombatDamageSubsystem* Damage = World->GetSubsystem<UCombatDamageSubsystem>();
+	Damage->ApplyDebugDamage(First, 2500.f);
+	Damage->ApplyDebugDamage(Second, 2499.f);
+	Third->FindComponentByClass<UHealthComponent>()->InitializeHealth(1800.f);
+	Damage->ApplyDebugDamage(Third, 800.f);
 	Character->SetActorLocation(FVector(0, 0, 300));
 	Skill->MaxTargets = 3;
 	Skill->FinalHoverHeight = 1650.f;
@@ -154,7 +181,11 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Targets remain present in the pose close-up"), First->IsActorBeingDestroyed());
 	TestTrue(TEXT("Final pose obeys its separately configured ground clearance"), FMath::IsNearlyEqual(Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), Skill->FinalHoverHeight, 1.f));
 	Skill->HandleBeat(EGurenUltimateStage::Burst);
-	TestTrue(TEXT("All pierced targets settle together"), First->IsActorBeingDestroyed() && Second->IsActorBeingDestroyed() && Third->IsActorBeingDestroyed());
+	TestTrue(TEXT("Percent boundary and fixed boundary both execute"), First->IsActorBeingDestroyed() && Third->IsActorBeingDestroyed());
+	TestFalse(TEXT("Above-threshold target survives"), Second->IsActorBeingDestroyed());
+	TestEqual(TEXT("Arrival uses pre-hit HP, even if its damage crosses the threshold"), Second->FindComponentByClass<UHealthComponent>()->GetHealth(), 2101.f);
+	TestEqual(TEXT("Survivor does not receive dissolve authorization"), Skill->GetTargets().FilterByPredicate([](const FArrivalTarget& Entry) { return Entry.bExecuteEligible; }).Num(), 2);
+	Second->Destroy();
 	Skill->HandleBeat(EGurenUltimateStage::Recover);
 	Skill->HandleBeat(EGurenUltimateStage::Idle);
 	TestTrue(TEXT("Multi-target completion restores Pawn input"), Character->InputEnabled());

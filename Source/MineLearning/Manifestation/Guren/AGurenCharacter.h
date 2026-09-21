@@ -10,6 +10,8 @@ class UGurenQSkillComponent;
 class UGurenUltimateComponent;
 class UMotionWarpingComponent;
 class UInputMappingContext;
+class UAnimMontage;
+struct FBranchingPointNotifyPayload;
 struct FInputActionValue;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGurenFlightStateChanged, float, Energy, float, Maximum, bool, bFlying);
@@ -31,6 +33,8 @@ public:
 	virtual void StopJumping() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void UnPossessed() override;
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+	UFUNCTION(BlueprintCallable, Category = "Combat") void TryPrimaryAttack();
 	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
 
 	UFUNCTION(BlueprintPure, Category = "Flight")
@@ -50,6 +54,10 @@ protected:
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 private:
+	UPROPERTY(EditDefaultsOnly, Category = "Combat") TObjectPtr<UAnimMontage> PrimaryAttackMontage;
+	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "1")) float PrimaryAttackReach = 260.f;
+	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "1")) float PrimaryAttackRadius = 140.f;
+	UFUNCTION() void HandlePrimaryAttackNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<UInputAction> BoostAction;
 

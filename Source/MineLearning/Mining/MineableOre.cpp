@@ -11,6 +11,9 @@
 AMineableOre::AMineableOre()
 {
     PrimaryActorTick.bCanEverTick = false;
+	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	HealthComponent->Faction = ECombatFaction::Resource;
+	HealthComponent->bDestroyOnDeath = false;
 
     OreMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("OreMesh"));
     SetRootComponent(OreMesh);
@@ -31,6 +34,8 @@ void AMineableOre::BeginPlay()
 {
     Super::BeginPlay();
 
+	HealthComponent->OnDamageResolved.AddDynamic(this, &AMineableOre::HandleDamageResolved);
+	HealthComponent->OnHealthChanged.AddDynamic(this, &AMineableOre::HandleHealthChanged);
     InitializeStatsFromDefinition();
 
     if (BaseMaterial)
@@ -40,30 +45,19 @@ void AMineableOre::BeginPlay()
     }
 
     ApplyDamageVisual();
-	if (UGrabbableComponent* Grabbable = FindComponentByClass<UGrabbableComponent>())
-	{
-		Grabbable->OnGrabCompleted.AddDynamic(this, &AMineableOre::HandleGrabCompleted);
-	}
-
-}
-
-void AMineableOre::HandleGrabCompleted(AActor* InstigatorActor)
-{
-	FMiningHitRequest Request;
-	Request.InstigatorActor = InstigatorActor;
-	Request.HitLocation = GetActorLocation();
-	Request.HitNormal = FVector::UpVector;
-	Request.bPlayTargetHitFeedback = false;
-	ApplyFatalMiningHit(Request);
 }
 
 void AMineableOre::EndPlay(const EEndPlayReason::Type Reason)
 {
-	if (UGrabbableComponent* Grabbable = FindComponentByClass<UGrabbableComponent>())
-	{
-		Grabbable->OnGrabCompleted.RemoveDynamic(this, &AMineableOre::HandleGrabCompleted);
-	}
+	HealthComponent->OnDamageResolved.RemoveDynamic(this, &AMineableOre::HandleDamageResolved);
+	HealthComponent->OnHealthChanged.RemoveDynamic(this, &AMineableOre::HandleHealthChanged);
 	Super::EndPlay(Reason);
+}
+
+void AMineableOre::HandleHealthChanged()
+{
+	OnOreHealthChanged.Broadcast(GetCurrentHealth(), GetMaxHealth());
+	ApplyDamageVisual();
 }
 
 void AMineableOre::SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition)
@@ -79,85 +73,38 @@ void AMineableOre::SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition)
 
 void AMineableOre::InitializeStatsFromDefinition()
 {
-    if (OreDefinition)
-    {
-        MaxHP = FMath::Max(OreDefinition->MaxHealth, 1.0f);
-    }
-
-    CurrentHP = MaxHP;
-    bHasDepleted = false;
+	bHasDepleted = false;
 	CurrentMiningStageIndex = 0;
 	SettledBreakThresholdIndices.Reset();
-    OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
+	HealthComponent->InitializeHealth(OreDefinition ? OreDefinition->MaxHealth : 100.f);
 }
 
-bool AMineableOre::ApplyMiningHit(const FMiningHitRequest& Request)
+void AMineableOre::HandleDamageResolved(const FCombatDamageRequest& Request, const FCombatDamageResult& Result)
 {
-    if (IsDestroyed() || !CanBeDamaged())
-    {
-        return false;
-    }
-
-	const float PreviousHealth = CurrentHP;
-	const float ActualDamage = (Request.MiningPower * Request.ToolEfficiency) / FMath::Max(Hardness, 0.01f);
-
-	CurrentHP = FMath::Clamp(CurrentHP - ActualDamage, 0.0f, MaxHP);
-	const bool bStageBreak = ProcessStageBreaks(PreviousHealth, Request.HitLocation);
-	UE_LOG(LogTemp, Log, TEXT("OreVisual: Route=%s HP=%.1f/%.1f NormalHitFX=%s"),
-		bStageBreak ? TEXT("StageBreak") : TEXT("Hit"), CurrentHP, MaxHP,
-		bStageBreak ? TEXT("Skipped") : TEXT("Play"));
-	OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
-
-	if (!bStageBreak && Request.bPlayTargetHitFeedback && HitFeedbackComponent)
+	if (Result.AppliedDamage <= 0.f)
 	{
-		HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, ActualDamage);
-    }
-
+		return;
+	}
+	const bool bStageBreak = ProcessStageBreaks(Result.PreviousHealth, Request.HitLocation);
+	if (!bStageBreak && Request.bPlayHitFeedback && HitFeedbackComponent)
+	{
+		HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, Result.AppliedDamage);
+	}
 	if (!UsesStageBreakResourceDrops())
 	{
 		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
 	}
-    ApplyDamageVisual();
-
-    if (CurrentHP <= 0.0f)
-    {
-        HandleDepleted();
-    }
-
-    return true;
-}
-
-bool AMineableOre::ApplyFatalMiningHit(const FMiningHitRequest& Request)
-{
-    if (IsDestroyed() || !CanBeDamaged())
-    {
-        return false;
-    }
-
-	const float PreviousHealth = CurrentHP;
-    CurrentHP = 0.0f;
-	ProcessStageBreaks(PreviousHealth, Request.HitLocation);
-    OnOreHealthChanged.Broadcast(CurrentHP, MaxHP);
-    if (HitFeedbackComponent)
-    {
-		if (Request.bPlayTargetHitFeedback)
-		{
-			HitFeedbackComponent->PlayHitFeedback(Request.HitLocation, Request.HitNormal, MaxHP);
-		}
-        HitFeedbackComponent->PlayDestroyedFeedback(GetActorLocation(), Request.HitNormal);
-    }
-	if (!UsesStageBreakResourceDrops())
+	// Stage changes must be visible in the ore's existing health event as well.
+	OnOreHealthChanged.Broadcast(GetCurrentHealth(), GetMaxHealth());
+	if (HealthComponent->IsDead())
 	{
-		SpawnDropsForTrigger(EOreDropTrigger::OnMiningHit, Request.HitLocation);
+		HandleDepleted();
 	}
-    ApplyDamageVisual();
-    HandleDepleted();
-    return true;
 }
 
 void AMineableOre::ApplyDamageVisual()
 {
-    const float DamageRatio = 1.0f - CurrentHP / FMath::Max(MaxHP, 0.01f);
+    const float DamageRatio = 1.0f - GetCurrentHealth() / FMath::Max(GetMaxHealth(), 0.01f);
 
     if (DynamicMaterial)
     {
@@ -205,8 +152,8 @@ bool AMineableOre::ProcessStageBreaks(float PreviousHealth, const FVector& DropL
 		return false;
 	}
 
-	const float PreviousRatio = FMath::Clamp(PreviousHealth / FMath::Max(MaxHP, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
-	const float CurrentRatio = FMath::Clamp(CurrentHP / FMath::Max(MaxHP, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	const float PreviousRatio = FMath::Clamp(PreviousHealth / FMath::Max(GetMaxHealth(), KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	const float CurrentRatio = FMath::Clamp(GetCurrentHealth() / FMath::Max(GetMaxHealth(), KINDA_SMALL_NUMBER), 0.0f, 1.0f);
 	TArray<int32> NewlyCrossedIndices;
 	const TArray<float>& BreakThresholds = GetBreakThresholds();
 	for (int32 Index = 0; Index < BreakThresholds.Num(); ++Index)

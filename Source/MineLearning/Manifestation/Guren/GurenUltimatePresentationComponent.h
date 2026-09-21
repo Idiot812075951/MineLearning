@@ -52,6 +52,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Arrival|Assets") TObjectPtr<UNiagaraSystem> StaticPierceSystem;
 	UPROPERTY(EditAnywhere, Category = "Arrival|Assets") TObjectPtr<UNiagaraSystem> SkeletalPierceSystem;
 	UPROPERTY(EditAnywhere, Category = "Arrival|Assets") TObjectPtr<UNiagaraSystem> TargetChargeSystem;
+	UPROPERTY(EditAnywhere, Category = "Arrival|Assets") TObjectPtr<UNiagaraSystem> NonExecuteExplosionSystem;
 	/** Hidden sampling volume for grabbables without a supported visible mesh. */
 	UPROPERTY(EditAnywhere, Category = "Arrival|Assets") TObjectPtr<UStaticMesh> BoundsSampleMesh;
 	/** Particle budget is shared between every visible mesh on a target. */

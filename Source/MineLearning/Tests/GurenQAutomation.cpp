@@ -85,7 +85,7 @@ bool FGrabbableLifecycleTest::RunTest(const FString& Parameters)
 	Grip->Completion = EGrabCompletion::Destroy;
 	Grip->Reserve(Grabber);
 	Grip->Release(true);
-	TestTrue(TEXT("Destroy completion consumes target"), Target->IsActorBeingDestroyed());
+	TestFalse(TEXT("Grab completion cannot bypass unified damage and destroy an actor"), Target->IsActorBeingDestroyed());
 	GEngine->DestroyWorldContext(World);
 	World->DestroyWorld(false);
 	return !HasAnyErrors();

@@ -51,6 +51,8 @@ class MINELEARNING_API AGunnerCharacter : public ACharacter
 
 public:
 	AGunnerCharacter();
+	UFUNCTION(BlueprintPure, Category = "Combat") float GetShotMultiplier(EGunnerShotResult Result) const;
+	UFUNCTION(BlueprintPure, Category = "Combat") FText GetCombatMechanics() const;
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -168,12 +170,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
 	float MontageSafetyPadding = 0.25f;
 
-	/** Damage before the ore's existing hardness calculation. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
-	float BaseDamage = 10.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
-	float HeadshotDamageMultiplier = 2.0f;
+	float HeadshotDamageMultiplier = 4.0f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenHeadshotMultiplier = 6.f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float HeadshotIntelligenceScale = 0.005f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenIntelligenceScale = 0.01f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float HeadshotMultiplierMax = 8.f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float GoldenMultiplierMax = 12.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float HeadshotChance = 0.20f;
@@ -231,7 +234,7 @@ protected:
 private:
 	struct FShotTarget
 	{
-		TWeakObjectPtr<AMineableOre> Ore;
+		TWeakObjectPtr<AActor> Actor;
 		FVector AimLocation = FVector::ZeroVector;
 		bool bUseExactAimLocation = false;
 	};

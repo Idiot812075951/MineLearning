@@ -17,9 +17,13 @@
 #include "MineLearning/Effects/MaterialEffectLibrary.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "UObject/ConstructorHelpers.h"
 
 UGurenUltimatePresentationComponent::UGurenUltimatePresentationComponent()
 {
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> Explosion(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerGoldenHeadshot"));
+	NonExecuteExplosionSystem = Explosion.Object;
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 	PrimaryComponentTick.TickGroup = TG_PostPhysics;
@@ -232,10 +236,12 @@ void UGurenUltimatePresentationComponent::UpdateTargets(float DeltaTime)
 {
 	const EGurenUltimateStage Stage = Skill->GetStage();
 	const float Remaining = Stage == EGurenUltimateStage::Arrival ? Skill->GetStageDuration(Stage) - Skill->GetStageTime() : DisintegrateLeadTime + 1.f;
-	const float Dissolve = Stage >= EGurenUltimateStage::Burst ? 1.f : FMath::Clamp(1.f - Remaining / FMath::Max(0.1f, DisintegrateLeadTime), 0.f, 1.f);
-	const bool bWhiteDissolve = Dissolve > 0.f;
+
 	for (const FArrivalMaterialSnapshot& Snapshot : Materials)
 	{
+		const bool bExecute = Skill->GetTargets().IsValidIndex(Snapshot.TargetIndex) && Skill->GetTargets()[Snapshot.TargetIndex].bExecuteEligible;
+		const float Dissolve = bExecute ? (Stage >= EGurenUltimateStage::Burst ? 1.f : FMath::Clamp(1.f - Remaining / FMath::Max(0.1f, DisintegrateLeadTime), 0.f, 1.f)) : 0.f;
+		const bool bWhiteDissolve = Dissolve > 0.f;
 		const float Heat = FMath::Clamp((Age - Snapshot.ImpactAge) / 2.4f, 0.f, 1.f);
 		const float Progress = bWhiteDissolve ? FMath::Lerp(0.8f, 1.f, Dissolve) : FMath::Lerp(0.16f, 0.76f, Heat);
 		const FVector Origin = Snapshot.Center;
@@ -289,7 +295,7 @@ void UGurenUltimatePresentationComponent::UpdateTargets(float DeltaTime)
 			const float Tail = BurstAge < 0.f ? 1.f : FMath::Max(0.f, 1.f - (Age - BurstAge) / 0.25f);
 			const float Weight = Index == 0 ? 1.f : SecondaryTargetIntensity;
 			Charge->SetVariableFloat(TEXT("User.Intensity"), Weight * Tail * (Stage >= EGurenUltimateStage::Arrival ? 0.8f : 0.3f));
-			Charge->SetVariableFloat(TEXT("User.HeatIntensity"), Weight * Tail * (0.25f + Dissolve * 0.65f));
+			Charge->SetVariableFloat(TEXT("User.HeatIntensity"), Weight * Tail * (Stage >= EGurenUltimateStage::Burst ? 0.9f : 0.25f));
 		}
 	}
 }
@@ -440,6 +446,25 @@ void UGurenUltimatePresentationComponent::StageChanged(EGurenUltimateStage Stage
 	{
 		BurstAge = Age;
 		UpdateTargets();
+		for (const FArrivalTarget& Target : Skill->GetTargets())
+		{
+			if (!Target.bExecuted && Target.bPierced && Target.Actor.IsValid() && NonExecuteExplosionSystem)
+			{
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), NonExecuteExplosionSystem,
+					Target.Location, FRotator::ZeroRotator, FVector(FMath::Clamp(Target.Radius / 70.f, 1.f, 6.f)));
+			}
+		}
+		for (const FArrivalMaterialSnapshot& Snapshot : Materials)
+		{
+			if (Snapshot.Mesh.IsValid() && Skill->GetTargets().IsValidIndex(Snapshot.TargetIndex)
+				&& !Skill->GetTargets()[Snapshot.TargetIndex].bExecuted)
+			{
+				for (int32 Index = 0; Index < Snapshot.Originals.Num(); ++Index)
+				{
+					Snapshot.Mesh->SetMaterial(Index, Snapshot.Originals[Index]);
+				}
+			}
+		}
 	}
 	else if (Stage == EGurenUltimateStage::Recover && Player.IsValid() && OriginalViewTarget.IsValid())
 	{

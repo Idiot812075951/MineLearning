@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "MiningTypes.h"
+#include "MineLearning/Combat/HealthComponent.h"
 #include "GameFramework/Actor.h"
 #include "MineableOre.generated.h"
 
@@ -24,13 +25,6 @@ class MINELEARNING_API AMineableOre : public AActor
 public:
 	AMineableOre();
 
-	UFUNCTION(BlueprintCallable)
-	bool ApplyMiningHit(const FMiningHitRequest& Request);
-
-	/** Generic resource-layer fatal hit. Carries no attacker-specific semantics. */
-	UFUNCTION(BlueprintCallable)
-	bool ApplyFatalMiningHit(const FMiningHitRequest& Request);
-
 	UFUNCTION(BlueprintCallable, Category="Mining|Ore")
 	void SetOreDefinition(UOreDefinitionDataAsset* InOreDefinition);
 
@@ -38,13 +32,13 @@ public:
 	UOreDefinitionDataAsset* GetOreDefinition() const { return OreDefinition; }
 
 	UFUNCTION(BlueprintPure)
-	bool IsDestroyed() const { return CurrentHP <= 0.0f; }
+	bool IsDestroyed() const { return HealthComponent->IsDead(); }
 
 	UFUNCTION(BlueprintPure, Category="Mining|Stats")
-	float GetCurrentHealth() const { return CurrentHP; }
+	float GetCurrentHealth() const { return HealthComponent->GetHealth(); }
 
 	UFUNCTION(BlueprintPure, Category="Mining|Stats")
-	float GetMaxHealth() const { return MaxHP; }
+	float GetMaxHealth() const { return HealthComponent->GetMaxHealth(); }
 
 	/** Business-owned mining stage: 0 is intact, then increments once per settled break threshold. */
 	UFUNCTION(BlueprintPure, Category="Mining|Stage")
@@ -75,14 +69,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore")
 	UOreDefinitionDataAsset* OreDefinition = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Stats")
-	float MaxHP = 100.0f;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Mining|Stats")
-	float CurrentHP = 100.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Stats")
-	float Hardness = 1.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Combat")
+	TObjectPtr<UHealthComponent> HealthComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Visual")
 	UMaterialInterface* BaseMaterial;
@@ -91,7 +79,8 @@ protected:
 	UMaterialInstanceDynamic* DynamicMaterial;
 
 private:
-	UFUNCTION() void HandleGrabCompleted(AActor* InstigatorActor);
+	UFUNCTION() void HandleDamageResolved(const FCombatDamageRequest& Request, const FCombatDamageResult& Result);
+	UFUNCTION() void HandleHealthChanged();
 	void InitializeStatsFromDefinition();
 	void ApplyDamageVisual();
 	void SpawnDropsForTrigger(EOreDropTrigger Trigger, const FVector& DropLocation);

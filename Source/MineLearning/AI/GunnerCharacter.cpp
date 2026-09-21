@@ -1,4 +1,8 @@
 #include "GunnerCharacter.h"
+#include "MineLearning/Combat/CombatDamageSubsystem.h"
+#include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 #include "GunnerAIController.h"
 #include "Animation/AnimInstance.h"
@@ -65,6 +69,11 @@ namespace
 
 AGunnerCharacter::AGunnerCharacter()
 {
+	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
+	Health->Faction = ECombatFaction::Player;
+	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
+	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_GunnerCombat.DA_GunnerCombat")));
+
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
@@ -436,13 +445,13 @@ void AGunnerCharacter::ApplyLocalPlayerViewport()
 
 bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 {
-	if (!IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed())
+	if (!UCombatDamageSubsystem::CanDamageTarget(this, TargetOre))
 	{
 		return false;
 	}
 
 	FShotTarget Target;
-	Target.Ore = TargetOre;
+	Target.Actor = TargetOre;
 	Target.AimLocation = TargetOre->GetActorLocation();
 	return TryStartAttack(Target);
 }
@@ -467,7 +476,7 @@ bool AGunnerCharacter::TryFireAtAim(const FVector AimOrigin, const FVector AimDi
 	if (World->LineTraceSingleByChannel(Hit, AimOrigin, TraceEnd, ECC_Visibility, QueryParams))
 	{
 		Target.AimLocation = Hit.ImpactPoint;
-		Target.Ore = Cast<AMineableOre>(Hit.GetActor());
+		Target.Actor = Hit.GetActor();
 	}
 
 	return TryStartAttack(Target);
@@ -476,10 +485,10 @@ bool AGunnerCharacter::TryFireAtAim(const FVector AimOrigin, const FVector AimDi
 bool AGunnerCharacter::TryStartAttack(const FShotTarget& Target)
 {
 	UWorld* World = GetWorld();
-	AMineableOre* TargetOre = Target.Ore.Get();
-	if (!World
+	AActor* TargetOre = Target.Actor.Get();
+	if (!World || !HasAuthority()
 		|| (!Target.bUseExactAimLocation
-			&& (!IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed()))
+			&& (!UCombatDamageSubsystem::CanDamageTarget(this, TargetOre)))
 		|| bIsReloading
 		|| bReloadPending
 		|| bBurstInProgress)
@@ -567,10 +576,8 @@ bool AGunnerCharacter::RequestReload()
 
 void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBurstAccuracy, const int32 BurstRoundIndex)
 {
-	AMineableOre* TargetOre = Target.Ore.Get();
-	const bool bOreIsValid = IsValid(TargetOre)
-		&& !TargetOre->IsActorBeingDestroyed()
-		&& !TargetOre->IsDestroyed();
+	AActor* TargetOre = Target.Actor.Get();
+	const bool bOreIsValid = UCombatDamageSubsystem::CanDamageTarget(this, TargetOre);
 	if ((!Target.bUseExactAimLocation && !bOreIsValid) || CurrentAmmo <= 0)
 	{
 		return;
@@ -588,26 +595,14 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 
 	if (bOreIsValid && Result != EGunnerShotResult::Miss)
 	{
-		AppliedDamage = BaseDamage;
-		if (Result == EGunnerShotResult::Headshot)
-		{
-			AppliedDamage *= HeadshotDamageMultiplier;
-		}
-
-		FMiningHitRequest Request;
-		Request.MiningPower = AppliedDamage;
-		Request.ToolEfficiency = 1.0f;
-		Request.InstigatorActor = this;
+		FCombatDamageRequest Request;
+		Request.Source = this;
+		Request.Target = TargetOre;
+		Request.SkillId = TEXT("Primary");
+		Request.Multiplier = GetShotMultiplier(Result);
 		Request.HitLocation = TargetLocation;
 		Request.HitNormal = (MuzzleLocation - TargetLocation).GetSafeNormal();
-		if (Result == EGunnerShotResult::GoldenHeadshot)
-		{
-			TargetOre->ApplyFatalMiningHit(Request);
-		}
-		else
-		{
-			TargetOre->ApplyMiningHit(Request);
-		}
+		AppliedDamage = GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).AppliedDamage;
 	}
 
 	DrawDefaultShotVisual(Result, MuzzleLocation, TargetLocation);
@@ -669,7 +664,7 @@ FVector AGunnerCharacter::CalculateShotTarget(const FShotTarget& Target, const E
 		return Target.AimLocation;
 	}
 
-	const AMineableOre* TargetOre = Target.Ore.Get();
+	const AActor* TargetOre = Target.Actor.Get();
 	if (!TargetOre)
 	{
 		return Target.AimLocation;
@@ -1086,9 +1081,9 @@ void AGunnerCharacter::ResolveBurstRound(const TCHAR* Trigger)
 		return;
 	}
 
-	AMineableOre* TargetOre = BurstTarget.Ore.Get();
+	AActor* TargetOre = BurstTarget.Actor.Get();
 	if (!BurstTarget.bUseExactAimLocation
-		&& (!IsValid(TargetOre) || TargetOre->IsActorBeingDestroyed() || TargetOre->IsDestroyed()))
+		&& (!UCombatDamageSubsystem::CanDamageTarget(this, TargetOre)))
 	{
 		EndBurst(TEXT("target no longer valid"));
 		return;
@@ -1102,4 +1097,30 @@ void AGunnerCharacter::ResolveBurstRound(const TCHAR* Trigger)
 	{
 		EndBurst(BurstRoundsResolved >= 3 ? TEXT("all burst rounds resolved") : TEXT("magazine exhausted"));
 	}
+}
+
+float AGunnerCharacter::GetShotMultiplier(EGunnerShotResult Result) const
+{
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	const float Intelligence = Combat ? Combat->GetAttributes().Intelligence : 0.f;
+	if (Result == EGunnerShotResult::Headshot)
+	{
+		return FMath::Clamp(HeadshotDamageMultiplier + Intelligence * HeadshotIntelligenceScale, 1.f, FMath::Max(1.f, HeadshotMultiplierMax));
+	}
+	if (Result == EGunnerShotResult::GoldenHeadshot)
+	{
+		return FMath::Clamp(GoldenHeadshotMultiplier + Intelligence * GoldenIntelligenceScale, 1.f, FMath::Max(1.f, GoldenMultiplierMax));
+	}
+	return Result == EGunnerShotResult::Miss ? 0.f : 1.f;
+}
+
+FText AGunnerCharacter::GetCombatMechanics() const
+{
+	const float Total = FMath::Max(0.f, GoldenHeadshotChance) + FMath::Max(0.f, HeadshotChance) + FMath::Max(0.f, BodyShotChance) + FMath::Max(0.f, MissChance);
+	return FText::Format(NSLOCTEXT("Combat", "GunnerMechanics", "身体 ×1 | 爆头 ×{0} | 黄金爆头 ×{1}\n能量提高爆头倍率；上限 {2} / {3}。黄金爆头不直接秒杀。\n命中按权重随机：单发爆头 {4}% / 黄金 {5}%；三连发两者概率减半。\n弹药 {6} / {7}"),
+		FText::AsNumber(GetShotMultiplier(EGunnerShotResult::Headshot)), FText::AsNumber(GetShotMultiplier(EGunnerShotResult::GoldenHeadshot)),
+		FText::AsNumber(HeadshotMultiplierMax), FText::AsNumber(GoldenMultiplierMax),
+		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, HeadshotChance) / Total * 100.f : 0.f),
+		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, GoldenHeadshotChance) / Total * 100.f : 0.f),
+		FText::AsNumber(CurrentAmmo), FText::AsNumber(MagazineSize));
 }

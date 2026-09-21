@@ -183,10 +183,6 @@ void UGrabbableComponent::Release(bool bCompleted)
 	if (bCompleted && !Target->IsActorBeingDestroyed())
 	{
 		OnGrabCompleted.Broadcast(Requester);
-		if (Completion == EGrabCompletion::Destroy && !Target->IsActorBeingDestroyed())
-		{
-			Target->Destroy();
-		}
 	}
 }
 

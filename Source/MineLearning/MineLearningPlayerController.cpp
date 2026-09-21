@@ -1,4 +1,12 @@
 #include "MineLearningPlayerController.h"
+#include "Combat/CombatComponent.h"
+#include "Combat/CombatDamageSubsystem.h"
+#include "Combat/HealthComponent.h"
+#include "AI/GunnerCharacter.h"
+#include "Manifestation/Guren/GurenQSkillComponent.h"
+#include "Manifestation/Guren/QGrabTestDummy.h"
+#include "Interaction/GrabbableComponent.h"
+#include "Components/StaticMeshComponent.h"
 
 #include "MineLearning/Mining/ItemPickup.h"
 #include "MineLearning/Mining/ItemTypes.h"
@@ -179,6 +187,8 @@ namespace MineLearningGM
 
 AMineLearningPlayerController::AMineLearningPlayerController()
 {
+	CombatDetailsKey = EKeys::I;
+	CombatWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/Combat/WBP_CombatDetails.WBP_CombatDetails_C")));
 	WarehouseWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(
 		TEXT("/Game/MineLearning/Mining/UI/WBP_Warehouse.WBP_Warehouse_C")));
 }
@@ -191,6 +201,8 @@ void AMineLearningPlayerController::SetupInputComponent()
 		return;
 	}
 
+	InputComponent->BindKey(CombatDetailsKey, IE_Pressed, this, &AMineLearningPlayerController::ToggleCombatDetails);
+	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMineLearningPlayerController::SelectCombatUnitUnderCursor).bConsumeInput = false;
 	InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AMineLearningPlayerController::HandleInteraction);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMineLearningPlayerController::CloseWarehouseScreen);
 	InputComponent->BindKey(EKeys::Zero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
@@ -205,6 +217,12 @@ void AMineLearningPlayerController::SetupInputComponent()
 
 void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	UnbindCombatUnit();
+	if (CombatWidget)
+	{
+		CombatWidget->RemoveFromParent();
+	}
+	CombatWidget = nullptr;
 	CloseWarehouseScreen();
 	SetTransformationSelectionOpen(false);
 	Super::EndPlay(EndPlayReason);
@@ -394,4 +412,272 @@ void AMineLearningPlayerController::RefreshMenuInputState()
 	}
 	SetIgnoreMoveInput(bMenuOpen);
 	SetIgnoreLookInput(bMenuOpen);
+}
+
+void AMineLearningPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+	SelectCombatUnit(GetPawn());
+	if (IsLocalController())
+	{
+		if (UClass* Class = CombatWidgetClass.LoadSynchronous())
+		{
+			CombatWidget = CreateWidget<UUserWidget>(this, Class);
+			if (CombatWidget)
+			{
+				CombatWidget->AddToPlayerScreen(20);
+			}
+		}
+	}
+}
+
+void AMineLearningPlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	SelectCombatUnit(InPawn);
+	if (IsLocalController())
+	{
+		// The persistent inspection UI must remain clickable after a form changes input mode.
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		SetInputMode(InputMode);
+		bShowMouseCursor = true;
+	}
+}
+
+void AMineLearningPlayerController::UnbindCombatUnit()
+{
+	if (ObservedQHealth.IsValid())
+	{
+		ObservedQHealth->OnHealthChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+	ObservedQHealth.Reset();
+	if (!SelectedCombatUnit)
+	{
+		return;
+	}
+	SelectedCombatUnit->OnDestroyed.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitDestroyed);
+	if (UHealthComponent* Health = SelectedCombatUnit->FindComponentByClass<UHealthComponent>())
+	{
+		Health->OnHealthChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+	if (UCombatComponent* Combat = SelectedCombatUnit->FindComponentByClass<UCombatComponent>())
+	{
+		Combat->OnAttributesChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+	if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(SelectedCombatUnit))
+	{
+		Gunner->OnAmmoChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatAmmoChanged);
+	}
+	if (UGurenQSkillComponent* Q = SelectedCombatUnit->FindComponentByClass<UGurenQSkillComponent>())
+	{
+		Q->OnTargetsChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+		Q->OnStageChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatQStageChanged);
+	}
+}
+
+void AMineLearningPlayerController::SelectCombatUnit(AActor* Actor)
+{
+	if (!IsValid(Actor) || !Actor->FindComponentByClass<UHealthComponent>() || Actor == SelectedCombatUnit)
+	{
+		return;
+	}
+	UnbindCombatUnit();
+	SelectedCombatUnit = Actor;
+	Actor->OnDestroyed.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatUnitDestroyed);
+	Actor->FindComponentByClass<UHealthComponent>()->OnHealthChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	if (UCombatComponent* Combat = Actor->FindComponentByClass<UCombatComponent>())
+	{
+		Combat->OnAttributesChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+	if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(Actor))
+	{
+		Gunner->OnAmmoChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatAmmoChanged);
+	}
+	if (UGurenQSkillComponent* Q = Actor->FindComponentByClass<UGurenQSkillComponent>())
+	{
+		Q->OnTargetsChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+		Q->OnStageChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatQStageChanged);
+	}
+	ObserveQTarget();
+	OnCombatInspectionChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::SelectCombatUnitUnderCursor()
+{
+	if (bWarehouseScreenOpen || bTransformationSelectionOpen)
+	{
+		return;
+	}
+	FHitResult Hit;
+	if (GetHitResultUnderCursor(ECC_Visibility, false, Hit))
+	{
+		SelectCombatUnit(Hit.GetActor());
+	}
+}
+
+AActor* AMineLearningPlayerController::GetSelectedCombatUnit() const
+{
+	return IsValid(SelectedCombatUnit) ? SelectedCombatUnit.Get() : GetPawn();
+}
+
+void AMineLearningPlayerController::CombatUnitDestroyed(AActor* Actor)
+{
+	UnbindCombatUnit();
+	SelectedCombatUnit = nullptr;
+	if (GetPawn() != Actor)
+	{
+		SelectCombatUnit(GetPawn());
+	}
+	OnCombatInspectionChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::ObserveQTarget()
+{
+	const UGurenQSkillComponent* Q = SelectedCombatUnit ? SelectedCombatUnit->FindComponentByClass<UGurenQSkillComponent>() : nullptr;
+	AActor* Target = Q ? Q->GetTarget() : nullptr;
+	if (!Target && Q && Q->GetSelectedTarget())
+	{
+		Target = Q->GetSelectedTarget()->GetOwner();
+	}
+	UHealthComponent* Health = Target ? Target->FindComponentByClass<UHealthComponent>() : nullptr;
+	if (ObservedQHealth.Get() == Health)
+	{
+		return;
+	}
+	if (ObservedQHealth.IsValid())
+	{
+		ObservedQHealth->OnHealthChanged.RemoveDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+	ObservedQHealth = Health;
+	if (Health)
+	{
+		Health->OnHealthChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::CombatUnitChanged);
+	}
+}
+
+void AMineLearningPlayerController::CombatUnitChanged()
+{
+	ObserveQTarget();
+	OnCombatInspectionChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::CombatQStageChanged(EGurenQStage Stage, AActor* Target)
+{
+	CombatUnitChanged();
+}
+
+FText AMineLearningPlayerController::GetControlledSkillDescription(FName SkillId) const
+{
+	const UCombatComponent* Combat = GetPawn() ? GetPawn()->FindComponentByClass<UCombatComponent>() : nullptr;
+	if (Combat)
+	{
+		for (const FCombatSkillViewData& Skill : Combat->GetPanelData().Skills)
+		{
+			if (Skill.Spec.SkillId == SkillId)
+			{
+				return Skill.Description;
+			}
+		}
+	}
+	return FText::GetEmpty();
+}
+void AMineLearningPlayerController::CombatAmmoChanged(int32 Ammo, int32 Maximum) { CombatUnitChanged(); }
+void AMineLearningPlayerController::ToggleCombatDetails()
+{
+	bCombatDetailsOpen = !bCombatDetailsOpen;
+	OnCombatInspectionChanged.Broadcast();
+}
+
+FCombatPanelViewData AMineLearningPlayerController::GetCombatPanelData() const
+{
+	AActor* Actor = GetSelectedCombatUnit();
+	if (const UCombatComponent* Combat = Actor ? Actor->FindComponentByClass<UCombatComponent>() : nullptr)
+	{
+		return Combat->GetPanelData();
+	}
+	FCombatPanelViewData Data;
+	if (const UHealthComponent* Health = Actor ? Actor->FindComponentByClass<UHealthComponent>() : nullptr)
+	{
+		Data.Name = Health->Faction == ECombatFaction::Resource
+			? NSLOCTEXT("Combat", "Resource", "矿物 / 资源") : NSLOCTEXT("Combat", "Target", "测试目标");
+		Data.Health = Health->GetHealth();
+		Data.MaxHealth = Health->GetMaxHealth();
+		Data.Details = FText::Format(NSLOCTEXT("Combat", "ResourceHealth", "{0}\n生命 {1} / {2}\n无主动技能。采掘与处决均由统一伤害系统结算。"), Data.Name, FText::AsNumber(Data.Health), FText::AsNumber(Data.MaxHealth));
+	}
+	return Data;
+}
+
+void AMineLearningPlayerController::CombatDamage(float Amount)
+{
+#if !UE_BUILD_SHIPPING
+	const FCombatDamageResult Result = GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDebugDamage(GetSelectedCombatUnit(), Amount);
+	UE_LOG(LogTemp, Display, TEXT("[Combat GM] Accepted=%d Damage=%.2f HP=%.2f"), Result.bAccepted, Result.AppliedDamage, Result.CurrentHealth);
+#endif
+}
+
+void AMineLearningPlayerController::CombatHeal(float Amount)
+{
+#if !UE_BUILD_SHIPPING
+	if (AActor* Target = GetSelectedCombatUnit())
+	{
+		if (UHealthComponent* Health = Target->FindComponentByClass<UHealthComponent>())
+		{
+			Health->Heal(Amount);
+		}
+	}
+#endif
+}
+
+void AMineLearningPlayerController::CombatSetHealth(float DesiredHealth)
+{
+#if !UE_BUILD_SHIPPING
+	if (!FMath::IsFinite(DesiredHealth) || DesiredHealth < 0.f)
+	{
+		return;
+	}
+	if (AActor* Target = GetSelectedCombatUnit())
+	{
+		if (UHealthComponent* Health = Target->FindComponentByClass<UHealthComponent>())
+		{
+			if (DesiredHealth < Health->GetHealth())
+			{
+				CombatDamage(Health->GetHealth() - DesiredHealth);
+			}
+			else
+			{
+				Health->Heal(DesiredHealth - Health->GetHealth());
+			}
+		}
+	}
+#endif
+}
+
+void AMineLearningPlayerController::CombatSpawnDummy(float MaximumHealth)
+{
+#if !UE_BUILD_SHIPPING
+	if (!HasAuthority() || !GetPawn() || !FMath::IsFinite(MaximumHealth) || MaximumHealth <= 0.f)
+	{
+		return;
+	}
+	const FVector Location = GetPawn()->GetActorLocation() + GetPawn()->GetActorForwardVector() * 400.f;
+	AActor* Dummy = GetWorld()->SpawnActor<AActor>();
+	UStaticMeshComponent* Mesh = NewObject<UStaticMeshComponent>(Dummy);
+	Dummy->SetRootComponent(Mesh);
+	Mesh->SetMobility(EComponentMobility::Movable);
+	Mesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+	Mesh->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+	Mesh->RegisterComponent();
+	Dummy->SetActorLocation(Location);
+	Dummy->SetActorScale3D(FVector(1.5f));
+	UHealthComponent* Health = NewObject<UHealthComponent>(Dummy);
+	Health->RegisterComponent();
+	Health->InitializeHealth(MaximumHealth);
+	UGrabbableComponent* Grab = NewObject<UGrabbableComponent>(Dummy);
+	Grab->SetupAttachment(Mesh);
+	Grab->RegisterComponent();
+	SelectCombatUnit(Dummy);
+	UE_LOG(LogTemp, Display, TEXT("[Combat GM] Selected test target %s, HP %.1f. CombatSetHealth / CombatDamage / CombatHeal operate on it."), *Dummy->GetName(), MaximumHealth);
+#endif
 }
