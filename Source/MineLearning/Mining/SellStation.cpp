@@ -165,7 +165,7 @@ void ASellStation::EnforceAuthoredCollisionRoles()
 	UClass* ScreenWidgetClass = StaticLoadClass(
 		UUserWidget::StaticClass(),
 		nullptr,
-		TEXT("/Game/MineLearning/Mining/SellStation/WBP_SellStationScreen.WBP_SellStationScreen_C"));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_SellStationScreen.WBP_V2_SellStationScreen_C"));
 
 	TInlineComponentArray<UPrimitiveComponent*> PrimitiveComponents(this);
 	for (UPrimitiveComponent* Component : PrimitiveComponents)

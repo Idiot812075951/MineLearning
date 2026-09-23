@@ -95,7 +95,7 @@ bool FWarehouseReservationTest::RunTest(const FString& Parameters)
 			TEXT("/Game/MineLearning/Mining/SellStation/BP_SellStation.BP_SellStation_C")));
 	UClass* WarehouseWidgetClass = LoadClass<UWarehouseScreenWidgetBase>(
 		nullptr,
-		TEXT("/Game/MineLearning/Mining/UI/WBP_Warehouse.WBP_Warehouse_C"));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_Warehouse.WBP_V2_Warehouse_C"));
 	TestNotNull(TEXT("Warehouse UMG Blueprint is loadable"), WarehouseWidgetClass);
 	if (WarehouseWidgetClass)
 	{

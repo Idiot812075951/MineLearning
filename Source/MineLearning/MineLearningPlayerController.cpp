@@ -195,11 +195,11 @@ namespace MineLearningGM
 AMineLearningPlayerController::AMineLearningPlayerController()
 {
 	DemoRun = CreateDefaultSubobject<UDemoRunComponent>(TEXT("DemoRun"));
-	DemoWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/Demo/WBP_DemoRun.WBP_DemoRun_C")));
+	DemoWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_DemoRun.WBP_V2_DemoRun_C")));
 	CombatDetailsKey = EKeys::I;
-	CombatWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/Combat/WBP_CombatDetails.WBP_CombatDetails_C")));
+	CombatWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_CombatDetails.WBP_V2_CombatDetails_C")));
 	WarehouseWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(
-		TEXT("/Game/MineLearning/Mining/UI/WBP_Warehouse.WBP_Warehouse_C")));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_Warehouse.WBP_V2_Warehouse_C")));
 }
 
 void AMineLearningPlayerController::SetupInputComponent()

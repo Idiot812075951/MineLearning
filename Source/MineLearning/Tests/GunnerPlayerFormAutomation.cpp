@@ -71,7 +71,7 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 
 	UClass* CrosshairWidgetClass = LoadClass<UUserWidget>(
 		nullptr,
-		TEXT("/Game/MineLearning/UI/Gunner/WBP_GunnerCrosshair.WBP_GunnerCrosshair_C"));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_GunnerCrosshair.WBP_V2_GunnerCrosshair_C"));
 	if (TestNotNull(TEXT("UMG crosshair class can be loaded"), CrosshairWidgetClass))
 	{
 		UUserWidget* Crosshair = CreateWidget<UUserWidget>(World, CrosshairWidgetClass);
@@ -114,7 +114,7 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 
 	UClass* SkillWidgetClass = LoadClass<UUserWidget>(
 		nullptr,
-		TEXT("/Game/MineLearning/UI/RobotSkills/WBP_RobotSkillBar.WBP_RobotSkillBar_C"));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_RobotSkillBar.WBP_V2_RobotSkillBar_C"));
 	if (TestNotNull(TEXT("Shared UMG robot skill bar can be loaded"), SkillWidgetClass))
 	{
 		UUserWidget* SkillBar = CreateWidget<UUserWidget>(World, SkillWidgetClass);
@@ -137,7 +137,7 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 
 	UClass* AmmoWidgetClass = LoadClass<UUserWidget>(
 		nullptr,
-		TEXT("/Game/MineLearning/UI/Gunner/WBP_GunnerAmmo.WBP_GunnerAmmo_C"));
+		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_GunnerAmmo.WBP_V2_GunnerAmmo_C"));
 	if (TestNotNull(TEXT("Dedicated Gunner ammo UMG can be loaded"), AmmoWidgetClass))
 	{
 		UUserWidget* AmmoWidget = CreateWidget<UUserWidget>(World, AmmoWidgetClass);
