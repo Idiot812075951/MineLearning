@@ -432,7 +432,7 @@ FText UDemoRunComponent::GetObjectiveText() const
 	{
 		return FText::Format(LOCTEXT("BossFightHUD", "最终挑战 · 超级铁矿\n生命 {0} / {1}\n剩余 {2} 秒 · 第 {3} 次挑战\n击破获胜；超时可重新付费召唤。"), FText::AsNumber(FMath::CeilToInt(BossTarget->GetCurrentHealth())), FText::AsNumber(BossTarget->GetMaxHealth()), FText::AsNumber(FMath::CeilToInt(RemainingSeconds)), FText::AsNumber(BossAttempts));
 	}
-	return FText::Format(LOCTEXT("BossGoalHUD", "最终目标 · 击破超级铁矿\n召唤费用：{0} 金币 + {1} 铁锭\n准备好后按 Tab → 召唤超级铁矿\n机器人与核心升级均为可选准备。\n弹匣：1 铁锭 / 20 发；建议备足弹药。"), FText::AsNumber(BossCoinCost), FText::AsNumber(BossIngotCost));
+	return FText::Format(LOCTEXT("BossGoalHUD", "最终目标 · 击破超级铁矿\n召唤：{0} 金币 + {1} 铁锭\n按 Tab 打开终端召唤；挑战可重试。"), FText::AsNumber(BossCoinCost), FText::AsNumber(BossIngotCost));
 }
 
 FText UDemoRunComponent::GetGuideText() const
@@ -443,7 +443,7 @@ FText UDemoRunComponent::GetGuideText() const
 	{
 		return FText::Format(LOCTEXT("CarrierGuide", "{0}\n{1}"), GetNextActionText(), Carrier->GetPlayerCargoDescription());
 	}
-	if (Phase == EDemoPhase::Briefing) { return LOCTEXT("BriefBoss", "自由生产不限时；消耗物资召唤超级铁矿，限时击破即可获胜。\n原矿 → 加工（2:1）→ 铁锭 → 出售（1:2）→ 金币回仓。\nOreBuddy：Q 钻采 / R 拾取；携货靠近设备按 E 直接交付。\n自动 Carrier 4 金币，OreBuddy 8 金币；核心升级为可选强化。\nGunner 解锁后需买弹匣：1 铁锭 / 20 发，R 装填，换形态不会补弹。\n挑战超时保留经营进度，可以再次支付召唤费重试。" ); }
+	if (Phase == EDemoPhase::Briefing) { return LOCTEXT("BriefBoss", "点击「开始生产」，自由经营矿区。\nQ 钻采 / R 拾取；携货到设备按 E 交付。\n原矿 → 加工 → 铁锭 → 出售 → 金币。\n按 Tab 购买机器人、弹匣与升级。" ); }
 	if (Phase == EDemoPhase::BossChallenge) { return LOCTEXT("BossGuide", "沿蓝色引导线到下层中央超级铁矿。\nGunner 按住 Q 射击 / R 装填；弹匣耗尽可在终端购买。\n也可用 OreBuddy 钻采或红莲近战。超级矿芯过重，无法抓取处决。\n只有挑战阶段限时；失败后继续生产，再付费召唤。" ); }
 	return GetNextActionText();
 }
