@@ -38,7 +38,7 @@ FCombatDamageResult UHealthComponent::ApplyResolvedDamage(const FCombatDamageReq
 	FCombatDamageResult Result;
 	Result.bAccepted = true;
 	Result.PreviousHealth = Health;
-	Health = Request.bExecute ? 0.f : FMath::Max(Request.bNonLethal ? FMath::Min(1.f, Health) : 0.f, Health - Damage);
+	Health = Request.bExecute ? 0.f : FMath::Max((Request.bNonLethal || bSurviveOrdinaryDamage) ? FMath::Min(1.f, Health) : 0.f, Health - Damage);
 	Result.CurrentHealth = Health;
 	Result.AppliedDamage = Result.PreviousHealth - Health;
 	Result.bExecuted = Request.bExecute;

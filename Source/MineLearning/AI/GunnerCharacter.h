@@ -16,6 +16,7 @@ class USceneComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
 class UNiagaraSystem;
+class UDemoRunComponent;
 struct FInputActionValue;
 
 UENUM(BlueprintType)
@@ -35,6 +36,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
 	float, AppliedDamage);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGunnerReloadStateChangedSignature, bool, bReloading);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGunnerCriticalHitSignature, bool, bGolden);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGunnerWeaponFiredSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FGunnerAmmoChangedSignature,
@@ -53,6 +55,9 @@ public:
 	AGunnerCharacter();
 	UFUNCTION(BlueprintPure, Category = "Combat") float GetShotMultiplier(EGunnerShotResult Result) const;
 	UFUNCTION(BlueprintPure, Category = "Combat") FText GetCombatMechanics() const;
+	UFUNCTION(BlueprintPure, Category="Gunner|Combat") FText GetAmmoStatusText() const;
+	bool IsWeaponBusy() const { return bIsReloading || bReloadPending || bBurstInProgress; }
+	void RestoreLoadedAmmo(int32 Ammo);
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -87,6 +92,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
 	FGunnerShotResolvedSignature OnShotResolved;
+	/** A critical hit that actually dealt damage, excluding misses and invalid targets. */
+	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
+	FGunnerCriticalHitSignature OnCriticalHit;
 
 	UPROPERTY(BlueprintAssignable, Category="Gunner|Combat")
 	FGunnerReloadStateChangedSignature OnReloadStateChanged;
@@ -151,7 +159,7 @@ protected:
 	FName MagazineHandSocketName = TEXT("Socket_Magazine_L");
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="1"))
-	int32 MagazineSize = 10;
+	int32 MagazineSize = 20;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Gunner|Combat")
 	int32 CurrentAmmo = 10;
@@ -171,12 +179,12 @@ protected:
 	float MontageSafetyPadding = 0.25f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
-	float HeadshotDamageMultiplier = 4.0f;
-	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenHeadshotMultiplier = 6.f;
-	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float HeadshotIntelligenceScale = 0.005f;
-	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenIntelligenceScale = 0.01f;
-	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float HeadshotMultiplierMax = 8.f;
-	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float GoldenMultiplierMax = 12.f;
+	float HeadshotDamageMultiplier = 1.8f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenHeadshotMultiplier = 2.5f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float HeadshotIntelligenceScale = 0.001f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat") float GoldenIntelligenceScale = 0.002f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float HeadshotMultiplierMax = 2.2f;
+	UPROPERTY(EditAnywhere, Category="Gunner|Combat", meta=(ClampMin="1")) float GoldenMultiplierMax = 3.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float HeadshotChance = 0.20f;
@@ -232,6 +240,8 @@ protected:
 	void PlayShotVisuals(EGunnerShotResult Result, FVector MuzzleLocation, FVector TargetLocation);
 
 private:
+	UDemoRunComponent* GetAmmoAccount() const;
+	void NotifyAmmoChanged();
 	struct FShotTarget
 	{
 		TWeakObjectPtr<AActor> Actor;

@@ -48,6 +48,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Field")
 	bool bSpawnBatchOnBeginPlay = true;
 
+	UPROPERTY(EditAnywhere, Category="Mining|Ore Field", meta=(ClampMin="0"))
+	float RespawnDelay = 15.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Field")
 	TSubclassOf<AMineableOre> OreClass;
 
@@ -61,6 +64,8 @@ protected:
 	int32 RemainingOreCount = 0;
 
 private:
+	FTimerHandle RespawnHandle;
+	void RespawnBatch();
 	UFUNCTION()
 	void HandleOreDepleted(AMineableOre* DepletedOre);
 

@@ -1,4 +1,5 @@
 #include "GunnerCharacter.h"
+#include "MineLearning/Demo/DemoRunComponent.h"
 #include "MineLearning/Combat/CombatDamageSubsystem.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
@@ -168,7 +169,7 @@ void AGunnerCharacter::BeginPlay()
 	WeaponBaseRelativeRotation = WeaponMesh ? WeaponMesh->GetRelativeRotation() : FRotator::ZeroRotator;
 	AttachMagazineToWeapon();
 	RegisterReloadNotifyHandlers();
-	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+	NotifyAmmoChanged();
 	ConfigureControllerMode();
 }
 
@@ -584,7 +585,7 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 	}
 
 	--CurrentAmmo;
-	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+	NotifyAmmoChanged();
 
 	const EGunnerShotResult Result = bOreIsValid
 		? RollShotResult(bUseBurstAccuracy)
@@ -610,6 +611,10 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 	PlayShotVisuals(Result, MuzzleLocation, TargetLocation);
 	OnWeaponFired.Broadcast();
 	OnShotResolved.Broadcast(Result, MuzzleLocation, TargetLocation, AppliedDamage);
+	if (AppliedDamage > 0.f && (Result == EGunnerShotResult::Headshot || Result == EGunnerShotResult::GoldenHeadshot))
+	{
+		OnCriticalHit.Broadcast(Result == EGunnerShotResult::GoldenHeadshot);
+	}
 
 	const FString Mode = bUseBurstAccuracy
 		? FString::Printf(TEXT("Burst %d/3"), BurstRoundIndex)
@@ -845,6 +850,10 @@ void AGunnerCharacter::BeginReload()
 	{
 		return;
 	}
+	if (UDemoRunComponent* Account = GetAmmoAccount(); Account && !Account->ConsumeGunnerMagazine())
+	{
+		return;
+	}
 
 	bIsReloading = true;
 	OnReloadStateChanged.Broadcast(true);
@@ -908,7 +917,7 @@ void AGunnerCharacter::CompleteReload()
 	CurrentAmmo = FMath::Max(MagazineSize, 1);
 	bIsReloading = false;
 	ActiveReloadMontage = nullptr;
-	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+	NotifyAmmoChanged();
 	OnReloadStateChanged.Broadcast(false);
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload complete Ammo=%d/%d"), CurrentAmmo, MagazineSize);
 }
@@ -1117,10 +1126,36 @@ float AGunnerCharacter::GetShotMultiplier(EGunnerShotResult Result) const
 FText AGunnerCharacter::GetCombatMechanics() const
 {
 	const float Total = FMath::Max(0.f, GoldenHeadshotChance) + FMath::Max(0.f, HeadshotChance) + FMath::Max(0.f, BodyShotChance) + FMath::Max(0.f, MissChance);
-	return FText::Format(NSLOCTEXT("Combat", "GunnerMechanics", "身体 ×1 | 爆头 ×{0} | 黄金爆头 ×{1}\n能量提高爆头倍率；上限 {2} / {3}。黄金爆头不直接秒杀。\n命中按权重随机：单发爆头 {4}% / 黄金 {5}%；三连发两者概率减半。\n弹药 {6} / {7}"),
+	return FText::Format(NSLOCTEXT("Combat", "GunnerMechanics", "身体 ×1 | 爆头 ×{0} | 黄金爆头 ×{1}\n能量提高爆头倍率；上限 {2} / {3}。黄金爆头不直接秒杀。\n命中按权重随机：单发爆头 {4}% / 黄金 {5}%；三连发两者概率减半。\n{6}\n弹匣：1 铁锭购买 20 发；换形态保留弹药，R 消耗备用弹匣装填。"),
 		FText::AsNumber(GetShotMultiplier(EGunnerShotResult::Headshot)), FText::AsNumber(GetShotMultiplier(EGunnerShotResult::GoldenHeadshot)),
 		FText::AsNumber(HeadshotMultiplierMax), FText::AsNumber(GoldenMultiplierMax),
 		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, HeadshotChance) / Total * 100.f : 0.f),
 		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, GoldenHeadshotChance) / Total * 100.f : 0.f),
-		FText::AsNumber(CurrentAmmo), FText::AsNumber(MagazineSize));
+		GetAmmoStatusText());
+}
+
+UDemoRunComponent* AGunnerCharacter::GetAmmoAccount() const
+{
+	UDemoRunComponent* Run = IsPlayerControlled() && Controller ? Controller->FindComponentByClass<UDemoRunComponent>() : nullptr;
+	return Run && Run->IsEnabled() ? Run : nullptr;
+}
+
+void AGunnerCharacter::NotifyAmmoChanged()
+{
+	if (UDemoRunComponent* Run = GetAmmoAccount()) { Run->RecordGunnerAmmo(CurrentAmmo); }
+	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+}
+
+void AGunnerCharacter::RestoreLoadedAmmo(int32 Ammo)
+{
+	CurrentAmmo = FMath::Clamp(Ammo, 0, MagazineSize);
+	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+}
+
+FText AGunnerCharacter::GetAmmoStatusText() const
+{
+	const UDemoRunComponent* Run = GetAmmoAccount();
+	return FText::Format(NSLOCTEXT("Gunner", "AmmoBudget", "子弹 {0}/{1} · 备用弹匣 {2}"),
+		FText::AsNumber(CurrentAmmo), FText::AsNumber(MagazineSize),
+		Run ? FText::AsNumber(Run->GetReserveMagazines()) : FText::FromString(TEXT("—")));
 }

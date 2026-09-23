@@ -1,4 +1,6 @@
 #include "PlayerTransformZone.h"
+#include "MineLearning/AI/GunnerCharacter.h"
+#include "Demo/DemoRunComponent.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -36,34 +38,28 @@ APlayerTransformZone::APlayerTransformZone()
 	HumanPawnClass = HumanClass.Class;
 	GurenPawnClass = TSoftClassPtr<APawn>(FSoftObjectPath(
 		TEXT("/Game/MineLearning/Characters/Guren/Blueprints/BP_GurenPlayer.BP_GurenPlayer_C")));
+	CarrierPawnClass = TSoftClassPtr<APawn>(FSoftObjectPath(TEXT("/Game/MineLearning/Mining/Logistics/Blueprints/BP_Hauler.BP_Hauler_C")));
 }
 
 bool APlayerTransformZone::TryTransform(APlayerController* PlayerController)
 {
-	if (!TrySwapPawn(PlayerController, RobotPawnClass))
-	{
-		return false;
-	}
-
-	UE_LOG(LogPlayerTransformation, Log, TEXT("Player transformed into %s."), *GetNameSafe(RobotPawnClass.Get()));
-	return true;
+	return TrySelectForm(PlayerController, EPlayerTransformationForm::Gunner);
 }
 
 bool APlayerTransformZone::TryRestoreHumanForm(APlayerController* PlayerController)
 {
-	if (!TrySwapPawn(PlayerController, HumanPawnClass))
-	{
-		return false;
-	}
-
-	UE_LOG(LogPlayerTransformation, Log, TEXT("Player restored human form."));
-	return true;
+	return TrySelectForm(PlayerController, EPlayerTransformationForm::Human);
 }
 
 bool APlayerTransformZone::TrySelectForm(
 	APlayerController* PlayerController,
 	const EPlayerTransformationForm Form)
 {
+	const UDemoRunComponent* Run = PlayerController ? PlayerController->FindComponentByClass<UDemoRunComponent>() : nullptr;
+	if (Run && Run->IsEnabled() && (!Run->IsFormUnlocked(Form) || Run->GetPhase() == EDemoPhase::Briefing))
+	{
+		return false;
+	}
 	TSubclassOf<APawn> TargetPawnClass;
 	switch (Form)
 	{
@@ -78,6 +74,9 @@ bool APlayerTransformZone::TrySelectForm(
 		break;
 	case EPlayerTransformationForm::Guren:
 		TargetPawnClass = GurenPawnClass.LoadSynchronous();
+		break;
+	case EPlayerTransformationForm::Carrier:
+		TargetPawnClass = CarrierPawnClass.LoadSynchronous();
 		break;
 	default:
 		return false;
@@ -142,13 +141,19 @@ APlayerTransformZone* APlayerTransformZone::FindOverlappingZone(APlayerControlle
 bool APlayerTransformZone::TrySwapPawn(APlayerController* PlayerController, TSubclassOf<APawn> TargetPawnClass)
 {
 	APawn* OldPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
-	if (!OldPawn || !TransformArea->IsOverlappingActor(OldPawn) || !TargetPawnClass)
+	const UDemoRunComponent* Run = PlayerController ? PlayerController->FindComponentByClass<UDemoRunComponent>() : nullptr;
+	const bool bFieldTransform = Run && Run->IsEnabled() && Run->GetPhase() != EDemoPhase::Briefing;
+	if (!OldPawn || (!bFieldTransform && !TransformArea->IsOverlappingActor(OldPawn)) || !TargetPawnClass)
 	{
 		return false;
 	}
 	if (OldPawn->IsA(TargetPawnClass))
 	{
 		return true;
+	}
+	if (const AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(OldPawn); Gunner && Gunner->IsWeaponBusy())
+	{
+		return false;
 	}
 
 	UWorld* World = GetWorld();

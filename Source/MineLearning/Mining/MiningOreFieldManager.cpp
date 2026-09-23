@@ -4,6 +4,7 @@
 #include "MineableOre.h"
 #include "MiningOreSpawnPoint.h"
 #include "OreDefinitionDataAsset.h"
+#include "TimerManager.h"
 
 AMiningOreFieldManager::AMiningOreFieldManager()
 {
@@ -74,10 +75,12 @@ int32 AMiningOreFieldManager::SpawnBatch()
 
 		for (int32 OreIndex = 0; OreIndex < BatchEntry.Count; ++OreIndex)
 		{
-			AMiningOreSpawnPoint* SpawnPoint = SpawnPoints[SpawnPointIndex % SpawnPoints.Num()];
+			// Every ore needs an authored, unobstructed slot. Never overflow into a corridor.
+			if (!SpawnPoints.IsValidIndex(SpawnPointIndex)) { break; }
+			AMiningOreSpawnPoint* SpawnPoint = SpawnPoints[SpawnPointIndex];
 			++SpawnPointIndex;
 
-			const FTransform SpawnTransform = SpawnPoint->GetActorTransform();
+			FTransform SpawnTransform = SpawnPoint->GetActorTransform();
 			AMineableOre* Ore = GetWorld()->SpawnActorDeferred<AMineableOre>(
 				OreClass,
 				SpawnTransform,
@@ -105,6 +108,7 @@ int32 AMiningOreFieldManager::SpawnBatch()
 
 void AMiningOreFieldManager::ClearCurrentBatch()
 {
+	GetWorldTimerManager().ClearTimer(RespawnHandle);
 	bClearingCurrentBatch = true;
 	bBatchActive = false;
 
@@ -150,4 +154,13 @@ void AMiningOreFieldManager::CompleteCurrentBatch()
 	bBatchActive = false;
 	bBatchClearedBroadcast = true;
 	OnOreBatchCleared.Broadcast();
+	if (RespawnDelay > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(RespawnHandle, this, &AMiningOreFieldManager::RespawnBatch, RespawnDelay, false);
+	}
+}
+
+void AMiningOreFieldManager::RespawnBatch()
+{
+	SpawnBatch();
 }

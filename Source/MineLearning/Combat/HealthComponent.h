@@ -21,6 +21,8 @@ public:
 	void InitializeHealth(float Maximum);
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat") ECombatFaction Faction = ECombatFaction::Hostile;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat") bool bDestroyOnDeath = true;
+	/** Training objectives may reserve the final blow for an authorized execution. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat") bool bSurviveOrdinaryDamage = false;
 	UPROPERTY(BlueprintAssignable) FCombatStateChanged OnHealthChanged;
 	UPROPERTY(BlueprintAssignable) FCombatDamageResolved OnDamageResolved;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

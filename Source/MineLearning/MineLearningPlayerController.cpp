@@ -1,4 +1,10 @@
 #include "MineLearningPlayerController.h"
+#include "Demo/DemoRunComponent.h"
+#include "Demo/DemoRouteGuide.h"
+#include "AI/HaulerCharacter.h"
+#include "AI/MiningCompanionCharacter.h"
+#include "Mining/ItemLogisticsLibrary.h"
+#include "Mining/ResourceCarryComponent.h"
 #include "Combat/CombatComponent.h"
 #include "Combat/CombatDamageSubsystem.h"
 #include "Combat/HealthComponent.h"
@@ -7,6 +13,7 @@
 #include "Manifestation/Guren/QGrabTestDummy.h"
 #include "Interaction/GrabbableComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 
 #include "MineLearning/Mining/ItemPickup.h"
 #include "MineLearning/Mining/ItemTypes.h"
@@ -187,6 +194,8 @@ namespace MineLearningGM
 
 AMineLearningPlayerController::AMineLearningPlayerController()
 {
+	DemoRun = CreateDefaultSubobject<UDemoRunComponent>(TEXT("DemoRun"));
+	DemoWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/Demo/WBP_DemoRun.WBP_DemoRun_C")));
 	CombatDetailsKey = EKeys::I;
 	CombatWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/Combat/WBP_CombatDetails.WBP_CombatDetails_C")));
 	WarehouseWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(
@@ -204,7 +213,8 @@ void AMineLearningPlayerController::SetupInputComponent()
 	InputComponent->BindKey(CombatDetailsKey, IE_Pressed, this, &AMineLearningPlayerController::ToggleCombatDetails);
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMineLearningPlayerController::SelectCombatUnitUnderCursor).bConsumeInput = false;
 	InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AMineLearningPlayerController::HandleInteraction);
-	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMineLearningPlayerController::CloseWarehouseScreen);
+	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMineLearningPlayerController::CloseMenus);
+	InputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AMineLearningPlayerController::ToggleDemoTerminal);
 	InputComponent->BindKey(EKeys::Zero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMineLearningPlayerController::SelectOreBuddyForm);
 	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AMineLearningPlayerController::SelectGunnerForm);
@@ -217,6 +227,10 @@ void AMineLearningPlayerController::SetupInputComponent()
 
 void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	GetWorld()->RemoveOnActorSpawnedHandler(PawnCameraSpawnHandle);
+	DemoRun->OnRunChanged.RemoveDynamic(this, &AMineLearningPlayerController::DemoRunChanged);
+	if (DemoWidget) { DemoWidget->RemoveFromParent(); }
+	DemoWidget = nullptr;
 	UnbindCombatUnit();
 	if (CombatWidget)
 	{
@@ -230,15 +244,46 @@ void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayRe
 
 void AMineLearningPlayerController::HandleInteraction()
 {
+	if (bDemoTerminalOpen) { ToggleDemoTerminal(); return; }
+	if (AHaulerCharacter* Carrier = Cast<AHaulerCharacter>(GetPawn()))
+	{
+		if (!Carrier->TryPlayerTransfer())
+		{
+			OnInteractionFeedback.Broadcast(Carrier->GetPlayerTransferFailureReason());
+		}
+		return;
+	}
+	if (APawn* ControlledPawn = GetPawn())
+	{
+		UResourceCarryComponent* Carry = ControlledPawn->FindComponentByClass<UResourceCarryComponent>();
+		AActor* Machine = Carry ? UItemLogisticsLibrary::FindNearbyPlayerMachine(ControlledPawn, Carry->GetCurrentItem()) : nullptr;
+		if (Machine)
+		{
+			bool bDelivered = false;
+			if (AMiningCompanionCharacter* Buddy = Cast<AMiningCompanionCharacter>(ControlledPawn))
+			{
+				bDelivered = Buddy->TryDeliverToNearbyMachine();
+			}
+			else if (ControlledPawn->HasAuthority() && UItemLogisticsLibrary::DeliverItemToReceiver(Machine, Carry->GetCurrentItem()))
+			{
+				Carry->ClearItems();
+				bDelivered = true;
+			}
+			OnInteractionFeedback.Broadcast(bDelivered
+				? NSLOCTEXT("Logistics", "ManualDelivery", "开始交付，无需仓库订单。")
+				: NSLOCTEXT("Logistics", "MachineBusy", "暂时无法交付，请等待当前动作结束或设备腾出空间。"));
+			return;
+		}
+	}
 	if (bWarehouseScreenOpen)
 	{
 		CloseWarehouseScreen();
 		return;
 	}
 
-	if (AWarehouseDepot* Warehouse = FindNearbyWarehouse())
+	if (FindNearbyWarehouse())
 	{
-		OpenWarehouseScreen(Warehouse);
+		OnInteractionFeedback.Broadcast(NSLOCTEXT("Logistics", "WarehouseTerminal", "仓库管理已移至 Tab 作业终端；Carrier 按 E 提取订单货物。"));
 		return;
 	}
 
@@ -398,7 +443,7 @@ void AMineLearningPlayerController::SetTransformationSelectionOpen(const bool bO
 
 void AMineLearningPlayerController::RefreshMenuInputState()
 {
-	const bool bMenuOpen = bWarehouseScreenOpen || bTransformationSelectionOpen;
+	const bool bMenuOpen = bWarehouseScreenOpen || bTransformationSelectionOpen || bDemoTerminalOpen;
 	if (APawn* ControlledPawn = GetPawn())
 	{
 		if (bMenuOpen)
@@ -410,6 +455,8 @@ void AMineLearningPlayerController::RefreshMenuInputState()
 			ControlledPawn->EnableInput(this);
 		}
 	}
+	ResetIgnoreMoveInput();
+	ResetIgnoreLookInput();
 	SetIgnoreMoveInput(bMenuOpen);
 	SetIgnoreLookInput(bMenuOpen);
 }
@@ -417,6 +464,21 @@ void AMineLearningPlayerController::RefreshMenuInputState()
 void AMineLearningPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	PawnCameraSpawnHandle = GetWorld()->AddOnActorSpawnedHandler(
+		FOnActorSpawned::FDelegate::CreateUObject(this, &AMineLearningPlayerController::IgnorePawnCameraCollision));
+	for (TActorIterator<APawn> It(GetWorld()); It; ++It) { IgnorePawnCameraCollision(*It); }
+	if (IsLocalController() && DemoRun->IsEnabled())
+	{
+		DemoRun->OnRunChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::DemoRunChanged);
+		DemoRoute = GetWorld()->SpawnActor<ADemoRouteGuide>();
+		bDemoTerminalOpen = true;
+		if (UClass* Class = DemoWidgetClass.LoadSynchronous())
+		{
+			DemoWidget = CreateWidget<UUserWidget>(this, Class);
+			if (DemoWidget) { DemoWidget->AddToPlayerScreen(60); }
+		}
+		RefreshMenuInputState();
+	}
 	SelectCombatUnit(GetPawn());
 	if (IsLocalController())
 	{
@@ -431,9 +493,26 @@ void AMineLearningPlayerController::BeginPlay()
 	}
 }
 
+void AMineLearningPlayerController::IgnorePawnCameraCollision(AActor* Actor)
+{
+	if (!IsValid(Actor) || !Actor->IsA<APawn>()) { return; }
+	// Keep spring-arm obstruction tests against the environment, including after transformations/spawns.
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		Primitive->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	}
+}
+
 void AMineLearningPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
+	IgnorePawnCameraCollision(InPawn);
+	if (DemoRun) { DemoRun->ApplyCoreBonus(InPawn); }
+	if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(InPawn); Gunner && DemoRun && DemoRun->IsEnabled())
+	{
+		Gunner->RestoreLoadedAmmo(DemoRun->GetLoadedGunnerAmmo());
+	}
 	SelectCombatUnit(InPawn);
 	if (IsLocalController())
 	{
@@ -444,6 +523,45 @@ void AMineLearningPlayerController::OnPossess(APawn* InPawn)
 		SetInputMode(InputMode);
 		bShowMouseCursor = true;
 	}
+	RefreshMenuInputState();
+}
+
+void AMineLearningPlayerController::ToggleDemoTerminal()
+{
+	if (!DemoRun || !DemoRun->IsEnabled()) { return; }
+	CloseWarehouseScreen();
+	SetTransformationSelectionOpen(false);
+	bDemoTerminalOpen = !bDemoTerminalOpen;
+	if (bDemoTerminalOpen && bCombatDetailsOpen)
+	{
+		bCombatDetailsOpen = false;
+		OnCombatInspectionChanged.Broadcast();
+	}
+	RefreshMenuInputState();
+	OnDemoTerminalChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::DemoRunChanged()
+{
+	if (DemoRoute) { DemoRoute->Refresh(this); }
+	if (DemoRun->IsFinished() && !bDemoResultPresented)
+	{
+		bDemoResultPresented = true;
+		if (!bDemoTerminalOpen) { ToggleDemoTerminal(); }
+	}
+}
+
+void AMineLearningPlayerController::ExecuteDemoCommand(EDemoCommand Command)
+{
+	DemoRun->ExecuteCommand(Command);
+	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
+}
+
+void AMineLearningPlayerController::CloseMenus()
+{
+	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
+	CloseWarehouseScreen();
+	SetTransformationSelectionOpen(false);
 }
 
 void AMineLearningPlayerController::UnbindCombatUnit()
@@ -586,6 +704,7 @@ FText AMineLearningPlayerController::GetControlledSkillDescription(FName SkillId
 void AMineLearningPlayerController::CombatAmmoChanged(int32 Ammo, int32 Maximum) { CombatUnitChanged(); }
 void AMineLearningPlayerController::ToggleCombatDetails()
 {
+	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
 	bCombatDetailsOpen = !bCombatDetailsOpen;
 	OnCombatInspectionChanged.Broadcast();
 }

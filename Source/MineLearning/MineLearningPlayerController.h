@@ -9,7 +9,12 @@
 class AWarehouseDepot;
 class UUserWidget;
 class UHealthComponent;
+class UDemoRunComponent;
+class ADemoRouteGuide;
+enum class EDemoCommand : uint8;
 enum class EGurenQStage : uint8;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FInteractionFeedbackSignature, FText, Message);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FTransformationSelectionVisibilityChangedSignature,
@@ -24,6 +29,12 @@ class MINELEARNING_API AMineLearningPlayerController : public APlayerController
 
 public:
 	AMineLearningPlayerController();
+	UFUNCTION(BlueprintPure, Category="Demo") UDemoRunComponent* GetDemoRun() const { return DemoRun; }
+	UFUNCTION(BlueprintCallable, Category="Demo") void ToggleDemoTerminal();
+	UFUNCTION(BlueprintCallable, Category="Demo") void ExecuteDemoCommand(EDemoCommand Command);
+	UFUNCTION(BlueprintPure, Category="Demo") bool IsDemoTerminalOpen() const { return bDemoTerminalOpen; }
+	UPROPERTY(BlueprintAssignable, Category="Demo") FCombatStateChanged OnDemoTerminalChanged;
+	UPROPERTY(BlueprintAssignable, Category="Interaction") FInteractionFeedbackSignature OnInteractionFeedback;
 	virtual void BeginPlay() override;
 	virtual void OnPossess(APawn* InPawn) override;
 	UFUNCTION(BlueprintCallable, Category = "Combat") void SelectCombatUnit(AActor* Actor);
@@ -64,6 +75,14 @@ public:
 	FTransformationSelectionVisibilityChangedSignature OnTransformationSelectionVisibilityChanged;
 
 private:
+	UPROPERTY(VisibleAnywhere, Category="Demo") TObjectPtr<UDemoRunComponent> DemoRun;
+	UPROPERTY(EditDefaultsOnly, Category="Demo|UI") TSoftClassPtr<UUserWidget> DemoWidgetClass;
+	UPROPERTY(Transient) TObjectPtr<UUserWidget> DemoWidget;
+	UPROPERTY(Transient) TObjectPtr<ADemoRouteGuide> DemoRoute;
+	bool bDemoTerminalOpen = false;
+	bool bDemoResultPresented = false;
+	UFUNCTION() void DemoRunChanged();
+	void CloseMenus();
 	void SelectCombatUnitUnderCursor();
 	void UnbindCombatUnit();
 	UFUNCTION() void CombatUnitChanged();
@@ -78,6 +97,8 @@ private:
 	UPROPERTY(Transient) TObjectPtr<AActor> SelectedCombatUnit;
 	bool bCombatDetailsOpen = false;
 	void HandleInteraction();
+	void IgnorePawnCameraCollision(AActor* Actor);
+	FDelegateHandle PawnCameraSpawnHandle;
 	AWarehouseDepot* FindNearbyWarehouse() const;
 	bool OpenWarehouseScreen(AWarehouseDepot* Warehouse);
 	void RefreshMenuInputState();
