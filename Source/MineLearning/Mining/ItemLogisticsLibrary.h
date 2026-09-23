@@ -41,6 +41,10 @@ public:
 
 	static bool DeliverItemToReceiver(AActor* Receiver, const FItemStack& Item);
 
+	/** Manual delivery ignores warehouse order routing, but uses the machine's real input point. */
+	static AActor* FindNearbyPlayerMachine(const AActor* Carrier, const FItemStack& Item);
+	static FVector GetReceiverDeliveryLocation(AActor* Receiver);
+
 private:
 	static UDataTable* GetRulesTable();
 	static FName GetRuleRowName(EItemType ItemType);

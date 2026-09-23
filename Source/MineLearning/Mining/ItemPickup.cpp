@@ -304,6 +304,11 @@ bool AItemPickup::IsAvailableFor(AActor* Collector) const
 	{
 		return false;
 	}
+	// A paid order waits for its receiver instead of turning into a return-to-warehouse pickup.
+	if (IsValid(ExplicitDeliveryActor) && !HasUsableExplicitDeliveryTarget())
+	{
+		return false;
+	}
 
 	return !ReservedCollector.IsValid() || ReservedCollector.Get() == Collector;
 }

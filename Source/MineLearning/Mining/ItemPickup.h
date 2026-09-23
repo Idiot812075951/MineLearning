@@ -83,6 +83,7 @@ public:
 
 	bool TryReserve(AActor* Collector);
 	bool IsAvailableFor(AActor* Collector) const;
+	AActor* GetReservedCollector() const { return ReservedCollector.Get(); }
 	void ReleaseReservation(AActor* Collector);
 	bool AttachToCollector(USkeletalMeshComponent* CollectorMesh, FName SocketName);
 	void CancelCollect(AActor* Collector);

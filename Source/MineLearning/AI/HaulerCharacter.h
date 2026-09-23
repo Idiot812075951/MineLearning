@@ -8,6 +8,12 @@ class UResourceCarryComponent;
 class UAnimSequence;
 class UStaticMesh;
 class UStaticMeshComponent;
+class UCameraComponent;
+class USpringArmComponent;
+class UInputAction;
+class UInputMappingContext;
+class USceneComponent;
+struct FInputActionValue;
 
 UCLASS(Blueprintable)
 class MINELEARNING_API AHaulerCharacter : public ACharacter
@@ -17,6 +23,12 @@ class MINELEARNING_API AHaulerCharacter : public ACharacter
 public:
 	AHaulerCharacter();
 	virtual void BeginPlay() override;
+	virtual void NotifyControllerChanged() override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	UFUNCTION(BlueprintCallable, Category="Item|Hauler") bool TryPlayerTransfer();
+	FText GetPlayerTransferFailureReason() const;
+	UFUNCTION(BlueprintPure, Category="Item|Hauler") FText GetPlayerCargoDescription() const;
+	bool GetPlayerDeliveryLocation(FVector& OutLocation) const;
 
 	UFUNCTION(BlueprintPure, Category="Item|Hauler")
 	UResourceCarryComponent* GetResourceCarryComponent() const { return ResourceCarryComponent; }
@@ -37,6 +49,16 @@ public:
 	bool HasVisibleCargo() const;
 
 protected:
+	void MovePlayer(const FInputActionValue& Value);
+	void LookPlayer(const FInputActionValue& Value);
+	UPROPERTY(VisibleAnywhere, Category="Player Control") TObjectPtr<USpringArmComponent> PlayerCameraBoom;
+	UPROPERTY(VisibleAnywhere, Category="Player Control") TObjectPtr<UCameraComponent> PlayerCamera;
+	UPROPERTY() TObjectPtr<UInputMappingContext> PlayerMapping;
+	UPROPERTY() TObjectPtr<UInputAction> PlayerMoveAction;
+	UPROPERTY() TObjectPtr<UInputAction> PlayerLookAction;
+	UPROPERTY(Transient) TObjectPtr<AActor> PlayerDeliveryActor;
+	UPROPERTY(Transient) TObjectPtr<USceneComponent> PlayerDeliveryPoint;
+	float NextPlayerTransferTime = 0.f;
 	void PlayInteractionAnimation(UAnimSequence* Sequence, bool bPickup);
 	void HandlePickupAnimationFinished();
 	void HandleDropOffAnimationFinished();

@@ -179,7 +179,7 @@ bool AOreProcessorMachine::AcceptItem_Implementation(const FItemStack& Item)
 
 void AOreProcessorMachine::StartProcessingIfReady()
 {
-	if (bIsProcessing || QueuedOreCount <= 0)
+	if (bIsProcessing || QueuedOreCount < ProcessingQueueCapacity)
 	{
 		return;
 	}
@@ -391,12 +391,11 @@ void AOreProcessorMachine::TryAdmitWaitingOre()
 		return;
 	}
 
-	for (int32 Index = 0; Index < InputTransportItems.Num(); ++Index)
+	for (int32 Index = InputTransportItems.Num() - 1; Index >= 0 && !IsProcessingQueueFull(); --Index)
 	{
 		if (InputTransportItems[Index].bWaitingAtInput)
 		{
 			AdmitOreAtProcessInput(Index);
-			return;
 		}
 	}
 }
@@ -408,16 +407,17 @@ void AOreProcessorMachine::CompleteMachineProcessing()
 		return;
 	}
 
-	bIsProcessing = false;
-	QueuedOreCount = FMath::Max(QueuedOreCount - 1, 0);
-	OnProcessorQueueChanged.Broadcast(QueuedOreCount, ProcessingQueueCapacity);
-
 	if (!SpawnOutputIngot())
 	{
 		UE_LOG(LogTemp, Warning,
 			TEXT("[OreProcessor] Failed to spawn output iron ingot. Processor=%s"),
 			*GetNameSafe(this));
+		GetWorld()->GetTimerManager().SetTimer(MachineProcessingTimerHandle, this, &AOreProcessorMachine::CompleteMachineProcessing, 1.f, false);
+		return;
 	}
+	bIsProcessing = false;
+	QueuedOreCount = FMath::Max(QueuedOreCount - ProcessingQueueCapacity, 0);
+	OnProcessorQueueChanged.Broadcast(QueuedOreCount, ProcessingQueueCapacity);
 
 	TryAdmitWaitingOre();
 	RefreshMachineState();

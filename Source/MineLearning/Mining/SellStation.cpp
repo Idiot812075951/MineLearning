@@ -319,7 +319,9 @@ bool ASellStation::ConfigureSaleItemStack(const FItemStack& Item)
 {
 	UStaticMeshComponent* PrimaryItem = FindPresentationItemVisual();
 	UInstancedStaticMeshComponent* StackVisual = FindOrCreateSaleItemStackVisual();
-	UStaticMesh* ItemMesh = PrimaryItem ? PrimaryItem->GetStaticMesh() : nullptr;
+	UStaticMesh* ItemMesh = Item.ItemType == EItemType::IronIngot
+		? LoadObject<UStaticMesh>(nullptr, TEXT("/Game/MineLearning/Mining/Resources/IronIngot/SM_IronIngot.SM_IronIngot"))
+		: (PrimaryItem ? PrimaryItem->GetStaticMesh().Get() : nullptr);
 	if (!PrimaryItem || !StackVisual || !IsValid(ItemMesh) || !Item.IsValid())
 	{
 		return false;
@@ -329,6 +331,7 @@ bool ASellStation::ConfigureSaleItemStack(const FItemStack& Item)
 		Item.Amount,
 		1,
 		SellStationPresentation::MaxDisplayedSaleItems);
+	PrimaryItem->SetStaticMesh(ItemMesh);
 	const FVector ItemWorldSize = MineLearningItemVisual::GetWorldSize(
 		ItemMesh,
 		Item.ItemType);

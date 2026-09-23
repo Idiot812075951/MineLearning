@@ -1,7 +1,11 @@
 #include "HaulerCharacter.h"
+#include "Camera/CameraComponent.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
-#include "UObject/ConstructorHelpers.h"
+
 
 #include "HaulerAIController.h"
 #include "CarrierAnimInstance.h"
@@ -24,6 +28,18 @@ AHaulerCharacter::AHaulerCharacter()
 	Combat->Config = TSoftObjectPtr<UCombatConfig>(FSoftObjectPath(TEXT("/Game/MineLearning/Combat/DA_CarrierCombat.DA_CarrierCombat")));
 
 	PrimaryActorTick.bCanEverTick = false;
+	PlayerCameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("PlayerCameraBoom"));
+	PlayerCameraBoom->SetupAttachment(GetRootComponent());
+	PlayerCameraBoom->TargetArmLength = 450.f;
+	PlayerCameraBoom->bUsePawnControlRotation = true;
+	PlayerCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("PlayerCamera"));
+	PlayerCamera->SetupAttachment(PlayerCameraBoom, USpringArmComponent::SocketName);
+	static ConstructorHelpers::FObjectFinder<UInputMappingContext> Mapping(TEXT("/Game/MineLearning/Input/IMC_Default.IMC_Default"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> Move(TEXT("/Game/MineLearning/Input/Actions/IA_Move.IA_Move"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> Look(TEXT("/Game/MineLearning/Input/Actions/IA_Look.IA_Look"));
+	PlayerMapping = Mapping.Object;
+	PlayerMoveAction = Move.Object;
+	PlayerLookAction = Look.Object;
 	GetCapsuleComponent()->InitCapsuleSize(36.0f, 64.0f);
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	GetCapsuleComponent()->SetCanEverAffectNavigation(false);
@@ -33,7 +49,7 @@ AHaulerCharacter::AHaulerCharacter()
 	bUseControllerRotationRoll = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
-	GetCharacterMovement()->MaxWalkSpeed = 320.0f;
+	GetCharacterMovement()->MaxWalkSpeed = 360.0f;
 	GetCharacterMovement()->MaxStepHeight = MineLearningNavigation::CharacterStepHeight;
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> CarrierMesh(
@@ -61,9 +77,9 @@ AHaulerCharacter::AHaulerCharacter()
 
 	ResourceCarryComponent = CreateDefaultSubobject<UResourceCarryComponent>(TEXT("ResourceCarryComponent"));
 	// The Carrier owns player-scheduled warehouse routes in both directions:
-	// ore travels to a SellPoint and the generated currency returns to Warehouse.
+	// ore goes to the processor, ingots to the seller, and outputs return to storage.
 	ResourceCarryComponent->ConfigureAcceptance(
-		5,
+		4,
 		false,
 		{ EItemCategory::Ore, EItemCategory::Currency, EItemCategory::ProcessedMaterial });
 

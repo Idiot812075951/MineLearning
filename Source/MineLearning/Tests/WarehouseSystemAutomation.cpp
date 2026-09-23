@@ -50,7 +50,8 @@ bool FWarehouseReservationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Five ore remain available after pickup"), Storage->GetAvailableItemAmount(EItemType::IronOre), 5);
 	TestTrue(TEXT("Player can cancel the remaining order"), Storage->ReleaseReservedItem(TwoOre));
 	TestEqual(TEXT("Cancellation restores all remaining stock"), Storage->GetAvailableItemAmount(EItemType::IronOre), 7);
-	TestEqual(TEXT("Iron ore has a configured sale value"), UItemLogisticsLibrary::GetUnitSellPrice(EItemType::IronOre), 1);
+	TestEqual(TEXT("Raw ore must be processed before sale"), UItemLogisticsLibrary::GetUnitSellPrice(EItemType::IronOre), 0);
+	TestEqual(TEXT("One ingot pays two coins"), UItemLogisticsLibrary::GetUnitSellPrice(EItemType::IronIngot), 2);
 
 	const FItemStack ThreeIngots{EItemType::IronIngot, 3};
 	TestTrue(TEXT("Warehouse accepts processed iron ingots"), Storage->AddItem(ThreeIngots));
@@ -161,9 +162,9 @@ bool FWarehouseReservationTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("Hauler defaults can be inspected"), HaulerCDO))
 		{
 			TestEqual(
-				TEXT("Hauler tray capacity defaults to a configurable five items"),
+				TEXT("Hauler tray capacity defaults to a configurable four items"),
 				HaulerCDO->GetResourceCarryComponent()->GetCapacity(),
-				5);
+				4);
 
 			TestEqual(
 				TEXT("Hauler begins with no generated tray items"),

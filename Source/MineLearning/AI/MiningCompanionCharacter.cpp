@@ -432,6 +432,15 @@ bool AMiningCompanionCharacter::StartPlayerCollectAction(AItemPickup* Pickup)
 	return true;
 }
 
+bool AMiningCompanionCharacter::TryDeliverToNearbyMachine()
+{
+	if (!HasAuthority() || !IsPlayerControlled() || IsPlayerActionLocked()) { return false; }
+	const FItemStack Item = ResourceCarryComponent->GetCurrentItem();
+	AActor* Receiver = UItemLogisticsLibrary::FindNearbyPlayerMachine(this, Item);
+	return Receiver && UItemLogisticsLibrary::CanReceiverAcceptItem(Receiver, Item)
+		&& StartPlayerDepositAction(Receiver);
+}
+
 bool AMiningCompanionCharacter::StartPlayerDepositAction(AActor* Receiver)
 {
 	const AMiningCompanionAIController* MiningAIConfig = GetMiningAIConfig();

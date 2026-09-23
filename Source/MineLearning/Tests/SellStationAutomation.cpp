@@ -154,20 +154,20 @@ bool FSellStationPresentationContractTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("World screen collision"), ScreenWidget->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
 	TestFalse(TEXT("World screen does not affect navigation"), ScreenWidget->CanEverAffectNavigation());
 
-	FItemStack SoldOre;
-	SoldOre.ItemType = EItemType::IronOre;
-	SoldOre.Amount = 5;
-	TestTrue(TEXT("Sale item stack is valid"), SoldOre.IsValid());
+	FItemStack SoldIngots;
+	SoldIngots.ItemType = EItemType::IronIngot;
+	SoldIngots.Amount = 5;
+	TestTrue(TEXT("Sale item stack is valid"), SoldIngots.IsValid());
 	TestTrue(TEXT("Sale item has a positive configured price"),
-		UItemLogisticsLibrary::GetUnitSellPrice(SoldOre.ItemType) > 0);
+		UItemLogisticsLibrary::GetUnitSellPrice(SoldIngots.ItemType) > 0);
 	TestFalse(TEXT("Station begins outside the busy state"),
 		SellStation->ActorHasTag(TEXT("SellPresentation.Active")));
 	EItemReceiverType ReceiverType = EItemReceiverType::Processor;
 	TestTrue(TEXT("Station exposes a receiver type through the logistics router"),
 		UItemLogisticsLibrary::TryGetReceiverType(SellStation, ReceiverType));
 	TestEqual(TEXT("Station routes as a sell receiver"), ReceiverType, EItemReceiverType::SellPoint);
-	TestTrue(TEXT("Station reports priced ore can be accepted"),
-		UItemLogisticsLibrary::CanReceiverAcceptItem(SellStation, SoldOre));
+	TestTrue(TEXT("Station reports priced ingots can be accepted"),
+		UItemLogisticsLibrary::CanReceiverAcceptItem(SellStation, SoldIngots));
 
 	FWorldContext& GameplayWorldContext = GEngine->CreateNewWorldContext(EWorldType::Game);
 	const FName GameplayWorldName = MakeUniqueObjectName(
@@ -199,8 +199,8 @@ bool FSellStationPresentationContractTest::RunTest(const FString& Parameters)
 	}
 	GameplayWorld->BeginPlay();
 
-	TestTrue(TEXT("Priced ore is accepted in a gameplay world"),
-		UItemLogisticsLibrary::DeliverItemToReceiver(GameplayStation, SoldOre));
+	TestTrue(TEXT("Priced ingots is accepted in a gameplay world"),
+		UItemLogisticsLibrary::DeliverItemToReceiver(GameplayStation, SoldIngots));
 	UInstancedStaticMeshComponent* SaleItemStack =
 		FindNamedComponent<UInstancedStaticMeshComponent>(
 			GameplayStation, TEXT("SaleItemStackVisual"));
@@ -236,19 +236,19 @@ bool FSellStationPresentationContractTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("A sale spawns exactly one real coin pickup"), SpawnedCoinCount, 1);
 	if (TestNotNull(TEXT("One real coin pickup is spawned"), SpawnedCoin))
 	{
-		TestEqual(TEXT("Coin pickup stores the full five-item batch payout"), SpawnedCoin->GetAmount(), 5);
+		TestEqual(TEXT("Coin pickup stores the full five-ingot batch payout"), SpawnedCoin->GetAmount(), 10);
 		SpawnedCoinStack = FindNamedComponent<UInstancedStaticMeshComponent>(
 			SpawnedCoin, TEXT("ItemStackVisual"));
 		if (TestNotNull(TEXT("Coin pickup creates its amount-driven visual stack"), SpawnedCoinStack))
 		{
-			TestEqual(TEXT("Four visual instances plus the pickup root show five coins"),
+			TestEqual(TEXT("Ten-coin payout uses the capped five-coin visual stack"),
 				SpawnedCoinStack->GetInstanceCount(), 4);
 		}
 		TestTrue(TEXT("Coin is locked during presentation"), SpawnedCoin->IsTransportLocked());
 		TestTrue(TEXT("Coin is hidden before the eject beat"), SpawnedCoin->IsHidden());
 	}
 	TestFalse(TEXT("Station rejects re-entry during presentation"),
-		UItemLogisticsLibrary::CanReceiverAcceptItem(GameplayStation, SoldOre));
+		UItemLogisticsLibrary::CanReceiverAcceptItem(GameplayStation, SoldIngots));
 
 	if (SpawnedCoin)
 	{
@@ -265,7 +265,7 @@ bool FSellStationPresentationContractTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Coin stays locked for the observation beat"), SpawnedCoin->IsTransportLocked());
 		if (SpawnedCoinStack)
 		{
-			TestTrue(TEXT("All five payout coins are visible during the observation beat"),
+			TestTrue(TEXT("All ten payout coins are visible during the observation beat"),
 				SpawnedCoinStack->IsVisible());
 			TestEqual(TEXT("The complete payout stack remains after the pop"),
 				SpawnedCoinStack->GetInstanceCount(), 4);
@@ -322,11 +322,11 @@ bool FSellStationPresentationContractTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("Gameplay hauler carry component"), CarryComponent)
 			&& TestNotNull(TEXT("Gameplay hauler ore mesh"), OreMesh))
 		{
-			TestEqual(TEXT("Hauler accepts the complete five-item batch"),
-				CarryComponent->AddItemWithVisual(SoldOre, OreMesh), 5);
+			TestEqual(TEXT("Hauler accepts four items from the five-item batch"),
+				CarryComponent->AddItemWithVisual(SoldIngots, OreMesh), 4);
 			GameplayHauler->ShowCarriedItem(OreMesh);
-			TestEqual(TEXT("Hauler tray renders five physical item instances"),
-				CarryComponent->GetWorldPreviewItemCount(), 5);
+			TestEqual(TEXT("Hauler tray renders four physical item instances"),
+				CarryComponent->GetWorldPreviewItemCount(), 4);
 			UInstancedStaticMeshComponent* CarriedStack =
 				FindNamedComponent<UInstancedStaticMeshComponent>(
 					GameplayHauler, TEXT("CarriedItemStackVisual"));

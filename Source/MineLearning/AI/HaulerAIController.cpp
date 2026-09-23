@@ -124,6 +124,7 @@ bool AHaulerAIController::FindNearestValidPickup()
 	AItemPickup* BestPickup = nullptr;
 	AActor* BestDestination = nullptr;
 	float BestDistanceSq = TNumericLimits<float>::Max();
+	int32 BestPriority = -1;
 
 	for (TActorIterator<AItemPickup> It(GetWorld()); It; ++It)
 	{
@@ -144,9 +145,14 @@ bool AHaulerAIController::FindNearestValidPickup()
 		const float DistanceSq = FVector::DistSquared(
 			Hauler->GetActorLocation(),
 			Pickup->GetActorLocation());
-		if (DistanceSq < BestDistanceSq)
+		// Bring sale proceeds home promptly so continuous orders cannot delay purchases indefinitely.
+		const EItemType ItemType = Pickup->GetItemStack().ItemType;
+		const int32 Priority = ItemType == EItemType::Coin ? 3
+			: (Pickup->HasUsableExplicitDeliveryTarget() ? 2 : (ItemType == EItemType::IronIngot ? 1 : 0));
+		if (Priority > BestPriority || (Priority == BestPriority && DistanceSq < BestDistanceSq))
 		{
 			BestDistanceSq = DistanceSq;
+			BestPriority = Priority;
 			BestPickup = Pickup;
 			BestDestination = Destination;
 		}
@@ -582,9 +588,13 @@ void AHaulerAIController::ResetToIdle()
 		TargetPickup->ReleaseReservation(Hauler);
 	}
 	TargetPickup = nullptr;
-	TargetDestination = nullptr;
-	ExplicitDeliveryStorage = nullptr;
-	ExplicitDeliveryPoint = nullptr;
+	// A busy receiver must not erase a paid-for route while its cargo is on board.
+	if (!Hauler || Hauler->GetResourceCarryComponent()->IsEmpty())
+	{
+		TargetDestination = nullptr;
+		ExplicitDeliveryStorage = nullptr;
+		ExplicitDeliveryPoint = nullptr;
+	}
 	State = EHaulerState::Idle;
 	bDirectMove = false;
 	bPickupCommitted = false;
@@ -673,11 +683,10 @@ bool AHaulerAIController::HasValidExplicitDeliveryRoute(const FItemStack& Item) 
 
 	if (IsValid(ExplicitDeliveryStorage))
 	{
-		return ExplicitDeliveryStorage->GetOwner() == TargetDestination
-			&& ExplicitDeliveryStorage->CanAddItem(Item);
+		return ExplicitDeliveryStorage->GetOwner() == TargetDestination;
 	}
 
-	return UItemLogisticsLibrary::CanReceiverAcceptItem(TargetDestination, Item);
+	return Item.IsValid() && TargetDestination->GetClass()->ImplementsInterface(UItemReceiver::StaticClass());
 }
 
 void AHaulerAIController::TickDirectMove(float DeltaSeconds)

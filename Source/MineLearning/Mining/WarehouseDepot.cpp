@@ -296,7 +296,7 @@ TArray<FWarehouseItemViewData> AWarehouseDepot::GetInventoryViewData() const
 
 bool AWarehouseDepot::RequestSell(EItemType ItemType, int32 Amount)
 {
-	if (ItemType != EItemType::IronOre || Amount <= 0
+	if (ItemType != EItemType::IronIngot || Amount <= 0
 		|| UItemLogisticsLibrary::GetUnitSellPrice(ItemType) <= 0)
 	{
 		return false;
@@ -354,10 +354,10 @@ bool AWarehouseDepot::RequestDeliveryOrder(
 		ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
 	TArray<TObjectPtr<UStaticMesh>> OreMeshes;
-	OreMeshes.Add(OutboundOreMesh);
+	OreMeshes.Add(Item.ItemType == EItemType::IronIngot ? IronIngotMesh : OutboundOreMesh);
 	TArray<AItemPickup*> SpawnedOrders;
 	SpawnedOrders.Reserve(Item.Amount);
-	for (int32 Index = 0; Index < Item.Amount; ++Index)
+	for (int32 Index = 0; Index < Item.Amount; Index += 4)
 	{
 		AItemPickup* OrderPickup = GetWorld()->SpawnActor<AItemPickup>(
 			AItemPickup::StaticClass(),
@@ -375,7 +375,7 @@ bool AWarehouseDepot::RequestDeliveryOrder(
 
 		FItemStack UnitItem;
 		UnitItem.ItemType = Item.ItemType;
-		UnitItem.Amount = 1;
+		UnitItem.Amount = FMath::Min(4, Item.Amount - Index);
 		OrderPickup->InitializeItem(UnitItem, OreMeshes);
 		OrderPickup->ReleaseStationaryForCollection();
 		OrderPickup->SetWaitingVisualEnabled(false);
@@ -601,6 +601,8 @@ void AWarehouseDepot::CacheAuthoredComponents()
 	if (UPrimitiveComponent* DoorComponent = Cast<UPrimitiveComponent>(FindSceneComponent(TEXT("Door"))))
 	{
 		DoorComponent->SetCanEverAffectNavigation(false);
+		// The lowered visual panel must not obstruct the player approaching the dock.
+		DoorComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
 	if (USceneComponent* DockPoint = FindSceneComponent(TEXT("P_Warehouse_DockPoint")))

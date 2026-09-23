@@ -57,6 +57,7 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="Player Control")
 	FMiningCompanionControlModeChangedSignature OnControlModeChanged;
+	bool TryDeliverToNearbyMachine();
 
 protected:
 	void Move(const FInputActionValue& Value);

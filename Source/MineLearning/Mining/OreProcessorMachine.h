@@ -110,7 +110,7 @@ protected:
 	FText ProcessorDisplayName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Queue", meta=(ClampMin="1"))
-	int32 MaxBufferedInputOre = 8;
+	int32 MaxBufferedInputOre = 10;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Mining|Ore Processor|Transport", meta=(ClampMin="1.0"))
 	float InputOreTravelSpeed = 35.0f;
@@ -156,7 +156,7 @@ protected:
 	FName NavigationBodyMeshComponentName = TEXT("StaticMesh5");
 
 private:
-	static constexpr int32 ProcessingQueueCapacity = 1;
+	static constexpr int32 ProcessingQueueCapacity = 2;
 
 	void StartProcessingIfReady();
 	USplineComponent* FindAuthoredSpline(FName ComponentName) const;
