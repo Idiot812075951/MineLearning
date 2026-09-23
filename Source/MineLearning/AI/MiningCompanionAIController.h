@@ -115,7 +115,7 @@ private:
 	UAnimMontage* CollectMontage = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation", meta=(ClampMin="0.1"))
-	float CollectAnimationPlayRate = 2.0f;
+	float CollectAnimationPlayRate = 4.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Mining AI|Animation")
 	FName CollectGrabNotifyName = TEXT("Notify_CollectGrab");

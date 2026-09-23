@@ -20,6 +20,7 @@
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
+#include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "MineLearning/Mining/ItemLogisticsLibrary.h"
 #include "MineLearning/Mining/ItemPickup.h"
@@ -97,6 +98,7 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 void AMiningCompanionCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	UpdateSprint(DeltaSeconds);
 
 	if (PlayerInteractionState == EPlayerInteractionState::AligningCollect
 		|| PlayerInteractionState == EPlayerInteractionState::AligningDeposit)
@@ -108,6 +110,14 @@ void AMiningCompanionCharacter::Tick(float DeltaSeconds)
 void AMiningCompanionCharacter::NotifyControllerChanged()
 {
 	Super::NotifyControllerChanged();
+	if (NormalWalkSpeed > 0.f)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+	}
+	bSprinting = false;
+	bSprintExhausted = false;
+	SetActorTickEnabled(IsPlayerControlled());
+	OnSprintChanged.Broadcast(SprintStamina, false);
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(PlayerInteractionTimerHandle);
@@ -441,6 +451,43 @@ bool AMiningCompanionCharacter::TryDeliverToNearbyMachine()
 		&& StartPlayerDepositAction(Receiver);
 }
 
+void AMiningCompanionCharacter::UpdateSprint(float DeltaSeconds)
+{
+	APlayerController* Player = Cast<APlayerController>(Controller);
+	if (!Player || NormalWalkSpeed <= 0.f) { return; }
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const float PreviousStamina = SprintStamina;
+	const bool bWasSprinting = bSprinting;
+	// Reading held keys avoids a stuck sprint if a menu consumes the release event.
+	const bool bHeld = Player->IsInputKeyDown(EKeys::LeftShift) || Player->IsInputKeyDown(EKeys::RightShift);
+	if (!bHeld && SprintStamina >= 0.2f) { bSprintExhausted = false; }
+	bSprinting = bHeld && !bSprintExhausted && SprintStamina > 0.f
+		&& !Player->IsMoveInputIgnored() && !IsPlayerActionLocked()
+		&& Movement->IsMovingOnGround() && !Movement->GetCurrentAcceleration().IsNearlyZero()
+		&& GetVelocity().SizeSquared2D() > 100.f;
+	if (bSprinting)
+	{
+		SprintStamina = FMath::Max(0.f, SprintStamina - DeltaSeconds / FMath::Max(SprintDuration, 0.1f));
+		SprintRecoveryRemaining = SprintRecoveryDelay;
+		if (SprintStamina <= 0.f) { bSprintExhausted = true; bSprinting = false; }
+	}
+	else
+	{
+		const float RecoveryTime = FMath::Max(0.f, DeltaSeconds - SprintRecoveryRemaining);
+		SprintRecoveryRemaining = FMath::Max(0.f, SprintRecoveryRemaining - DeltaSeconds);
+		SprintStamina = FMath::Min(1.f, SprintStamina + RecoveryTime / FMath::Max(SprintRecoveryDuration, 0.1f));
+	}
+	const float BoostSpeed = NormalWalkSpeed * SprintSpeedMultiplier;
+	const float TransitionTime = bSprinting ? SprintAccelerationTime : SprintDecelerationTime;
+	Movement->MaxWalkSpeed = FMath::FInterpConstantTo(Movement->MaxWalkSpeed,
+		bSprinting ? BoostSpeed : NormalWalkSpeed, DeltaSeconds,
+		(BoostSpeed - NormalWalkSpeed) / FMath::Max(TransitionTime, 0.01f));
+	if (PreviousStamina != SprintStamina || bWasSprinting != bSprinting)
+	{
+		OnSprintChanged.Broadcast(SprintStamina, bSprinting);
+	}
+}
+
 bool AMiningCompanionCharacter::StartPlayerDepositAction(AActor* Receiver)
 {
 	const AMiningCompanionAIController* MiningAIConfig = GetMiningAIConfig();
@@ -502,7 +549,7 @@ void AMiningCompanionCharacter::UpdatePlayerInteractionAlignment(float DeltaSeco
 	}
 	else
 	{
-		SetActorTickEnabled(false);
+		SetActorTickEnabled(IsPlayerControlled());
 		return;
 	}
 
@@ -524,7 +571,7 @@ void AMiningCompanionCharacter::UpdatePlayerInteractionAlignment(float DeltaSeco
 	}
 
 	SetActorRotation(TargetRotation);
-	SetActorTickEnabled(false);
+	SetActorTickEnabled(IsPlayerControlled());
 	if (PlayerInteractionState == EPlayerInteractionState::AligningCollect)
 	{
 		PlayerInteractionState = EPlayerInteractionState::Collecting;
@@ -672,7 +719,7 @@ void AMiningCompanionCharacter::FinishPlayerInteraction()
 	PlayerInteractionPickup = nullptr;
 	PlayerInteractionReceiver = nullptr;
 	PlayerInteractionState = EPlayerInteractionState::None;
-	SetActorTickEnabled(false);
+	SetActorTickEnabled(IsPlayerControlled());
 	UnlockPlayerInteraction();
 }
 
@@ -785,6 +832,8 @@ void AMiningCompanionCharacter::ShowCarryFullMessage() const
 void AMiningCompanionCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	NormalWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+	SetActorTickEnabled(IsPlayerControlled());
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	GetCapsuleComponent()->SetCanEverAffectNavigation(false);
 

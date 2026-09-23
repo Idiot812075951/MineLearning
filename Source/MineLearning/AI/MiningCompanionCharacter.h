@@ -26,6 +26,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FMiningCompanionControlModeChangedSignature,
 	bool, bPlayerControlled);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOreBuddySprintChanged, float, StaminaFraction, bool, bSprinting);
 
 UCLASS(BlueprintType)
 class MINELEARNING_API AMiningCompanionCharacter : public ACharacter
@@ -57,13 +58,31 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="Player Control")
 	FMiningCompanionControlModeChangedSignature OnControlModeChanged;
-	bool TryDeliverToNearbyMachine();
-
-protected:
-	void Move(const FInputActionValue& Value);
-	void Look(const FInputActionValue& Value);
 	void TryUseMiningSkill();
 	void TryUsePickupSkill();
+	bool TryDeliverToNearbyMachine();
+	UFUNCTION(BlueprintPure, Category="Player Control|Sprint")
+	float GetSprintStamina() const { return SprintStamina; }
+	UFUNCTION(BlueprintPure, Category="Player Control|Sprint")
+	bool IsSprinting() const { return bSprinting; }
+	UPROPERTY(BlueprintAssignable, Category="Player Control|Sprint")
+	FOreBuddySprintChanged OnSprintChanged;
+
+protected:
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="1.0"))
+	float SprintSpeedMultiplier = 1.8f;
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="0.1"))
+	float SprintDuration = 3.f;
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="0.1"))
+	float SprintRecoveryDuration = 4.f;
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="0.0"))
+	float SprintRecoveryDelay = 0.8f;
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="0.01"))
+	float SprintAccelerationTime = 0.35f;
+	UPROPERTY(EditDefaultsOnly, Category="Player Control|Sprint", meta=(ClampMin="0.01"))
+	float SprintDecelerationTime = 0.45f;
+	void Move(const FInputActionValue& Value);
+	void Look(const FInputActionValue& Value);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Player Control")
 	TObjectPtr<USpringArmComponent> CameraBoom;
@@ -111,6 +130,12 @@ protected:
 	TObjectPtr<USoundBase> MiningImpactSound;
 
 private:
+	void UpdateSprint(float DeltaSeconds);
+	float SprintStamina = 1.f;
+	float NormalWalkSpeed = 0.f;
+	float SprintRecoveryRemaining = 0.f;
+	bool bSprinting = false;
+	bool bSprintExhausted = false;
 	enum class EPlayerInteractionState : uint8
 	{
 		None,
