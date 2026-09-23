@@ -8,6 +8,7 @@
 #include "Combat/CombatComponent.h"
 #include "Combat/CombatDamageSubsystem.h"
 #include "Combat/HealthComponent.h"
+#include "Mining/MineableOre.h"
 #include "AI/GunnerCharacter.h"
 #include "Manifestation/Guren/GurenQSkillComponent.h"
 #include "Manifestation/Guren/QGrabTestDummy.h"
@@ -733,6 +734,37 @@ void AMineLearningPlayerController::CombatDamage(float Amount)
 #if !UE_BUILD_SHIPPING
 	const FCombatDamageResult Result = GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDebugDamage(GetSelectedCombatUnit(), Amount);
 	UE_LOG(LogTemp, Display, TEXT("[Combat GM] Accepted=%d Damage=%.2f HP=%.2f"), Result.bAccepted, Result.AppliedDamage, Result.CurrentHealth);
+#endif
+}
+
+void AMineLearningPlayerController::CombatSelectNearestOre()
+{
+#if !UE_BUILD_SHIPPING
+	const FVector Origin = GetPawn() ? GetPawn()->GetActorLocation() : GetFocalLocation();
+	AMineableOre* NearestOre = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	for (TActorIterator<AMineableOre> It(GetWorld()); It; ++It)
+	{
+		if (!IsValid(*It))
+		{
+			continue;
+		}
+		const float DistanceSquared = FVector::DistSquared(Origin, It->GetActorLocation());
+		if (DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			NearestOre = *It;
+		}
+	}
+	if (NearestOre)
+	{
+		SelectCombatUnit(NearestOre);
+		UE_LOG(LogTemp, Display, TEXT("[Combat GM] Selected nearest ore %s (%.0f cm)"), *NearestOre->GetName(), FMath::Sqrt(NearestDistanceSquared));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Combat GM] No ore found in the current world."));
+	}
 #endif
 }
 

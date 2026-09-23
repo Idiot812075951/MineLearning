@@ -48,6 +48,7 @@ public:
 	UFUNCTION(Exec) void CombatDamage(float Amount = 100.f);
 	UFUNCTION(Exec) void CombatHeal(float Amount = 100.f);
 	UFUNCTION(Exec) void CombatSetHealth(float Health = 1000.f);
+	UFUNCTION(Exec) void CombatSelectNearestOre();
 	UFUNCTION(Exec) void CombatSpawnDummy(float MaxHealth = 5000.f);
 
 	virtual void SetupInputComponent() override;
