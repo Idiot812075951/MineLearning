@@ -353,8 +353,6 @@ void UDemoRunComponent::ApplyCoreBonus(APawn* Pawn) const
 bool UDemoRunComponent::ChangeForm(EPlayerTransformationForm Form)
 {
 	if (!IsFormUnlocked(Form)) { return Respond(false, LOCTEXT("FormLocked", "该形态尚未解锁，请先用仓库铁锭解锁。")); }
-	const AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(Cast<APlayerController>(GetOwner())->GetPawn());
-	if (Gunner && Gunner->IsWeaponBusy()) { return Respond(false, LOCTEXT("WeaponBusy", "请等待本次射击或换弹结束后再幻化。")); }
 	for (TActorIterator<APlayerTransformZone> It(GetWorld()); It; ++It)
 	{
 		if (It->TrySelectForm(Cast<APlayerController>(GetOwner()), Form))

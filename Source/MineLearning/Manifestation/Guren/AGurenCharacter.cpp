@@ -225,6 +225,13 @@ void AGurenCharacter::CycleQTarget()
 	}
 }
 
+bool AGurenCharacter::CanTransform() const
+{
+	const UAnimInstance* Anim = GetMesh()->GetAnimInstance();
+	return !QSkill->IsQActive() && !Ultimate->IsUltimateActive()
+		&& !(Anim && PrimaryAttackMontage && Anim->Montage_IsActive(PrimaryAttackMontage));
+}
+
 void AGurenCharacter::TryPrimaryAttack()
 {
 	UAnimInstance* Anim = GetMesh()->GetAnimInstance();

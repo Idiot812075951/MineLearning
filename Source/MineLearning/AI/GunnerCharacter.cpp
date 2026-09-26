@@ -444,6 +444,14 @@ void AGunnerCharacter::ApplyLocalPlayerViewport()
 
 }
 
+bool AGunnerCharacter::CanTransform() const
+{
+	const UAnimInstance* Anim = GetMesh()->GetAnimInstance();
+	return !IsWeaponBusy() && !bPlayerShotPending
+		&& !(Anim && ((FireMontage && Anim->Montage_IsActive(FireMontage))
+			|| (BurstFireMontage && Anim->Montage_IsActive(BurstFireMontage))));
+}
+
 bool AGunnerCharacter::TryFireAtOre(AMineableOre* TargetOre)
 {
 	if (!UCombatDamageSubsystem::CanDamageTarget(this, TargetOre))

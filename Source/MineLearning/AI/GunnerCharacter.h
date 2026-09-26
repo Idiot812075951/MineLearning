@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "MineLearning/TransformationGuard.h"
 #include "GunnerCharacter.generated.h"
 
 class AMineableOre;
@@ -47,12 +48,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	bool, bPlayerControlled);
 
 UCLASS(BlueprintType)
-class MINELEARNING_API AGunnerCharacter : public ACharacter
+class MINELEARNING_API AGunnerCharacter : public ACharacter, public ITransformationGuard
 {
 	GENERATED_BODY()
 
 public:
 	AGunnerCharacter();
+	virtual bool CanTransform() const override;
 	UFUNCTION(BlueprintPure, Category = "Combat") float GetShotMultiplier(EGunnerShotResult Result) const;
 	UFUNCTION(BlueprintPure, Category = "Combat") FText GetCombatMechanics() const;
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat") FText GetAmmoStatusText() const;

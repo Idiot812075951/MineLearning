@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "MineLearning/MineLearningCharacter.h"
+#include "MineLearning/TransformationGuard.h"
 #include "AGurenCharacter.generated.h"
 
 
@@ -17,12 +18,13 @@ struct FInputActionValue;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGurenFlightStateChanged, float, Energy, float, Maximum, bool, bFlying);
 
 UCLASS()
-class MINELEARNING_API AGurenCharacter : public AMineLearningCharacter
+class MINELEARNING_API AGurenCharacter : public AMineLearningCharacter, public ITransformationGuard
 {
 	GENERATED_BODY()
 
 public:
 	AGurenCharacter();
+	virtual bool CanTransform() const override;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Q Skill")
 	TObjectPtr<UGurenQSkillComponent> QSkill;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrival")

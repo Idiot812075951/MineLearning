@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
+#include "MineLearning/TransformationGuard.h"
 #include "MiningCompanionCharacter.generated.h"
 
 class AMiningCompanionAIController;
@@ -29,12 +30,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOreBuddySprintChanged, float, StaminaFraction, bool, bSprinting);
 
 UCLASS(BlueprintType)
-class MINELEARNING_API AMiningCompanionCharacter : public ACharacter
+class MINELEARNING_API AMiningCompanionCharacter : public ACharacter, public ITransformationGuard
 {
 	GENERATED_BODY()
 
 public:
 	AMiningCompanionCharacter();
+	virtual bool CanTransform() const override { return !IsPlayerActionLocked() && !IsSprinting(); }
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;

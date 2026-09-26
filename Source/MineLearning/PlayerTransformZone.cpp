@@ -1,5 +1,5 @@
 #include "PlayerTransformZone.h"
-#include "MineLearning/AI/GunnerCharacter.h"
+#include "TransformationGuard.h"
 #include "Demo/DemoRunComponent.h"
 
 #include "Components/BoxComponent.h"
@@ -151,7 +151,7 @@ bool APlayerTransformZone::TrySwapPawn(APlayerController* PlayerController, TSub
 	{
 		return true;
 	}
-	if (const AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(OldPawn); Gunner && Gunner->IsWeaponBusy())
+	if (const ITransformationGuard* Guard = Cast<ITransformationGuard>(OldPawn); Guard && !Guard->CanTransform())
 	{
 		return false;
 	}
