@@ -592,6 +592,14 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 		: EGunnerShotResult::Miss;
 	const FVector MuzzleLocation = GetMuzzleLocation();
 	const FVector TargetLocation = CalculateShotTarget(Target, Result);
+	// Capture bounds before damage: a lethal hit can destroy the target immediately.
+	FVector TargetOrigin = TargetLocation;
+	FVector TargetExtent = FVector::ZeroVector;
+	if (bOreIsValid)
+	{
+		TargetOre->GetActorBounds(true, TargetOrigin, TargetExtent);
+	}
+	const FVector TargetTop = TargetOrigin + FVector(0.f, 0.f, TargetExtent.Z);
 	float AppliedDamage = 0.0f;
 
 	if (bOreIsValid && Result != EGunnerShotResult::Miss)
@@ -613,7 +621,7 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 	OnShotResolved.Broadcast(Result, MuzzleLocation, TargetLocation, AppliedDamage);
 	if (AppliedDamage > 0.f && (Result == EGunnerShotResult::Headshot || Result == EGunnerShotResult::GoldenHeadshot))
 	{
-		OnCriticalHit.Broadcast(Result == EGunnerShotResult::GoldenHeadshot);
+		OnCriticalHit.Broadcast(Result == EGunnerShotResult::GoldenHeadshot, IsValid(TargetOre) ? TargetOre : nullptr, TargetTop);
 	}
 
 	const FString Mode = bUseBurstAccuracy

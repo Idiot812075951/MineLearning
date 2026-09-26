@@ -36,7 +36,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
 	float, AppliedDamage);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGunnerReloadStateChangedSignature, bool, bReloading);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGunnerCriticalHitSignature, bool, bGolden);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGunnerCriticalHitSignature, bool, bGolden, AActor*, Target, FVector, TargetTop);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGunnerWeaponFiredSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 	FGunnerAmmoChangedSignature,

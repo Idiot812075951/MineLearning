@@ -37,6 +37,8 @@
 
 ## 保留图片的用途
 
+- `ArtSource/UI/V2/AbilityAtlas.png`：当前射击、换弹、钻采、抓取四格图标源；由 V2 技能材质分区使用。战斗 UI 与矿石配色见 [当前 Brief](../ArtBriefs/CombatUI.md)，双层血条见 [血条 Brief](../ArtBriefs/UIV2Health.md)。
+
 - `ArtSource/Concept/OreBuddy/OreBuddy07_Prototype.png`：OreBuddy 概念参考，保留。
 - 红莲 `References` 中的官方/动画/商品/用户原始图片及手部结构图：用于比例、结构与动作设计；重复原图和联系表已移除。
 - 机器人中心、出售处和偷矿兽 `References`：保留概念图及有功能标注的设计动线图。

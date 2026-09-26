@@ -147,7 +147,11 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 			UImage* AmmoIcon = Cast<UImage>(AmmoWidget->WidgetTree->FindWidget(TEXT("AmmoIcon")));
 			TestNotNull(TEXT("Ammo display uses a configurable bullet icon"), AmmoIcon ? AmmoIcon->GetBrush().GetResourceObject() : nullptr);
 			TestNotNull(TEXT("Ammo display exposes presentation text"), Cast<UTextBlock>(AmmoWidget->WidgetTree->FindWidget(TEXT("AmmoCountText"))));
-			TestEqual(TEXT("Ammo root never intercepts input"), AmmoWidget->WidgetTree->RootWidget->GetVisibility(), ESlateVisibility::HitTestInvisible);
+			const ESlateVisibility AmmoVisibility = AmmoWidget->WidgetTree->RootWidget->GetVisibility();
+			TestTrue(TEXT("Ammo root never intercepts input"),
+				AmmoVisibility == ESlateVisibility::HitTestInvisible
+				|| AmmoVisibility == ESlateVisibility::Hidden
+				|| AmmoVisibility == ESlateVisibility::Collapsed);
 		}
 	}
 
