@@ -46,7 +46,9 @@ FCombatDamageResult UHealthComponent::ApplyResolvedDamage(const FCombatDamageReq
 	OnDamageResolved.Broadcast(Request, Result);
 	if (IsDead() && bDestroyOnDeath && !GetOwner()->IsActorBeingDestroyed())
 	{
-		GetOwner()->Destroy();
+		GetOwner()->SetActorEnableCollision(false);
+		GetOwner()->SetCanBeDamaged(false);
+		GetOwner()->SetLifeSpan(0.65f);
 	}
 	return Result;
 }

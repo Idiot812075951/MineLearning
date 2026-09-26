@@ -246,7 +246,10 @@ void AMineableOre::HandleDepleted()
 
 void AMineableOre::DestroyOre()
 {
-    Destroy();
+	// Depletion is already final. Retain the corpse briefly so observers can finish death feedback.
+	SetActorEnableCollision(false);
+	SetCanBeDamaged(false);
+	SetLifeSpan(0.65f);
 }
 
 bool AMineableOre::SpawnResourceDropDirect(EResourceType Type, int32 Amount, const FVector& DropLocation)

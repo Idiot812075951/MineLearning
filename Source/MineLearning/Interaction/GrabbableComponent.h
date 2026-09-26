@@ -30,7 +30,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Grab") FVector GetIndicatorLocation() const;
 	bool Reserve(AActor* Requester);
 	bool AttachToGrip(USceneComponent* Hand, FName Socket);
-	void Release(bool bCompleted);
+	void Release(bool bCompleted, bool bRestoreTransform = true);
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab") bool bGrabbable = true;

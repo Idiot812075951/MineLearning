@@ -181,7 +181,8 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Targets remain present in the pose close-up"), First->IsActorBeingDestroyed());
 	TestTrue(TEXT("Final pose obeys its separately configured ground clearance"), FMath::IsNearlyEqual(Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(), Skill->FinalHoverHeight, 1.f));
 	Skill->HandleBeat(EGurenUltimateStage::Burst);
-	TestTrue(TEXT("Percent boundary and fixed boundary both execute"), First->IsActorBeingDestroyed() && Third->IsActorBeingDestroyed());
+	TestTrue(TEXT("Percent boundary and fixed boundary both execute"), First->FindComponentByClass<UHealthComponent>()->IsDead() && Third->FindComponentByClass<UHealthComponent>()->IsDead());
+	TestTrue(TEXT("Execution leaves time for death feedback"), First->GetLifeSpan() > 0.f && Third->GetLifeSpan() > 0.f);
 	TestFalse(TEXT("Above-threshold target survives"), Second->IsActorBeingDestroyed());
 	TestEqual(TEXT("Arrival uses pre-hit HP, even if its damage crosses the threshold"), Second->FindComponentByClass<UHealthComponent>()->GetHealth(), 2101.f);
 	TestEqual(TEXT("Survivor does not receive dissolve authorization"), Skill->GetTargets().FilterByPredicate([](const FArrivalTarget& Entry) { return Entry.bExecuteEligible; }).Num(), 2);

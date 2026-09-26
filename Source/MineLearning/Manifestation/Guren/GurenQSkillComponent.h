@@ -10,7 +10,7 @@ class AController;
 UENUM(BlueprintType)
 enum class EGurenQStage : uint8
 {
-	Idle, Dash, Grab, Radiation, Release
+	Idle, Dash, Grab, Radiation, Release, Executed
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGurenQStageChanged, EGurenQStage, Stage, AActor*, Target);

@@ -130,13 +130,16 @@ Montage 通知类为 `Guren Q Event`，Event 名称区分如下：
 | Dash | Motion Warping，`Q_DashTarget`，忽略 Z | 0.1333–0.55 s |
 | Dash | `DashArrival` | 0.55 s |
 | Grab | `GrabContact` | 0.20 s |
-| Grab | `StartDissolve` | 1.0667 s |
+| Grab | `StartDissolve` | 1.16769 s |
+| Grab | `Execute` | 3.20 s（白色粒子出现后） |
 | Grab | `DissolveFinish` | 3.9333 s |
 | Grab | `SkillEnd` | 4.0333 s |
 
 Root Motion From Montages Only、QFullBody Slot 和生产 Socket 保持原配置。DashArrival 延后一帧校验，以等待当前帧 CharacterMovement 应用 Root Motion，重复通知不会积累额外回调。
 
 辐射效果继续复用 `/Game/MineLearning/VFX/RadiantDissolve/BP_RadiantDissolve_Test`。Q 的 `RadiationChanged` 蓝图在调用 Dissolve 前使用 `GetRadiationDuration()`，从 Grab Montage 的 StartDissolve/DissolveFinish 通知时间计算时长，不再重复硬编码 2.866667 秒。调效果参数见 [辐射溶解说明](VFX/RadiantDissolve_FinalScatter.md)。
+
+`Execute` 单独提交处决伤害并释放抓取；C++ 表现组件隐藏目标实体 Mesh（不向子组件传播，不隐藏血条）。目标沿自身死亡流程清空血条、延迟销毁，技能继续到 `DissolveFinish` 才清理粒子和恢复镜头。调整伤害时机请移动 `Execute`，不要移动决定特效总时长的 `DissolveFinish`。当前白色粒子起点约为 3.159 s，Execute 位于其后约一帧；保留当前 StartDissolve 设置，将结束点恢复为 3.9333 s。
 
 震屏只在 StartDissolve 发生。接触仅慢镜头，结束不额外震屏。取消时先清理效果，再恢复各 MeshComponent 进入辐射前的原材质与显隐，最后释放目标。
 

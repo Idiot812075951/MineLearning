@@ -2,6 +2,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PointLightComponent.h"
 #include "GameFramework/Character.h"
@@ -9,6 +10,7 @@
 #include "Components/PoseableMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "MineLearning/Combat/HealthComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -127,6 +129,25 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 		}
 		RadiationChanged(true, Target, Skill->GetGripLocation());
 	}
+	else if (Stage == EGurenQStage::Executed)
+	{
+		if (IsValid(Target))
+		{
+			const UHealthComponent* Health = Target->FindComponentByClass<UHealthComponent>();
+			if (Health && Health->IsDead())
+			{
+				// White particles now carry the silhouette. Death must not reveal a replacement body.
+				TInlineComponentArray<UMeshComponent*> Meshes(Target);
+				for (UMeshComponent* Mesh : Meshes)
+				{
+					if (Mesh->IsA<UStaticMeshComponent>() || Mesh->IsA<USkinnedMeshComponent>())
+					{
+						Mesh->SetVisibility(false, false);
+					}
+				}
+			}
+		}
+	}
 	else if (Stage == EGurenQStage::Release || Stage == EGurenQStage::Idle)
 	{
 		if (Stage == EGurenQStage::Release && IsValid(PalmRadiation) && RadiationHeatTail > 0.f)
@@ -163,6 +184,11 @@ void UGurenQPresentationComponent::RestoreTargetMaterials()
 	{
 		if (UMeshComponent* Mesh = Snapshot.Mesh.Get())
 		{
+			const UHealthComponent* Health = Mesh->GetOwner()->FindComponentByClass<UHealthComponent>();
+			if (Health && Health->IsDead())
+			{
+				continue;
+			}
 			for (int32 Index = 0; Index < Snapshot.Materials.Num(); ++Index)
 			{
 				Mesh->SetMaterial(Index, Snapshot.Materials[Index]);
@@ -491,7 +517,7 @@ void UGurenQPresentationComponent::TickComponent(float DeltaTime, ELevelTick Tic
 		SpawnAfterimage(Now);
 		NextAfterimageAt = Now + AfterimageInterval;
 	}
-	const float DesiredZoom = Stage == EGurenQStage::Radiation ? -CloseUpFOV
+	const float DesiredZoom = (Stage == EGurenQStage::Radiation || Stage == EGurenQStage::Executed) ? -CloseUpFOV
 		: Stage == EGurenQStage::Grab ? -CloseUpFOV * 0.65f
 		: Stage == EGurenQStage::Dash ? 4.f : 0.f;
 	ZoomOffset = FMath::FInterpTo(ZoomOffset, DesiredZoom, RealDelta, 7.f);

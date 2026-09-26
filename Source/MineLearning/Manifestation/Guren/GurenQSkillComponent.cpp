@@ -206,7 +206,7 @@ void UGurenQSkillComponent::TryCast()
 void UGurenQSkillComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (!Target.IsValid() && Stage != EGurenQStage::Release)
+	if (!Target.IsValid() && Stage != EGurenQStage::Release && Stage != EGurenQStage::Executed)
 	{
 		Cancel();
 		return;
@@ -258,14 +258,14 @@ void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 		GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
 		SetStage(EGurenQStage::Radiation);
 	}
-	else if (Event == TEXT("DissolveFinish") && Stage == EGurenQStage::Radiation)
+	else if (Event == TEXT("Execute") && Stage == EGurenQStage::Radiation)
 	{
-		SetStage(EGurenQStage::Release);
 		if (Target.IsValid())
 		{
 			Target->GetOwner()->OnDestroyed.RemoveDynamic(this, &UGurenQSkillComponent::TargetDestroyed);
 			AActor* Victim = GetTarget();
-			Target->Release(false);
+			// Keep execution feedback where the victim was held instead of snapping it back to the ground.
+			Target->Release(false, !bAttached);
 			FCombatDamageRequest Request;
 			Request.Source = GetOwner();
 			Request.Target = Victim;
@@ -275,8 +275,14 @@ void UGurenQSkillComponent::HandleAnimationEvent(FName Event)
 			Request.HitLocation = GetGripLocation();
 			GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
 		}
+		// Death feedback runs independently while the montage finishes its particles.
+		SetStage(EGurenQStage::Executed);
 		Target.Reset();
 		bAttached = false;
+	}
+	else if (Event == TEXT("DissolveFinish") && Stage == EGurenQStage::Executed)
+	{
+		SetStage(EGurenQStage::Release);
 	}
 	else if (Event == TEXT("SkillEnd"))
 	{

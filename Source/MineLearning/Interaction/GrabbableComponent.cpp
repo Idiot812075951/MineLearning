@@ -137,7 +137,7 @@ void UGrabbableComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	}
 }
 
-void UGrabbableComponent::Release(bool bCompleted)
+void UGrabbableComponent::Release(bool bCompleted, bool bRestoreTransform)
 {
 	if (bReleasing || (!Grabber.IsValid() && ComponentStates.IsEmpty()))
 	{
@@ -153,7 +153,10 @@ void UGrabbableComponent::Release(bool bCompleted)
 	GripParent.Reset();
 	Target->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	Target->GetRootComponent()->SetAbsolute(bAbsoluteLocation, bAbsoluteRotation, bAbsoluteScale);
-	Target->SetActorTransform(OriginalTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	if (bRestoreTransform)
+	{
+		Target->SetActorTransform(OriginalTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	}
 	Target->SetActorEnableCollision(bCollisionEnabled);
 	Target->SetActorTickEnabled(bActorTickEnabled);
 	for (const FComponentState& State : ComponentStates)

@@ -14,6 +14,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "MineLearning/Combat/HealthComponent.h"
 #include "MineLearning/Effects/MaterialEffectLibrary.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -456,12 +457,19 @@ void UGurenUltimatePresentationComponent::StageChanged(EGurenUltimateStage Stage
 		}
 		for (const FArrivalMaterialSnapshot& Snapshot : Materials)
 		{
-			if (Snapshot.Mesh.IsValid() && Skill->GetTargets().IsValidIndex(Snapshot.TargetIndex)
-				&& !Skill->GetTargets()[Snapshot.TargetIndex].bExecuted)
+			if (Snapshot.Mesh.IsValid() && Skill->GetTargets().IsValidIndex(Snapshot.TargetIndex))
 			{
-				for (int32 Index = 0; Index < Snapshot.Originals.Num(); ++Index)
+				if (Skill->GetTargets()[Snapshot.TargetIndex].bExecuted)
 				{
-					Snapshot.Mesh->SetMaterial(Index, Snapshot.Originals[Index]);
+					// Burst completes the dissolve. Do not propagate to attached health bars.
+					Snapshot.Mesh->SetVisibility(false, false);
+				}
+				else
+				{
+					for (int32 Index = 0; Index < Snapshot.Originals.Num(); ++Index)
+					{
+						Snapshot.Mesh->SetMaterial(Index, Snapshot.Originals[Index]);
+					}
 				}
 			}
 		}
@@ -689,6 +697,11 @@ void UGurenUltimatePresentationComponent::Cleanup()
 	{
 		if (UMeshComponent* Mesh = Snapshot.Mesh.Get())
 		{
+			const UHealthComponent* Health = Mesh->GetOwner()->FindComponentByClass<UHealthComponent>();
+			if (Health && Health->IsDead() && !Snapshot.bBoundsFallback)
+			{
+				continue;
+			}
 			for (int32 Index = 0; Index < Snapshot.Originals.Num(); ++Index)
 			{
 				Mesh->SetMaterial(Index, Snapshot.Originals[Index]);

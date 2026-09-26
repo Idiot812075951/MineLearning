@@ -116,10 +116,18 @@ bool FUnifiedCombatTest::RunTest(const FString& Parameters)
 	Health->Heal(5000.f);
 	TestEqual(TEXT("Target can heal above execution line after contact"), Health->GetHealth(), 5000.f);
 	Q->HandleAnimationEvent(TEXT("StartDissolve"));
+	const FTransform ExecutionTransform = Target->GetActorTransform();
+	Q->HandleAnimationEvent(TEXT("Execute"));
 	Q->HandleAnimationEvent(TEXT("DissolveFinish"));
-	TestTrue(TEXT("Confirmed grab remains executable after healing"), Target->IsActorBeingDestroyed());
+	TestTrue(TEXT("Execution feedback remains at the held victim instead of returning to its starting position"),
+		Target->GetActorTransform().Equals(ExecutionTransform, 0.01f));
+	TestNull(TEXT("Execution feedback no longer follows the hand"), Target->GetAttachParentActor());
+	TestTrue(TEXT("Confirmed grab remains executable after healing"), Health->IsDead());
+	TestTrue(TEXT("Death feedback retains the actor briefly"), Target->GetLifeSpan() > 0.f);
+	TestFalse(TEXT("Dead target cannot obstruct or receive more damage"), Target->GetActorEnableCollision() || Target->CanBeDamaged());
 	TestEqual(TEXT("Execution settles through health"), Health->GetHealth(), 0.f);
 	Q->HandleAnimationEvent(TEXT("SkillEnd"));
+	TestTrue(TEXT("Skill cleanup does not move the dying victim"), Target->GetActorTransform().Equals(ExecutionTransform, 0.01f));
 	TestFalse(TEXT("Q returns idle"), Q->IsQActive());
 	Source->Destroy();
 	Player->Destroy();
