@@ -40,6 +40,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool AddItem(const FItemStack& Item);
 
+	/** GM top-up; preserves reservations and makes room for further production. */
+	void GrantDebugStock(int32 MinimumPerItem);
+
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool RemoveItem(const FItemStack& Item);
 

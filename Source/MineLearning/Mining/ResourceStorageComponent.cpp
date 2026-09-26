@@ -62,6 +62,24 @@ bool UResourceStorageComponent::AddItem(const FItemStack& Item)
 	return true;
 }
 
+void UResourceStorageComponent::GrantDebugStock(int32 MinimumPerItem)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority() || MinimumPerItem <= 0)
+	{
+		return;
+	}
+	for (EItemType Type : {EItemType::IronOre, EItemType::IronIngot, EItemType::Coin, EItemType::Ammo})
+	{
+		const int32 Shortfall = FMath::Max(0, MinimumPerItem - GetAvailableItemAmount(Type));
+		StoredItems.FindOrAdd(Type) += Shortfall;
+	}
+	if (MaxItemCapacity > 0)
+	{
+		MaxItemCapacity = FMath::Max(MaxItemCapacity, GetTotalStoredItemCount() + MinimumPerItem);
+	}
+	BroadcastStorageChanged();
+}
+
 bool UResourceStorageComponent::RemoveItem(const FItemStack& Item)
 {
 	const int32 StoredAmount = GetStoredItemAmount(Item.ItemType);

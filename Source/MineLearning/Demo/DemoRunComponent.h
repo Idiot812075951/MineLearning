@@ -20,7 +20,8 @@ enum class EDemoCommand : uint8
 {
 	Start, ProcessFour, SellTwo, CancelOrders, BuyCarrier, BuyOreBuddy,
 	UpgradeStrength, UpgradeAgility, UpgradeIntelligence, UnlockGunner, UnlockGuren,
-	SubmitMaterials, Human, OreBuddy, Carrier, Gunner, Guren, Restart, ResetCalibration, BuyMagazine
+	SubmitMaterials, Human, OreBuddy, Carrier, Gunner, Guren, Restart, ResetCalibration, BuyMagazine,
+	UnlockAll
 };
 
 /** One local run; owned by the persistent player controller, independent of its pawn and UI. */

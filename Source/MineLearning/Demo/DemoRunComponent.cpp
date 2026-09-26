@@ -167,6 +167,42 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 		ChangeForm(EPlayerTransformationForm::OreBuddy);
 		return Respond(true, LOCTEXT("StartedFree", "矿区开工！Q 钻采 / R 拾取；携矿可直接送加工机按 E。自由生产不限时，终端中可购买机器人、升级和弹匣。"));
 	}
+	if (Command == EDemoCommand::UnlockAll && Warehouse)
+	{
+		if (Phase == EDemoPhase::Briefing)
+		{
+			Phase = EDemoPhase::Production;
+			StartedAt = GetWorld()->GetTimeSeconds();
+		}
+		bGunnerUnlocked = true;
+		bGurenUnlocked = true;
+		CoreBonus.Strength = 15.f;
+		CoreBonus.Agility = 15.f;
+		CoreBonus.Intelligence = 15.f;
+		ReserveMagazines = FMath::Max(ReserveMagazines, 999);
+		APlayerController* PC = Cast<APlayerController>(GetOwner());
+		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		ApplyCoreBonus(Pawn);
+		for (APawn* Worker : Workers)
+		{
+			ApplyCoreBonus(Worker);
+		}
+		if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(Pawn))
+		{
+			// Do not interrupt an in-flight burst or paid reload.
+			if (!Gunner->IsWeaponBusy())
+			{
+				LoadedGunnerAmmo = Gunner->GetMagazineSize();
+				Gunner->RestoreLoadedAmmo(LoadedGunnerAmmo);
+			}
+		}
+		else
+		{
+			LoadedGunnerAmmo = 20;
+		}
+		Warehouse->GetStorageComponent()->GrantDebugStock(10000);
+		return Respond(true, LOCTEXT("GMUnlockAll", "GM：全部形态与功能已解锁，核心升级满级；各类资源补足 10000，备用弹匣补足 999。"));
+	}
 	if (Phase == EDemoPhase::Briefing || !Warehouse)
 	{
 		return Respond(false, LOCTEXT("NotRunning", "请先开始试运行；结算后可重开一局。"));
