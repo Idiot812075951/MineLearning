@@ -42,6 +42,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Visual")
 	TArray<FOreVisualStage> Stages;
 
+	/** One finish per spawned deposit, retained across all mining stages. */
+	UPROPERTY(EditAnywhere, Category="Mining|Visual")
+	TArray<TObjectPtr<UMaterialInterface>> FinishVariants;
+
 	/** Amount to contract from the authored OreMesh relative scale on a normal mining hit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mining|Visual|Hit Punch", meta=(ClampMin="0.0", ClampMax="1.0"))
 	float PunchStrength = 0.035f;
@@ -116,6 +120,8 @@ private:
 
 	TWeakObjectPtr<AMineableOre> OwningOre;
 	TWeakObjectPtr<UStaticMeshComponent> TargetMesh;
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> SelectedFinish;
 	FVector BaseRelativeScale = FVector::OneVector;
 	float ActivePunchOvershoot = 0.0f;
 	float LastObservedHealth = 0.0f;

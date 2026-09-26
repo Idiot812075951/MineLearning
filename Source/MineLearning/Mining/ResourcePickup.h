@@ -5,6 +5,7 @@
 #include "ResourcePickup.generated.h"
 
 class UStaticMesh;
+class UMaterialInterface;
 
 UCLASS()
 class MINELEARNING_API AResourcePickup : public AItemPickup
@@ -13,6 +14,9 @@ class MINELEARNING_API AResourcePickup : public AItemPickup
 
 public:
 	AResourcePickup();
+
+	UPROPERTY(EditAnywhere, Category="Mining|Visual")
+	TArray<TObjectPtr<UMaterialInterface>> FinishVariants;
 
 	void InitializeResource(
 		EResourceType InType,

@@ -23,6 +23,10 @@ void UOreVisualComponent::BeginPlay()
 	}
 
 	TargetMesh = OwningOre->GetOreMesh();
+	if (!FinishVariants.IsEmpty())
+	{
+		SelectedFinish = FinishVariants[FMath::RandHelper(FinishVariants.Num())];
+	}
 	if (TargetMesh.IsValid())
 	{
 		BaseRelativeScale = TargetMesh->GetRelativeScale3D();
@@ -95,9 +99,10 @@ bool UOreVisualComponent::ApplyVisualStage(int32 MiningStageIndex)
 		TargetMesh->SetStaticMesh(BestStage->StaticMesh);
 	}
 
-	if (BestStage && BestStage->MaterialOverride && TargetMesh->GetMaterial(0) != BestStage->MaterialOverride)
+	UMaterialInterface* Finish = SelectedFinish ? SelectedFinish.Get() : (BestStage ? BestStage->MaterialOverride.Get() : nullptr);
+	if (Finish && TargetMesh->GetMaterial(0) != Finish)
 	{
-		TargetMesh->SetMaterial(0, BestStage->MaterialOverride);
+		TargetMesh->SetMaterial(0, Finish);
 	}
 
 	return bStageChanged;
