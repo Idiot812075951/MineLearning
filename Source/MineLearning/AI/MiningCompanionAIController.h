@@ -188,4 +188,5 @@ private:
 	bool bDirectMove = false;
 	float NavigationStallSeconds = 0.0f;
 	float NextIdleSearchTime = 0.0f;
+	float NextPickupSearchTime = 0.0f;
 };

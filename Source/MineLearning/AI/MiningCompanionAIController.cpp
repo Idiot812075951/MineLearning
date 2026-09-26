@@ -604,7 +604,7 @@ void AMiningCompanionAIController::ResetToIdle()
 
 bool AMiningCompanionAIController::FindPickup()
 {
-	if (!Companion || !GetWorld() || IsCarryFull())
+	if (!Companion || !GetWorld() || IsCarryFull() || GetWorld()->GetTimeSeconds() < NextPickupSearchTime)
 	{
 		return false;
 	}
@@ -867,6 +867,18 @@ void AMiningCompanionAIController::TickDirectMove(float DeltaSeconds)
 		&& FVector::DistSquared2D(Companion->GetActorLocation(), TargetLocation)
 			> FMath::Square(AcceptanceRadius))
 	{
+		if (State == EMiningCompanionState::MoveToOre && MoveHit.GetActor() == TargetOre)
+		{
+			// Large deposits stop the capsule before its centre reaches the acceptance radius.
+			bDirectMove = false;
+			EnterMiningState();
+			return;
+		}
+		if (State == EMiningCompanionState::MoveToPickup)
+		{
+			// Give mining a turn instead of reserving the same obstructed pickup forever.
+			NextPickupSearchTime = GetWorld()->GetTimeSeconds() + 8.f;
+		}
 		UE_LOG(LogTemp, Warning,
 			TEXT("[MiningAI] Direct fallback blocked by %s; abandoning the unsafe route."),
 			*GetNameSafe(MoveHit.GetActor()));
