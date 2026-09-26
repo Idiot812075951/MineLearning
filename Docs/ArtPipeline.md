@@ -13,7 +13,8 @@
 | 功能 | 最新有效文件 |
 | --- | --- |
 | 搬运机器人 | [CarrierRobot_V08_ArmPosePolish.blend](../ArtSource/Characters/CarrierRobot/CarrierRobot_V08_ArmPosePolish.blend) |
-| 红莲 | [V027A_R19_Refinement.blend](../ArtSource/Characters/GurenSeitenHakkyoShiki/V027A_R19_Refinement.blend) |
+| 红莲原源文件 | [V027A_R19_Refinement.blend](../ArtSource/Characters/GurenSeitenHakkyoShiki/V027A_R19_Refinement.blend) |
+| 红莲 Q 当前 Q5 内容（沿用获批 V2 文件名，两份源文件例外） | [Guren_Q_V2.blend](../ArtSource/Characters/GurenSeitenHakkyoShiki/Guren_Q_V2.blend) |
 | 矿区环境 | [MiningArea_P2_Environment_Source.blend](../ArtSource/Environment/MiningArea/MiningArea_P2_Environment_Source.blend) |
 | 机器人中心 | [RobotCenter.blend](../ArtSource/Environment/RobotCenter/RobotCenter.blend) |
 | 铁锭 | [IronIngot.blend](../ArtSource/IronIngot/IronIngot.blend) |
@@ -24,6 +25,8 @@
 | 仓库 | [Warehouse_V06_UEExportReady.blend](../ArtSource/Warehouse/Warehouse_V06_UEExportReady.blend) |
 
 ## 必要文档
+
+2026-09-24 保存例外：用户明确批准“允许另存 Guren_Q_V2.blend，本次例外保留两份源文件”。新版保存左臂/金爪局部修复及小人、红莲 Q V2 动作；原 R19 不覆盖。此项是本次明确例外，不改变其他资产的单源文件规则。
 
 - 红莲共五份：[当前 Brief](../ArtBriefs/GurenSeitenHakkyoShiki.md)、[R19 交付](Guren_Refinement_R19_Delivery.md)、[Q 配置](Guren_Q_Configuration.md)、[大招降临](Guren_Ultimate_Arrival.md)、[设计参考索引](../ArtSource/Characters/GurenSeitenHakkyoShiki/References/REFERENCE_INDEX.md)。
 - 偷矿兽：[P06A 当前 Brief](../ArtBriefs/ThiefHound.md)。
