@@ -104,3 +104,17 @@ Content/**/_NotifyFixBackups/
 /DerivedDataCache/
 .vs/
 .idea/
+
+# Roguelite UI: retain the imported icon source.
+!/ArtSource/UI/
+!/ArtSource/UI/Roguelite/
+!/ArtSource/UI/Roguelite/RogueliteIconAtlas.png
+!/ArtSource/UI/Roguelite/Buff_Attack.png
+!/ArtSource/UI/Roguelite/Buff_Move.png
+!/ArtSource/UI/Roguelite/Buff_Cast.png
+!/ArtSource/UI/Roguelite/Buff_Collector.png
+!/ArtSource/UI/Roguelite/Buff_Conqueror.png
+!/ArtSource/UI/Roguelite/Buff_Roamer.png
+!/ArtSource/UI/Roguelite/References/
+!/ArtSource/UI/Roguelite/References/Conqueror.png
+!/ArtSource/UI/Roguelite/References/LethalTempo.png

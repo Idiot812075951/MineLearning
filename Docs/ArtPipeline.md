@@ -40,6 +40,10 @@
 
 ## 保留图片的用途
 
+- `ArtSource/UI/Roguelite/RogueliteIconAtlas.png` 与 `Buff_Attack.png`、`Buff_Move.png`、`Buff_Cast.png`、`Buff_Collector.png`、`Buff_Conqueror.png`、`Buff_Roamer.png`：肉鸽卡牌当前实际使用的图集及六张独立图标源；语义、引用与生成记录见 [肉鸽 UI Brief](../ArtBriefs/RogueliteUI.md)。
+
+- `ArtSource/UI/Roguelite/References/Conqueror.png` 与 `LethalTempo.png`：Riot 官方经典符文图标参考，用于本轮金斧/节奏箭头融合的可追溯来源。当前正式图仍为 `Buff_Conqueror.png`，UE 纹理为 `T_Buff_ConquerorFusion`。
+
 - `ArtSource/UI/V2/AbilityAtlas.png`：当前射击、换弹、钻采、抓取四格图标源；由 V2 技能材质分区使用。战斗 UI 与矿石配色见 [当前 Brief](../ArtBriefs/CombatUI.md)，双层血条见 [血条 Brief](../ArtBriefs/UIV2Health.md)。
 
 - `ArtSource/Concept/OreBuddy/OreBuddy07_Prototype.png`：OreBuddy 概念参考，保留。
