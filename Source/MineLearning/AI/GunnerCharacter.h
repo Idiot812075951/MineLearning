@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "MineLearning/TransformationGuard.h"
+#include "AutonomousUnit.h"
 #include "GunnerCharacter.generated.h"
 
 class AMineableOre;
@@ -17,7 +18,9 @@ class USceneComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
 class UNiagaraSystem;
-class UDemoRunComponent;
+class UAmmoInventoryComponent;
+class UWeaponActionComponent;
+class UWeaponRecoilComponent;
 struct FInputActionValue;
 
 UENUM(BlueprintType)
@@ -26,7 +29,8 @@ enum class EGunnerShotResult : uint8
 	BodyShot UMETA(DisplayName = "Body Shot"),
 	Headshot UMETA(DisplayName = "Headshot"),
 	GoldenHeadshot UMETA(DisplayName = "Golden Headshot"),
-	Miss UMETA(DisplayName = "Miss")
+	Miss UMETA(DisplayName = "Miss"),
+	OutOfRange UMETA(DisplayName = "Out of Range")
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(
@@ -48,18 +52,29 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	bool, bPlayerControlled);
 
 UCLASS(BlueprintType)
-class MINELEARNING_API AGunnerCharacter : public ACharacter, public ITransformationGuard
+class MINELEARNING_API AGunnerCharacter : public ACharacter, public ITransformationGuard, public IAutonomousUnit
 {
 	GENERATED_BODY()
 
 public:
 	AGunnerCharacter();
+	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
 	virtual bool CanTransform() const override;
 	UFUNCTION(BlueprintPure, Category = "Combat") float GetShotMultiplier(EGunnerShotResult Result) const;
 	UFUNCTION(BlueprintPure, Category = "Combat") FText GetCombatMechanics() const;
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat") FText GetAmmoStatusText() const;
 	bool IsWeaponBusy() const { return bIsReloading || bReloadPending || bBurstInProgress; }
+	/** Normalized body/head/golden/miss probabilities; reading never rolls randomness. */
+	FVector4 GetShotProbabilities(bool bBurst) const;
 	void RestoreLoadedAmmo(int32 Ammo);
+	void SetAmmoAccount(UAmmoInventoryComponent* Account);
+	/** Equip an empty weapon from reserves without a reload animation during transformation. */
+	bool TryLoadEmptyMagazine();
+	void CancelPlayerFire();
+	UFUNCTION(BlueprintCallable, Category="Gunner|Combat") void ToggleFireMode();
+	UFUNCTION(BlueprintPure, Category="Gunner|Combat") bool HasBurstMode() const;
+	UFUNCTION(BlueprintPure, Category="Gunner|Combat") bool IsBurstMode() const;
+	float GetEffectiveAttackRange() const;
 
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -84,10 +99,10 @@ public:
 	bool IsReloading() const { return bIsReloading; }
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
-	int32 GetCurrentAmmo() const { return CurrentAmmo; }
+	int32 GetCurrentAmmo() const;
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
-	int32 GetMagazineSize() const { return MagazineSize; }
+	int32 GetMagazineSize() const;
 
 	UFUNCTION(BlueprintPure, Category="Gunner|Combat")
 	FVector GetMuzzleLocation() const;
@@ -140,8 +155,8 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UInputAction> LookAction;
 
-	UPROPERTY()
-	TObjectPtr<UInputAction> FireAction;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Gunner|Weapon")
+	TObjectPtr<UWeaponRecoilComponent> Recoil;
 
 	UPROPERTY()
 	TObjectPtr<UInputAction> SecondarySkillAction;
@@ -164,21 +179,15 @@ protected:
 	int32 MagazineSize = 20;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Gunner|Combat")
-	int32 CurrentAmmo = 10;
+	TObjectPtr<UWeaponActionComponent> WeaponActions;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.01"))
 	float FireInterval = 0.7f;
-
-	/** Burst chance when at least three rounds remain; otherwise Gunner always point-fires. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0", ClampMax="1.0"))
-	float BurstChance = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="1"))
+	float BurstFireRateMultiplier = 2.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.01"))
 	float ReloadDuration = 2.0f;
-
-	/** Guarantees recovery if an AnimBP/slot interrupts a reload Montage. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
-	float MontageSafetyPadding = 0.25f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Combat", meta=(ClampMin="0.0"))
 	float HeadshotDamageMultiplier = 1.8f;
@@ -193,12 +202,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float GoldenHeadshotChance = 0.05f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
-	float BodyShotChance = 0.65f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
-	float MissChance = 0.1f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Gunner|Accuracy", meta=(ClampMin="0.0"))
 	float HitJitterFraction = 0.18f;
@@ -242,18 +245,26 @@ protected:
 	void PlayShotVisuals(EGunnerShotResult Result, FVector MuzzleLocation, FVector TargetLocation);
 
 private:
-	UDemoRunComponent* GetAmmoAccount() const;
-	void NotifyAmmoChanged();
+	float ActiveFirePlayRate = 1.f;
+	float ActiveReloadSpeed = 1.f;
+	float ActiveHeadMultiplier = 1.f;
+	float ActiveGoldenMultiplier = 1.f;
+	FVector4 ActiveShotProbabilities = FVector4(1.f, 0.f, 0.f, 0.f);
+	UAmmoInventoryComponent* GetAmmoAccount() const;
+	UFUNCTION() void NotifyAmmoChanged();
 	struct FShotTarget
 	{
 		TWeakObjectPtr<AActor> Actor;
 		FVector AimLocation = FVector::ZeroVector;
 		bool bUseExactAimLocation = false;
+		FVector AimOrigin = FVector::ZeroVector;
+		FVector AimDirection = FVector::ForwardVector;
 	};
 
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
 	void StartPlayerFire();
+	void StopPlayerFire();
 	void StopPlayerAim();
 	void StartPlayerReload();
 	void UpdatePlayerAim(float DeltaSeconds);
@@ -269,9 +280,8 @@ private:
 	void EndBurst(const TCHAR* Reason);
 	void ResolveBurstRound(const TCHAR* Trigger);
 	void ResolveBurstTimedShot();
-	void ResolveOutstandingBurstShots();
-	void PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
-	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const;
+	void PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End, float ImpactScale = 1.f) const;
+	void DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End, float ImpactScale = 1.f) const;
 	void BeginReload();
 	void QueueReloadAfterSingleShot(float ShotMontageDuration);
 	bool PlayReloadMontage();
@@ -291,6 +301,10 @@ private:
 	UFUNCTION()
 	void CompleteReload();
 
+	UPROPERTY(Transient) TObjectPtr<UAmmoInventoryComponent> AmmoAccount;
+	void ContinuePlayerFire();
+	void CancelReload();
+	FTimerHandle ContinuousFireTimer;
 	bool bIsReloading = false;
 	bool bReloadPending = false;
 	bool bBurstInProgress = false;
@@ -304,7 +318,6 @@ private:
 	FTimerHandle ReloadTimerHandle;
 	FTimerHandle PendingReloadTimerHandle;
 	FTimerHandle BurstRoundTimerHandle;
-	FTimerHandle BurstSafetyTimerHandle;
 	TWeakObjectPtr<UAnimInstance> ReloadNotifyAnimInstance;
 
 	UPROPERTY(Transient)

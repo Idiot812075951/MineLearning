@@ -57,7 +57,6 @@ protected:
 
 private:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat") TObjectPtr<UAnimMontage> PrimaryAttackMontage;
-	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "1")) float PrimaryAttackReach = 260.f;
 	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "1")) float PrimaryAttackRadius = 140.f;
 	UFUNCTION() void HandlePrimaryAttackNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	UPROPERTY(EditDefaultsOnly, Category = "Input")

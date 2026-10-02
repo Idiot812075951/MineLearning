@@ -446,10 +446,11 @@ void AItemPickup::UpdateAttachMovement(float DeltaSeconds)
 
 bool AItemPickup::TryCollect(AActor* OtherActor)
 {
-	if (!OtherActor || OtherActor == this || !IsAvailableFor(OtherActor))
+	if (!HasAuthority() || bCollectionInProgress || !OtherActor || OtherActor == this || !IsAvailableFor(OtherActor))
 	{
 		return false;
 	}
+	TGuardValue<bool> CollectionGuard(bCollectionInProgress, true);
 
 	if (!ItemStack.IsValid())
 	{
@@ -479,9 +480,8 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 		return false;
 	}
 
-	const int32 AddedAmount = CarryComponent->AddItemWithVisual(
-		ItemStack,
-		SelectedDropMesh);
+	const FItemStack PreviousCarry = CarryComponent->CurrentItem;
+	const int32 AddedAmount = CarryComponent->AddItemInternal(ItemStack, false);
 	if (AddedAmount <= 0)
 	{
 		return false;
@@ -492,10 +492,16 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 		CommittedItem.Amount = AddedAmount;
 		if (!ensure(ReservationSourceStorage->CommitReservedItem(CommittedItem)))
 		{
+			CarryComponent->CurrentItem = PreviousCarry;
 			return false;
 		}
 	}
 
+	const EItemType CollectedType = ItemStack.ItemType;
+	if (!PreviousCarry.IsValid() && IsValid(SelectedDropMesh))
+	{
+		CarryComponent->CarriedResourceMesh = SelectedDropMesh;
+	}
 	ItemStack.Amount -= AddedAmount;
 	if (ItemStack.Amount <= 0)
 	{
@@ -507,5 +513,7 @@ bool AItemPickup::TryCollect(AActor* OtherActor)
 		RefreshStackVisual();
 	}
 
+	CarryComponent->BroadcastCarryChanged();
+	CarryComponent->OnPickupCompleted.Broadcast(OtherActor, CollectedType, AddedAmount);
 	return true;
 }

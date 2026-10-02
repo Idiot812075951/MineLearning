@@ -1,4 +1,14 @@
 #include "MineLearningPlayerController.h"
+#include "Combat/AttackStackEffect.h"
+#include "Roguelite/RogueliteShop.h"
+#include "Roguelite/UpgradeDraftComponent.h"
+#include "Roguelite/MineRunCoordinatorComponent.h"
+#include "Roguelite/MetaProgressComponent.h"
+#include "Roguelite/RunBuildComponent.h"
+#include "Roguelite/UpgradeDraftComponent.h"
+#include "Combat/AmmoInventoryComponent.h"
+#include "AI/PhantomCompanionComponent.h"
+#include "Presentation/SummonerNameplateComponent.h"
 #include "Demo/DemoRunComponent.h"
 #include "Demo/DemoRouteGuide.h"
 #include "AI/HaulerCharacter.h"
@@ -8,6 +18,7 @@
 #include "Combat/CombatComponent.h"
 #include "Combat/CombatDamageSubsystem.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/UnitEffectComponent.h"
 #include "Mining/MineableOre.h"
 #include "AI/GunnerCharacter.h"
 #include "Manifestation/Guren/GurenQSkillComponent.h"
@@ -196,6 +207,13 @@ namespace MineLearningGM
 AMineLearningPlayerController::AMineLearningPlayerController()
 {
 	DemoRun = CreateDefaultSubobject<UDemoRunComponent>(TEXT("DemoRun"));
+	CreateDefaultSubobject<UAmmoInventoryComponent>(TEXT("AmmoInventory"));
+	CreateDefaultSubobject<UMetaProgressComponent>(TEXT("MetaProgress"));
+	CreateDefaultSubobject<URunBuildComponent>(TEXT("RunBuild"));
+	CreateDefaultSubobject<UUpgradeDraftComponent>(TEXT("UpgradeDraft"));
+	CreateDefaultSubobject<UPhantomCompanionComponent>(TEXT("PhantomCompanion"));
+	RunCoordinator = CreateDefaultSubobject<UMineRunCoordinatorComponent>(TEXT("RunCoordinator"));
+	CreateDefaultSubobject<USummonerNameplateComponent>(TEXT("SummonerNameplate"));
 	DemoWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_DemoRun.WBP_V2_DemoRun_C")));
 	CombatDetailsKey = EKeys::I;
 	CombatWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_CombatDetails.WBP_V2_CombatDetails_C")));
@@ -216,6 +234,9 @@ void AMineLearningPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AMineLearningPlayerController::HandleInteraction);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMineLearningPlayerController::CloseMenus);
 	InputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AMineLearningPlayerController::ToggleDemoTerminal);
+	InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &AMineLearningPlayerController::ToggleRogueliteMenu);
+	InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AMineLearningPlayerController::OpenTalents);
+	InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AMineLearningPlayerController::OpenCodex);
 	InputComponent->BindKey(EKeys::Zero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMineLearningPlayerController::SelectOreBuddyForm);
 	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AMineLearningPlayerController::SelectGunnerForm);
@@ -230,8 +251,19 @@ void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayRe
 {
 	GetWorld()->RemoveOnActorSpawnedHandler(PawnCameraSpawnHandle);
 	DemoRun->OnRunChanged.RemoveDynamic(this, &AMineLearningPlayerController::DemoRunChanged);
+	if (UUpgradeDraftComponent* Draft = FindComponentByClass<UUpgradeDraftComponent>())
+	{
+		Draft->OnOfferChanged.RemoveDynamic(this, &AMineLearningPlayerController::DraftChanged);
+	}
+	for (const TWeakObjectPtr<ARogueliteShop>& Shop : ObservedShops)
+	{
+		if (Shop.IsValid()) { Shop->OnRangeChanged.RemoveDynamic(this, &AMineLearningPlayerController::ShopRangeChanged); }
+	}
+	ObservedShops.Reset();
 	if (DemoWidget) { DemoWidget->RemoveFromParent(); }
 	DemoWidget = nullptr;
+	if (RogueliteWidget) { RogueliteWidget->RemoveFromParent(); }
+	RogueliteWidget = nullptr;
 	UnbindCombatUnit();
 	if (CombatWidget)
 	{
@@ -245,20 +277,14 @@ void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayRe
 
 void AMineLearningPlayerController::HandleInteraction()
 {
+	if (bRogueliteMenuOpen) { CloseRogueliteMenu(); return; }
 	if (bDemoTerminalOpen) { ToggleDemoTerminal(); return; }
-	if (AHaulerCharacter* Carrier = Cast<AHaulerCharacter>(GetPawn()))
-	{
-		if (!Carrier->TryPlayerTransfer())
-		{
-			OnInteractionFeedback.Broadcast(Carrier->GetPlayerTransferFailureReason());
-		}
-		return;
-	}
+	if (IsNearRogueliteShop()) { OpenRoguelitePage(ERoguelitePage::Shop); return; }
 	if (APawn* ControlledPawn = GetPawn())
 	{
 		UResourceCarryComponent* Carry = ControlledPawn->FindComponentByClass<UResourceCarryComponent>();
 		AActor* Machine = Carry ? UItemLogisticsLibrary::FindNearbyPlayerMachine(ControlledPawn, Carry->GetCurrentItem()) : nullptr;
-		if (Machine)
+		if (Machine && !ControlledPawn->IsA<AHaulerCharacter>())
 		{
 			bool bDelivered = false;
 			if (AMiningCompanionCharacter* Buddy = Cast<AMiningCompanionCharacter>(ControlledPawn))
@@ -284,7 +310,7 @@ void AMineLearningPlayerController::HandleInteraction()
 
 	if (FindNearbyWarehouse())
 	{
-		OnInteractionFeedback.Broadcast(NSLOCTEXT("Logistics", "WarehouseTerminal", "仓库管理已移至 Tab 作业终端；Carrier 按 E 提取订单货物。"));
+		OnInteractionFeedback.Broadcast(NSLOCTEXT("Logistics", "WarehouseTerminal", "仓库管理：Tab；Carrier 装卸货物：鼠标左键。"));
 		return;
 	}
 
@@ -353,12 +379,6 @@ bool AMineLearningPlayerController::OpenWarehouseScreen(AWarehouseDepot* Warehou
 	ActiveWarehouseWidget->AddToPlayerScreen(50);
 	RefreshMenuInputState();
 
-	FInputModeGameAndUI InputMode;
-	InputMode.SetWidgetToFocus(ActiveWarehouseWidget->TakeWidget());
-	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-	InputMode.SetHideCursorDuringCapture(false);
-	SetInputMode(InputMode);
-	bShowMouseCursor = true;
 	return true;
 }
 
@@ -373,14 +393,6 @@ void AMineLearningPlayerController::CloseWarehouseScreen()
 	bWarehouseScreenOpen = false;
 	RefreshMenuInputState();
 
-	if (IsLocalController())
-	{
-		FInputModeGameAndUI InputMode;
-		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		InputMode.SetHideCursorDuringCapture(false);
-		SetInputMode(InputMode);
-		bShowMouseCursor = true;
-	}
 }
 
 void AMineLearningPlayerController::ToggleTransformationSelection()
@@ -444,11 +456,12 @@ void AMineLearningPlayerController::SetTransformationSelectionOpen(const bool bO
 
 void AMineLearningPlayerController::RefreshMenuInputState()
 {
-	const bool bMenuOpen = bWarehouseScreenOpen || bTransformationSelectionOpen || bDemoTerminalOpen;
+	const bool bMenuOpen = bWarehouseScreenOpen || bTransformationSelectionOpen || bDemoTerminalOpen || bRogueliteMenuOpen || bCombatDetailsOpen;
 	if (APawn* ControlledPawn = GetPawn())
 	{
 		if (bMenuOpen)
 		{
+			if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(ControlledPawn)) { Gunner->CancelPlayerFire(); }
 			ControlledPawn->DisableInput(this);
 		}
 		else
@@ -460,6 +473,23 @@ void AMineLearningPlayerController::RefreshMenuInputState()
 	ResetIgnoreLookInput();
 	SetIgnoreMoveInput(bMenuOpen);
 	SetIgnoreLookInput(bMenuOpen);
+	if (IsLocalController())
+	{
+		bShowMouseCursor = bMenuOpen;
+		if (bMenuOpen)
+		{
+			FInputModeGameAndUI InputMode;
+			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+			InputMode.SetHideCursorDuringCapture(false);
+			SetInputMode(InputMode);
+		}
+		else
+		{
+			FInputModeGameOnly InputMode;
+			InputMode.SetConsumeCaptureMouseDown(false);
+			SetInputMode(InputMode);
+		}
+	}
 }
 
 void AMineLearningPlayerController::BeginPlay()
@@ -470,15 +500,25 @@ void AMineLearningPlayerController::BeginPlay()
 	for (TActorIterator<APawn> It(GetWorld()); It; ++It) { IgnorePawnCameraCollision(*It); }
 	if (IsLocalController() && DemoRun->IsEnabled())
 	{
+		for (TActorIterator<ARogueliteShop> Shop(GetWorld()); Shop; ++Shop)
+		{
+			ObservedShops.Add(*Shop);
+			Shop->OnRangeChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::ShopRangeChanged);
+		}
+		FindComponentByClass<UUpgradeDraftComponent>()->OnOfferChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::DraftChanged);
 		DemoRun->OnRunChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::DemoRunChanged);
+		if (UClass* Class = RunMenuWidgetClass.LoadSynchronous())
+		{
+			RogueliteWidget = CreateWidget<UUserWidget>(this, Class);
+			if (RogueliteWidget) { RogueliteWidget->AddToPlayerScreen(80); }
+		}
 		DemoRoute = GetWorld()->SpawnActor<ADemoRouteGuide>();
-		bDemoTerminalOpen = true;
+		bRogueliteMenuOpen = true;
 		if (UClass* Class = DemoWidgetClass.LoadSynchronous())
 		{
 			DemoWidget = CreateWidget<UUserWidget>(this, Class);
 			if (DemoWidget) { DemoWidget->AddToPlayerScreen(60); }
 		}
-		RefreshMenuInputState();
 	}
 	SelectCombatUnit(GetPawn());
 	if (IsLocalController())
@@ -492,10 +532,16 @@ void AMineLearningPlayerController::BeginPlay()
 			}
 		}
 	}
+	RefreshMenuInputState();
 }
 
 void AMineLearningPlayerController::IgnorePawnCameraCollision(AActor* Actor)
 {
+	if (ARogueliteShop* Shop = Cast<ARogueliteShop>(Actor); Shop && IsLocalController())
+	{
+		ObservedShops.AddUnique(Shop);
+		Shop->OnRangeChanged.AddUniqueDynamic(this, &AMineLearningPlayerController::ShopRangeChanged);
+	}
 	if (!IsValid(Actor) || !Actor->IsA<APawn>()) { return; }
 	// Keep spring-arm obstruction tests against the environment, including after transformations/spawns.
 	TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
@@ -510,21 +556,9 @@ void AMineLearningPlayerController::OnPossess(APawn* InPawn)
 	Super::OnPossess(InPawn);
 	IgnorePawnCameraCollision(InPawn);
 	if (DemoRun) { DemoRun->ApplyCoreBonus(InPawn); }
-	if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(InPawn); Gunner && DemoRun && DemoRun->IsEnabled())
-	{
-		Gunner->RestoreLoadedAmmo(DemoRun->GetLoadedGunnerAmmo());
-	}
 	SelectCombatUnit(InPawn);
-	if (IsLocalController())
-	{
-		// The persistent inspection UI must remain clickable after a form changes input mode.
-		FInputModeGameAndUI InputMode;
-		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		InputMode.SetHideCursorDuringCapture(false);
-		SetInputMode(InputMode);
-		bShowMouseCursor = true;
-	}
 	RefreshMenuInputState();
+	ShopRangeChanged(InPawn, IsNearRogueliteShop());
 }
 
 void AMineLearningPlayerController::ToggleDemoTerminal()
@@ -533,6 +567,11 @@ void AMineLearningPlayerController::ToggleDemoTerminal()
 	CloseWarehouseScreen();
 	SetTransformationSelectionOpen(false);
 	bDemoTerminalOpen = !bDemoTerminalOpen;
+	if (bDemoTerminalOpen && bRogueliteMenuOpen)
+	{
+		bRogueliteMenuOpen = false;
+		OnRogueliteMenuChanged.Broadcast();
+	}
 	if (bDemoTerminalOpen && bCombatDetailsOpen)
 	{
 		bCombatDetailsOpen = false;
@@ -554,15 +593,66 @@ void AMineLearningPlayerController::DemoRunChanged()
 
 void AMineLearningPlayerController::ExecuteDemoCommand(EDemoCommand Command)
 {
+	if (Command == EDemoCommand::Start && DemoRun->IsFinished()) { Command = EDemoCommand::Restart; }
 	DemoRun->ExecuteCommand(Command);
 	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
 }
 
 void AMineLearningPlayerController::CloseMenus()
 {
+	if (bCombatDetailsOpen) { ToggleCombatDetails(); }
+	if (bRogueliteMenuOpen) { ToggleRogueliteMenu(); }
 	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
 	CloseWarehouseScreen();
 	SetTransformationSelectionOpen(false);
+}
+
+void AMineLearningPlayerController::ToggleRogueliteMenu()
+{
+	if (bRogueliteMenuOpen) { CloseRogueliteMenu(); }
+	else { OpenRoguelitePage(DemoRun && DemoRun->GetPhase() == EDemoPhase::Briefing ? ERoguelitePage::Preparation : ERoguelitePage::Debug); }
+}
+
+void AMineLearningPlayerController::OpenRoguelitePage(ERoguelitePage Page)
+{
+	if (!DemoRun || !DemoRun->IsEnabled()) { return; }
+	if ((Page == ERoguelitePage::Shop || Page == ERoguelitePage::Draft) && !IsNearRogueliteShop()) { return; }
+	if (Page == ERoguelitePage::Shop && RunCoordinator->GetDraft() && RunCoordinator->GetDraft()->HasPendingOffer()) { Page = ERoguelitePage::Draft; }
+	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
+	CloseWarehouseScreen();
+	SetTransformationSelectionOpen(false);
+	RoguelitePage = Page;
+	bRogueliteMenuOpen = true;
+	RefreshMenuInputState();
+	OnRogueliteMenuChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::CloseRogueliteMenu()
+{
+	bRogueliteMenuOpen = false;
+	RefreshMenuInputState();
+	OnRogueliteMenuChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::OpenTalents() { OpenRoguelitePage(ERoguelitePage::Talents); }
+void AMineLearningPlayerController::OpenCodex() { OpenRoguelitePage(ERoguelitePage::Codex); }
+bool AMineLearningPlayerController::IsNearRogueliteShop() const { return ARogueliteShop::FindNearby(GetPawn()) != nullptr; }
+
+void AMineLearningPlayerController::ShopRangeChanged(APawn* ChangedPawn, bool bNearby)
+{
+	if (ChangedPawn != GetPawn()) { return; }
+	if (!IsNearRogueliteShop() && bRogueliteMenuOpen && (RoguelitePage == ERoguelitePage::Shop || RoguelitePage == ERoguelitePage::Draft)) { CloseRogueliteMenu(); }
+	OnRogueliteMenuChanged.Broadcast();
+}
+
+void AMineLearningPlayerController::DraftChanged()
+{
+	UUpgradeDraftComponent* Draft = RunCoordinator->GetDraft();
+	if (bRogueliteMenuOpen && (RoguelitePage == ERoguelitePage::Shop || RoguelitePage == ERoguelitePage::Draft))
+	{
+		RoguelitePage = Draft && Draft->HasPendingOffer() ? ERoguelitePage::Draft : ERoguelitePage::Shop;
+	}
+	OnRogueliteMenuChanged.Broadcast();
 }
 
 void AMineLearningPlayerController::UnbindCombatUnit()
@@ -625,7 +715,7 @@ void AMineLearningPlayerController::SelectCombatUnit(AActor* Actor)
 
 void AMineLearningPlayerController::SelectCombatUnitUnderCursor()
 {
-	if (bWarehouseScreenOpen || bTransformationSelectionOpen)
+	if (!bCombatDetailsOpen || bWarehouseScreenOpen || bTransformationSelectionOpen || bDemoTerminalOpen || bRogueliteMenuOpen)
 	{
 		return;
 	}
@@ -707,6 +797,7 @@ void AMineLearningPlayerController::ToggleCombatDetails()
 {
 	if (bDemoTerminalOpen) { ToggleDemoTerminal(); }
 	bCombatDetailsOpen = !bCombatDetailsOpen;
+	RefreshMenuInputState();
 	OnCombatInspectionChanged.Broadcast();
 }
 
@@ -737,35 +828,65 @@ void AMineLearningPlayerController::CombatDamage(float Amount)
 #endif
 }
 
-void AMineLearningPlayerController::CombatSelectNearestOre()
+void AMineLearningPlayerController::BuffAdd(FName Id, float Duration)
 {
-#if !UE_BUILD_SHIPPING
-	const FVector Origin = GetPawn() ? GetPawn()->GetActorLocation() : GetFocalLocation();
-	AMineableOre* NearestOre = nullptr;
-	float NearestDistanceSquared = TNumericLimits<float>::Max();
-	for (TActorIterator<AMineableOre> It(GetWorld()); It; ++It)
+	URunContentCatalog* Catalog = RunCoordinator->GetCatalog();
+	if (!Catalog || !GetPawn() || !FMath::IsFinite(Duration) || Duration < -1.f || Duration > 3600.f) { return; }
+	RunCoordinator->AssembleUnit(GetPawn());
+	UUnitEffectComponent* Effects = GetPawn()->FindComponentByClass<UUnitEffectComponent>();
+	if (!Effects) { return; }
+	bool Applied = false;
+	for (FName UpgradeId : Catalog->Upgrades->GetRowNames())
 	{
-		if (!IsValid(*It))
+		const FUpgradeRow* Row = Catalog->FindUpgrade(UpgradeId);
+		for (UUnitEffectDefinition* Definition : Row->Effects)
 		{
-			continue;
+			if (UpgradeId != Id && Definition->Rule.Id != Id) { continue; }
+			UUnitEffectDefinition* Debug = DuplicateObject(Definition, Effects);
+			// Stack behaviors must still observe real hits/misses; GM only equips them.
+			if (!Debug->IsA<UAttackStackEffectDefinition>())
+			{
+				Debug->Rule.Trigger = EUnitEffectTrigger::Persistent;
+				Debug->Rule.Duration = Duration < 0.f ? Definition->Rule.Duration : Duration;
+			}
+			else if (Duration > 0.f) { Debug->Rule.Duration = Duration; }
+			const FName Source(*FString::Printf(TEXT("GM:%s"), *Definition->Rule.Id.ToString()));
+			Effects->RevokeDefinition(Source);
+			Applied |= Effects->GrantDefinition(Source, Debug);
 		}
-		const float DistanceSquared = FVector::DistSquared(Origin, It->GetActorLocation());
-		if (DistanceSquared < NearestDistanceSquared)
+	}
+	ClientMessage(Applied ? TEXT("GM effect granted; permanent progress unchanged.") : TEXT("Unknown effect, unsupported unit or dead pawn. Use BuffList."));
+}
+
+void AMineLearningPlayerController::BuffRemove(FName Id)
+{
+	UUnitEffectComponent* Effects = GetPawn() ? GetPawn()->FindComponentByClass<UUnitEffectComponent>() : nullptr;
+	if (!Effects) { return; }
+	for (FName Source : Effects->GetGrantedSources())
+	{
+		if (Source.ToString().StartsWith(TEXT("GM:")) && Source.ToString().Contains(Id.ToString()))
 		{
-			NearestDistanceSquared = DistanceSquared;
-			NearestOre = *It;
+			Effects->RevokeDefinition(Source);
 		}
 	}
-	if (NearestOre)
+}
+
+void AMineLearningPlayerController::BuffClear()
+{
+	if (UUnitEffectComponent* Effects = GetPawn() ? GetPawn()->FindComponentByClass<UUnitEffectComponent>() : nullptr)
 	{
-		SelectCombatUnit(NearestOre);
-		UE_LOG(LogTemp, Display, TEXT("[Combat GM] Selected nearest ore %s (%.0f cm)"), *NearestOre->GetName(), FMath::Sqrt(NearestDistanceSquared));
+		for (FName Source : Effects->GetGrantedSources())
+		{
+			if (Source.ToString().StartsWith(TEXT("GM:"))) { Effects->RevokeDefinition(Source); }
+		}
 	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Combat GM] No ore found in the current world."));
-	}
-#endif
+}
+
+void AMineLearningPlayerController::BuffList()
+{
+	const URunContentCatalog* Catalog = RunCoordinator->GetCatalog();
+	if (!Catalog) { return; }
+	for (FName Id : Catalog->Upgrades->GetRowNames()) { ClientMessage(Id.ToString()); }
 }
 
 void AMineLearningPlayerController::CombatHeal(float Amount)
@@ -801,6 +922,37 @@ void AMineLearningPlayerController::CombatSetHealth(float DesiredHealth)
 				Health->Heal(DesiredHealth - Health->GetHealth());
 			}
 		}
+	}
+#endif
+}
+
+void AMineLearningPlayerController::CombatSelectNearestOre()
+{
+#if !UE_BUILD_SHIPPING
+	const FVector Origin = GetPawn() ? GetPawn()->GetActorLocation() : GetFocalLocation();
+	AMineableOre* NearestOre = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	for (TActorIterator<AMineableOre> It(GetWorld()); It; ++It)
+	{
+		if (!IsValid(*It))
+		{
+			continue;
+		}
+		const float DistanceSquared = FVector::DistSquared(Origin, It->GetActorLocation());
+		if (DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			NearestOre = *It;
+		}
+	}
+	if (NearestOre)
+	{
+		SelectCombatUnit(NearestOre);
+		UE_LOG(LogTemp, Display, TEXT("[Combat GM] Selected nearest ore %s (%.0f cm)"), *NearestOre->GetName(), FMath::Sqrt(NearestDistanceSquared));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Combat GM] No ore found in the current world."));
 	}
 #endif
 }

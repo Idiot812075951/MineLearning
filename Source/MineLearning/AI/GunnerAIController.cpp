@@ -117,7 +117,7 @@ void AGunnerAIController::RequestMoveToOre()
 
 	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
 		TargetOre,
-		AttackRange,
+		Gunner->GetEffectiveAttackRange() * 0.9f,
 		true,
 		true,
 		true,
@@ -163,7 +163,7 @@ void AGunnerAIController::UpdateAttacking(float DeltaSeconds)
 	}
 
 	const float DistanceSq = FVector::DistSquared2D(Gunner->GetActorLocation(), TargetOre->GetActorLocation());
-	if (DistanceSq > FMath::Square(AttackRange * 1.15f))
+	if (DistanceSq > FMath::Square(Gunner->GetEffectiveAttackRange()))
 	{
 		if (UCharacterMovementComponent* Movement = Gunner->GetCharacterMovement())
 		{

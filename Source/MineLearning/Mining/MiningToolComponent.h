@@ -86,6 +86,7 @@ private:
 	FTimerHandle MiningHitTimerHandle;
 
 	int32 ActiveMiningHitCount = 0;
+	float ActiveAttackSpeed = 1.f;
 	int32 NextMiningHitIndex = 0;
 	float MiningLoopStartTime = 0.0f;
 	float MiningLoopEndTime = 0.0f;

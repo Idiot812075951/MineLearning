@@ -45,6 +45,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool RemoveItem(const FItemStack& Item);
+	/** Atomic multi-item purchase; reserved logistics stock is excluded. */
+	bool TrySpendItems(const TArray<FItemStack>& Costs);
 
 	UFUNCTION(BlueprintCallable, Category="Item|Storage")
 	bool TryReserveItem(const FItemStack& Item);

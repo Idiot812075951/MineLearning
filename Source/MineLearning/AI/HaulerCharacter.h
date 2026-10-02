@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "AutonomousUnit.h"
 #include "HaulerCharacter.generated.h"
 
 class UResourceCarryComponent;
@@ -16,12 +17,13 @@ class USceneComponent;
 struct FInputActionValue;
 
 UCLASS(Blueprintable)
-class MINELEARNING_API AHaulerCharacter : public ACharacter
+class MINELEARNING_API AHaulerCharacter : public ACharacter, public IAutonomousUnit
 {
 	GENERATED_BODY()
 
 public:
 	AHaulerCharacter();
+	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
 	virtual void BeginPlay() override;
 	virtual void NotifyControllerChanged() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -29,6 +31,7 @@ public:
 	FText GetPlayerTransferFailureReason() const;
 	UFUNCTION(BlueprintPure, Category="Item|Hauler") FText GetPlayerCargoDescription() const;
 	bool GetPlayerDeliveryLocation(FVector& OutLocation) const;
+	float GetInteractionRange() const;
 
 	UFUNCTION(BlueprintPure, Category="Item|Hauler")
 	UResourceCarryComponent* GetResourceCarryComponent() const { return ResourceCarryComponent; }
@@ -50,6 +53,7 @@ public:
 
 protected:
 	void MovePlayer(const FInputActionValue& Value);
+	void TransferPlayer();
 	void LookPlayer(const FInputActionValue& Value);
 	UPROPERTY(VisibleAnywhere, Category="Player Control") TObjectPtr<USpringArmComponent> PlayerCameraBoom;
 	UPROPERTY(VisibleAnywhere, Category="Player Control") TObjectPtr<UCameraComponent> PlayerCamera;

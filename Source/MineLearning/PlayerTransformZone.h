@@ -2,21 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Manifestation/TransformationTypes.h"
 #include "PlayerTransformZone.generated.h"
 
 class APlayerController;
 class APawn;
 class UBoxComponent;
 
-UENUM(BlueprintType)
-enum class EPlayerTransformationForm : uint8
-{
-	Human,
-	OreBuddy,
-	Gunner,
-	Guren,
-	Carrier
-};
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FFormTransformationCommitted, APlayerController*, APawn*, EPlayerTransformationForm);
 
 /** Transformation area that owns the shared human/robot pawn-swap transaction. */
 UCLASS()
@@ -26,6 +19,7 @@ class MINELEARNING_API APlayerTransformZone : public AActor
 
 public:
 	APlayerTransformZone();
+	FFormTransformationCommitted OnTransformationCommitted;
 
 	UFUNCTION(BlueprintCallable, Category="Transformation")
 	bool TryTransform(APlayerController* PlayerController);

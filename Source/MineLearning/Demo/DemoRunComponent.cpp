@@ -5,6 +5,7 @@
 #include "MineLearning/AI/MiningCompanionCharacter.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
+#include "MineLearning/Combat/AmmoInventoryComponent.h"
 #include "MineLearning/Mining/MineableOre.h"
 #include "MineLearning/Mining/WarehouseDepot.h"
 #include "MineLearning/Mining/ResourceStorageComponent.h"
@@ -81,7 +82,7 @@ void UDemoRunComponent::InitializeRun()
 	UMiningPlayerData* Data = GetWorld()->GetGameInstance()->GetSubsystem<UMiningGameSubsystem>()->GetPlayerData();
 	Data->ReleasePopulation(Data->PopulationUsed);
 	Data->ConsumeProcessedOre(Data->ProcessedOre);
-	Respond(true, LOCTEXT("WelcomeBoss", "矿区待命。自由生产不限时；准备物资与弹药后，召唤超级铁矿发起最终挑战。"));
+	Respond(true, LOCTEXT("WelcomeBoss", "选择召唤师，然后开始本局"));
 }
 
 void UDemoRunComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -162,15 +163,17 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 	}
 	if (Command == EDemoCommand::Start && Phase == EDemoPhase::Briefing && Warehouse)
 	{
+		if (!PrepareRun.IsBound() || !PrepareRun.Execute()) { return Respond(false, LOCTEXT("RunNotReady", "玩法配置或天赋存档未就绪，未开工。")); }
 		Phase = EDemoPhase::Production;
 		StartedAt = GetWorld()->GetTimeSeconds();
 		ChangeForm(EPlayerTransformationForm::OreBuddy);
-		return Respond(true, LOCTEXT("StartedFree", "矿区开工！Q 钻采 / R 拾取；携矿可直接送加工机按 E。自由生产不限时，终端中可购买机器人、升级和弹匣。"));
+		return Respond(true, LOCTEXT("StartedFree", "Q 钻采 / R 拾取 · E 交互 · Tab 生产 · 商店抽升级"));
 	}
 	if (Command == EDemoCommand::UnlockAll && Warehouse)
 	{
 		if (Phase == EDemoPhase::Briefing)
 		{
+			if (!PrepareRun.IsBound() || !PrepareRun.Execute()) { return false; }
 			Phase = EDemoPhase::Production;
 			StartedAt = GetWorld()->GetTimeSeconds();
 		}
@@ -179,7 +182,7 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 		CoreBonus.Strength = 15.f;
 		CoreBonus.Agility = 15.f;
 		CoreBonus.Intelligence = 15.f;
-		ReserveMagazines = FMath::Max(ReserveMagazines, 999);
+		if (UAmmoInventoryComponent* Account = GetOwner()->FindComponentByClass<UAmmoInventoryComponent>()) { Account->AddMagazines(FMath::Max(0, 999 - Account->GetAvailableMagazines())); }
 		APlayerController* PC = Cast<APlayerController>(GetOwner());
 		APawn* Pawn = PC ? PC->GetPawn() : nullptr;
 		ApplyCoreBonus(Pawn);
@@ -192,14 +195,10 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 			// Do not interrupt an in-flight burst or paid reload.
 			if (!Gunner->IsWeaponBusy())
 			{
-				LoadedGunnerAmmo = Gunner->GetMagazineSize();
-				Gunner->RestoreLoadedAmmo(LoadedGunnerAmmo);
+				Gunner->RestoreLoadedAmmo(Gunner->GetMagazineSize());
 			}
 		}
-		else
-		{
-			LoadedGunnerAmmo = 20;
-		}
+
 		Warehouse->GetStorageComponent()->GrantDebugStock(10000);
 		return Respond(true, LOCTEXT("GMUnlockAll", "GM：全部形态与功能已解锁，核心升级满级；各类资源补足 10000，备用弹匣补足 999。"));
 	}
@@ -215,7 +214,7 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 	{
 		const int32 Amount = FMath::Min(4, Storage->GetAvailableOre());
 		const bool bOK = Amount >= 2 && Warehouse->RequestProcess(EItemType::IronOre, Amount - Amount % 2);
-		return Respond(bOK, bOK ? LOCTEXT("ProcessOK", "加工订单已预留。Carrier 在仓库入口按 E 装货，送到加工机入口；自动 Carrier 也会接单。") : LOCTEXT("ProcessNo", "需要至少 2 块可用原矿；已预留的资源不能重复下单。"));
+		return Respond(bOK, bOK ? LOCTEXT("ProcessOK", "加工订单已预留。Carrier 在仓库入口按鼠标左键 装货，送到加工机入口；自动 Carrier 也会接单。") : LOCTEXT("ProcessNo", "需要至少 2 块可用原矿；已预留的资源不能重复下单。"));
 	}
 	case EDemoCommand::SellTwo:
 	{
@@ -253,9 +252,15 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 	{
 		bool& bUnlocked = Command == EDemoCommand::UnlockGunner ? bGunnerUnlocked : bGurenUnlocked;
 		if (bUnlocked) { return Respond(false, LOCTEXT("AlreadyUnlocked", "该形态本局已经解锁。")); }
-		if (!Storage->RemoveItem({EItemType::IronIngot, Command == EDemoCommand::UnlockGunner ? 2 : 5}))
+		const EPlayerTransformationForm Form = Command == EDemoCommand::UnlockGunner ? EPlayerTransformationForm::Gunner : EPlayerTransformationForm::Guren;
+		const TArray<FItemStack>* Cost = FormCosts.Find(Form);
+		if (!HasFormPermission.IsBound() || !HasFormPermission.Execute(Form))
 		{
-			return Respond(false, LOCTEXT("NeedIngots", "仓库可用铁锭不足：Gunner 需要 2 块，红莲需要 5 块。"));
+			return Respond(false, LOCTEXT("TalentRequired", "本局没有该形态的天赋许可；研究后下一局生效。"));
+		}
+		if (!Cost || !Storage->TrySpendItems(*Cost))
+		{
+			return Respond(false, LOCTEXT("FormCost", "仓库可用资源不足，或形态购买配置缺失。"));
 		}
 		bUnlocked = true;
 		InventoryChanged();
@@ -265,7 +270,7 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 	{
 		if (!bGunnerUnlocked) { return Respond(false, LOCTEXT("AmmoLocked", "先解锁 Gunner，再购买弹匣。")); }
 		if (!Storage->RemoveItem({EItemType::IronIngot, 1})) { return Respond(false, LOCTEXT("AmmoCost", "1 块仓库可用铁锭可购买 1 个弹匣（20 发）。")); }
-		++ReserveMagazines;
+		GetOwner()->FindComponentByClass<UAmmoInventoryComponent>()->AddMagazines(1);
 		InventoryChanged();
 		return Respond(true, LOCTEXT("AmmoBought", "备用弹匣 +1（20 发）。Gunner 按 R 装填；换形态保留子弹与备用弹匣。"));
 	}
@@ -347,6 +352,7 @@ void UDemoRunComponent::ApplyCoreBonus(APawn* Pawn) const
 		{
 			Combat->SetAttributeBonus(CoreBonus);
 		}
+		OnUnitReady.Broadcast(Pawn);
 	}
 }
 
@@ -437,36 +443,32 @@ void UDemoRunComponent::TargetDamaged(const FCombatDamageRequest& Request, const
 	else { OnRunChanged.Broadcast(); }
 }
 
-void UDemoRunComponent::RecordGunnerAmmo(int32 Ammo)
+void UDemoRunComponent::ConfigureFormCost(EPlayerTransformationForm Form, const TArray<FItemStack>& Cost)
 {
-	LoadedGunnerAmmo = FMath::Max(0, Ammo);
-	OnRunChanged.Broadcast();
+	FormCosts.Add(Form, Cost);
 }
 
-bool UDemoRunComponent::ConsumeGunnerMagazine()
+int32 UDemoRunComponent::GetReserveMagazines() const
 {
-	if (ReserveMagazines <= 0) { return false; }
-	--ReserveMagazines;
-	OnRunChanged.Broadcast();
-	return true;
+	const UAmmoInventoryComponent* Account = GetOwner()->FindComponentByClass<UAmmoInventoryComponent>();
+	return Account ? Account->GetAvailableMagazines() : 0;
 }
 
 FText UDemoRunComponent::GetStatusText() const
 {
-	return FText::Format(LOCTEXT("FreeStatus", "自由生产 · 不限时 · 机器人 {3}/3\n仓库 原矿 {0} / 铁锭 {1} / 金币 {2}\nGunner 子弹 {4}/20 · 弹匣 {5}\n核心 力量 +{6} / 敏捷 +{7} / 能量 +{8}"),
+	return FText::Format(LOCTEXT("FreeStatus", "原矿 {0}   铁锭 {1}   金币 {2}\n机器人 {3}/3"),
 		FText::AsNumber(Available(EItemType::IronOre)), FText::AsNumber(Available(EItemType::IronIngot)), FText::AsNumber(Available(EItemType::Coin)),
-		FText::AsNumber(Workers.Num()), FText::AsNumber(LoadedGunnerAmmo), FText::AsNumber(ReserveMagazines),
-		FText::AsNumber(CoreBonus.Strength), FText::AsNumber(CoreBonus.Agility), FText::AsNumber(CoreBonus.Intelligence));
+		FText::AsNumber(Workers.Num()));
 }
 
 FText UDemoRunComponent::GetObjectiveText() const
 {
-	if (IsFinished()) { return LOCTEXT("BossWonHUD", "超级铁矿已击破 · 挑战胜利！\n可继续经营矿区，或在终端重新开始。" ); }
+	if (IsFinished()) { return LOCTEXT("BossWonHUD", "挑战胜利 · 已获得天赋点" ); }
 	if (Phase == EDemoPhase::BossChallenge && IsValid(BossTarget))
 	{
-		return FText::Format(LOCTEXT("BossFightHUD", "最终挑战 · 超级铁矿\n生命 {0} / {1}\n剩余 {2} 秒 · 第 {3} 次挑战\n击破获胜；超时可重新付费召唤。"), FText::AsNumber(FMath::CeilToInt(BossTarget->GetCurrentHealth())), FText::AsNumber(BossTarget->GetMaxHealth()), FText::AsNumber(FMath::CeilToInt(RemainingSeconds)), FText::AsNumber(BossAttempts));
+		return FText::Format(LOCTEXT("BossFightHUD", "超级铁矿 {0} / {1}\n剩余 {2} 秒"), FText::AsNumber(FMath::CeilToInt(BossTarget->GetCurrentHealth())), FText::AsNumber(BossTarget->GetMaxHealth()), FText::AsNumber(FMath::CeilToInt(RemainingSeconds)));
 	}
-	return FText::Format(LOCTEXT("BossGoalHUD", "最终目标 · 击破超级铁矿\n召唤：{0} 金币 + {1} 铁锭\n按 Tab 打开终端召唤；挑战可重试。"), FText::AsNumber(BossCoinCost), FText::AsNumber(BossIngotCost));
+	return FText::Format(LOCTEXT("BossGoalHUD", "目标 · 击破超级铁矿\n召唤：{0} 金币 + {1} 铁锭 [Tab]"), FText::AsNumber(BossCoinCost), FText::AsNumber(BossIngotCost));
 }
 
 FText UDemoRunComponent::GetGuideText() const
@@ -477,8 +479,8 @@ FText UDemoRunComponent::GetGuideText() const
 	{
 		return FText::Format(LOCTEXT("CarrierGuide", "{0}\n{1}"), GetNextActionText(), Carrier->GetPlayerCargoDescription());
 	}
-	if (Phase == EDemoPhase::Briefing) { return LOCTEXT("BriefBoss", "点击「开始生产」，自由经营矿区。\nQ 钻采 / R 拾取；携货到设备按 E 交付。\n原矿 → 加工 → 铁锭 → 出售 → 金币。\n按 Tab 购买机器人、弹匣与升级。" ); }
-	if (Phase == EDemoPhase::BossChallenge) { return LOCTEXT("BossGuide", "沿蓝色引导线到下层中央超级铁矿。\nGunner 按住 Q 射击 / R 装填；弹匣耗尽可在终端购买。\n也可用 OreBuddy 钻采或红莲近战。超级矿芯过重，无法抓取处决。\n只有挑战阶段限时；失败后继续生产，再付费召唤。" ); }
+	if (Phase == EDemoPhase::Briefing) { return LOCTEXT("BriefBoss", "选择召唤师 → 开始本局" ); }
+	if (Phase == EDemoPhase::BossChallenge) { return LOCTEXT("BossGuide", "沿引导线攻击超级铁矿 · Q 攻击 / R 技能" ); }
 	return GetNextActionText();
 }
 

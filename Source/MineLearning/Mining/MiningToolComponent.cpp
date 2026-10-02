@@ -205,7 +205,7 @@ void UMiningToolComponent::ScheduleNextMiningHit()
         return;
     }
 
-    if (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed())
+    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
     {
         StopScheduledMiningHits();
         return;
@@ -250,7 +250,7 @@ void UMiningToolComponent::HandleScheduledMiningHit()
         return;
     }
 
-    if (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed())
+    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
     {
         StopScheduledMiningHits();
         return;
@@ -259,6 +259,10 @@ void UMiningToolComponent::HandleScheduledMiningHit()
     const int32 HitNumber = NextMiningHitIndex + 1;
     ++NextMiningHitIndex;
     const bool bHit = ApplyMiningHitToTarget(ActiveMiningTarget);
+    if (UCombatComponent* Combat = GetOwner()->FindComponentByClass<UCombatComponent>())
+    {
+        Combat->NotifyAttackResolved(bHit);
+    }
     UE_LOG(
         LogTemp,
         Log,
@@ -270,7 +274,7 @@ void UMiningToolComponent::HandleScheduledMiningHit()
         *GetNameSafe(ActiveMiningTarget)
     );
 
-    if (!bHit || !IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed())
+    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
     {
         StopScheduledMiningHits();
         return;
@@ -294,7 +298,7 @@ int32 UMiningToolComponent::GetClampedMiningHitCount() const
 
 float UMiningToolComponent::GetClampedAttackSpeed() const
 {
-    return FMath::Clamp(AttackSpeed, MinAttackSpeed, MaxAttackSpeed);
+    return ActiveAttackSpeed;
 }
 
 float UMiningToolComponent::GetMiningHitMontageTime(int32 HitIndex) const
@@ -306,7 +310,11 @@ float UMiningToolComponent::GetMiningHitMontageTime(int32 HitIndex) const
 
 bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
 {
-    if (!IsValid(TargetOre) || TargetOre->IsDestroyed())
+    const ACharacter* Character = GetOwnerCharacter();
+    const bool bPlayer = Character && Character->IsPlayerControlled();
+    const UCombatComponent* Combat = GetOwner()->FindComponentByClass<UCombatComponent>();
+    if ((!IsValid(TargetOre) && !bPlayer) || (IsValid(TargetOre) && (TargetOre->IsDestroyed()
+        || (Combat && !Combat->IsInAttackRange(TargetOre)))))
     {
         return false;
     }
@@ -328,6 +336,9 @@ bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
         return false;
     }
 
+    const float BaseRate = FMath::Clamp(AttackSpeed, MinAttackSpeed, MaxAttackSpeed);
+    const float BaseHitInterval = (MiningLoopEndTime - MiningLoopStartTime) / (GetClampedMiningHitCount() * BaseRate);
+    ActiveAttackSpeed = BaseRate * (Combat ? Combat->GetAttackPlayRate(BaseHitInterval) : 1.f);
     bIsMining = true;
     ActiveMiningTarget = TargetOre;
     ActiveMiningHitCount = GetClampedMiningHitCount();
@@ -465,8 +476,10 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
     Request.Source = Owner;
     Request.Target = TargetOre;
     const UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>();
+    if (Combat && (!Combat->IsInAttackRange(TargetOre) || Combat->RollAIAttackMiss())) { return false; }
     Request.SkillId = Combat ? Combat->PrimarySkillId : NAME_None;
     Request.bPlayHitFeedback = false;
+    Request.SnapshotDamage = Combat ? Combat->EvaluateDamage(Combat->PrimarySkillId) : 0.f;
 
     const FVector HitCenter = GetMiningHitCenter();
     Request.HitLocation = TargetOre->GetActorLocation();

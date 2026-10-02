@@ -107,6 +107,7 @@ protected:
 	void SelectDropMesh(const TArray<TObjectPtr<UStaticMesh>>& InDropMeshes);
 
 private:
+	bool bCollectionInProgress = false;
 	UInstancedStaticMeshComponent* FindOrCreateStackVisual();
 	void RefreshStackVisual();
 	void UpdateAttachMovement(float DeltaSeconds);

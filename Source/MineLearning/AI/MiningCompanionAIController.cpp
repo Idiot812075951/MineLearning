@@ -1,6 +1,7 @@
 #include "MiningCompanionAIController.h"
 
 #include "MiningCompanionCharacter.h"
+#include "MineLearning/Combat/CombatComponent.h"
 #include "MiningCompanionTargetingComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -420,7 +421,8 @@ bool AMiningCompanionAIController::PlayActionMontage(UAnimMontage* Montage, floa
 	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
 	AnimInstance->OnPlayMontageNotifyBegin.AddDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
 
-	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate);
+	const UCombatComponent* Combat = Companion->FindComponentByClass<UCombatComponent>();
+	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate * (Combat ? Combat->GetCastSpeedScale() : 1.f));
 	if (Duration <= 0.0f)
 	{
 		AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AMiningCompanionAIController::OnActionMontageNotifyBegin);
@@ -706,7 +708,7 @@ void AMiningCompanionAIController::RequestMoveToOre()
 
 	const EPathFollowingRequestResult::Type MoveResult = MoveToActor(
 		TargetOre,
-		MiningInteractRadius,
+		(Companion->FindComponentByClass<UCombatComponent>() ? Companion->FindComponentByClass<UCombatComponent>()->GetAttackRange() : MiningInteractRadius),
 		true,
 		true,
 		true,
@@ -822,7 +824,7 @@ void AMiningCompanionAIController::TickDirectMove(float DeltaSeconds)
 	else if (State == EMiningCompanionState::MoveToOre && IsTargetOreValid())
 	{
 		TargetLocation = TargetOre->GetActorLocation();
-		AcceptanceRadius = MiningInteractRadius;
+		AcceptanceRadius = Companion->FindComponentByClass<UCombatComponent>() ? Companion->FindComponentByClass<UCombatComponent>()->GetAttackRange() : MiningInteractRadius;
 	}
 	else if (State == EMiningCompanionState::ReturningToDelivery && IsValid(DeliveryTarget))
 	{

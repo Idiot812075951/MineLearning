@@ -64,7 +64,7 @@ float UGurenQPresentationComponent::GetRadiationDuration() const
 			}
 		}
 	}
-	return FMath::Max(0.01f, End - Start);
+	return FMath::Max(0.01f, End - Start) / (Skill ? Skill->GetCastSpeedScale() : 1.f);
 }
 
 void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Target)
@@ -100,7 +100,7 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 			Anim->Montage_SetEndDelegate(EmptyDelegate, PlayingMontage);
 		}
 		PlayingMontage = Stage == EGurenQStage::Dash ? DashMontage : GrabMontage;
-		if (!PlayingMontage || Anim->Montage_Play(PlayingMontage, PlayRate) <= 0.f)
+		if (!PlayingMontage || Anim->Montage_Play(PlayingMontage, PlayRate * Skill->GetCastSpeedScale()) <= 0.f)
 		{
 			Skill->Cancel();
 			return;
@@ -113,7 +113,7 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 	{
 		ShakeStartedAt = GetWorld()->GetRealTimeSeconds();
 		ShakeAmplitude = ImpactStrength;
-		ShakeDuration = DissolveShakeDuration;
+		ShakeDuration = DissolveShakeDuration / Skill->GetCastSpeedScale();
 		RestoreTargetMaterials();
 		TInlineComponentArray<UMeshComponent*> Meshes(Target);
 		for (UMeshComponent* Mesh : Meshes)
@@ -152,7 +152,7 @@ void UGurenQPresentationComponent::StageChanged(EGurenQStage Stage, AActor* Targ
 	{
 		if (Stage == EGurenQStage::Release && IsValid(PalmRadiation) && RadiationHeatTail > 0.f)
 		{
-			RadiationTailEndsAt = GetWorld()->GetTimeSeconds() + RadiationHeatTail;
+			RadiationTailEndsAt = GetWorld()->GetTimeSeconds() + RadiationHeatTail / Skill->GetCastSpeedScale();
 			UpdatePalmRadiation();
 		}
 		else if (RadiationTailEndsAt <= 0.0)
@@ -216,7 +216,7 @@ void UGurenQPresentationComponent::GrabContact()
 	{
 		PreviousTimeDilation = UGameplayStatics::GetGlobalTimeDilation(this);
 		UGameplayStatics::SetGlobalTimeDilation(this, PreviousTimeDilation * ContactTimeScale);
-		SlowMotionUntil = GetWorld()->GetRealTimeSeconds() + ContactSlowMotionDuration;
+		SlowMotionUntil = GetWorld()->GetRealTimeSeconds() + ContactSlowMotionDuration / Skill->GetCastSpeedScale();
 	}
 }
 
@@ -246,6 +246,7 @@ void UGurenQPresentationComponent::StartPalmRadiation()
 	{
 		return;
 	}
+	PalmRadiation->SetCustomTimeDilation(Skill ? Skill->GetCastSpeedScale() : 1.f);
 	RadiantMaterialIndex = Mesh->GetMaterialIndex(RadiantMaterialSlot);
 	if (RadiantMaterialIndex != INDEX_NONE)
 	{
@@ -301,7 +302,7 @@ void UGurenQPresentationComponent::UpdatePalmRadiation()
 	float Heat = 1.f;
 	if (RadiationTailEndsAt > 0.0)
 	{
-		Heat = FMath::Clamp(static_cast<float>(RadiationTailEndsAt - GetWorld()->GetTimeSeconds()) / FMath::Max(0.001f, RadiationHeatTail), 0.f, 1.f);
+		Heat = FMath::Clamp(static_cast<float>(RadiationTailEndsAt - GetWorld()->GetTimeSeconds()) * Skill->GetCastSpeedScale() / FMath::Max(0.001f, RadiationHeatTail), 0.f, 1.f);
 		if (Heat <= 0.f)
 		{
 			StopPalmRadiation();

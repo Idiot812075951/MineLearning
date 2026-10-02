@@ -130,6 +130,11 @@ bool UResourceCarryComponent::CanAcceptItem(const FItemStack& Item) const
 
 int32 UResourceCarryComponent::AddItem(const FItemStack& Item)
 {
+	return AddItemInternal(Item, true);
+}
+
+int32 UResourceCarryComponent::AddItemInternal(const FItemStack& Item, bool bNotify)
+{
 	if (!CanAcceptItem(Item))
 	{
 		return 0;
@@ -143,7 +148,7 @@ int32 UResourceCarryComponent::AddItem(const FItemStack& Item)
 	}
 	CurrentItem.Amount = OldCount + AddedAmount;
 
-	if (AddedAmount > 0)
+	if (AddedAmount > 0 && bNotify)
 	{
 		BroadcastCarryChanged();
 	}

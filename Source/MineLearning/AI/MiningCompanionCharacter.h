@@ -4,6 +4,7 @@
 #include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
 #include "MineLearning/TransformationGuard.h"
+#include "AutonomousUnit.h"
 #include "MiningCompanionCharacter.generated.h"
 
 class AMiningCompanionAIController;
@@ -30,12 +31,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOreBuddySprintChanged, float, StaminaFraction, bool, bSprinting);
 
 UCLASS(BlueprintType)
-class MINELEARNING_API AMiningCompanionCharacter : public ACharacter, public ITransformationGuard
+class MINELEARNING_API AMiningCompanionCharacter : public ACharacter, public ITransformationGuard, public IAutonomousUnit
 {
 	GENERATED_BODY()
 
 public:
 	AMiningCompanionCharacter();
+	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
 	virtual bool CanTransform() const override { return !IsPlayerActionLocked() && !IsSprinting(); }
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -102,9 +104,6 @@ protected:
 	TObjectPtr<UInputAction> LookAction;
 
 	UPROPERTY()
-	TObjectPtr<UInputAction> MiningSkillAction;
-
-	UPROPERTY()
 	TObjectPtr<UInputAction> PickupSkillAction;
 
 	UPROPERTY(EditDefaultsOnly, Category="Player Control|Mining", meta=(ClampMin="0.0"))
@@ -132,6 +131,7 @@ protected:
 	TObjectPtr<USoundBase> MiningImpactSound;
 
 private:
+	float SprintMovementScale = 1.f;
 	void UpdateSprint(float DeltaSeconds);
 	float SprintStamina = 1.f;
 	float NormalWalkSpeed = 0.f;

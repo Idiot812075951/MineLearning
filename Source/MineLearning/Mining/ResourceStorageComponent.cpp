@@ -1,5 +1,35 @@
 #include "ResourceStorageComponent.h"
 
+bool UResourceStorageComponent::TrySpendItems(const TArray<FItemStack>& Costs)
+{
+	if (!GetOwner()->HasAuthority() || Costs.IsEmpty())
+	{
+		return false;
+	}
+	TMap<EItemType, int32> Totals;
+	for (const FItemStack& Cost : Costs)
+	{
+		if (Cost.Amount <= 0 || Totals.FindRef(Cost.ItemType) > MAX_int32 - Cost.Amount)
+		{
+			return false;
+		}
+		Totals.FindOrAdd(Cost.ItemType) += Cost.Amount;
+	}
+	for (const TPair<EItemType, int32>& Cost : Totals)
+	{
+		if (GetAvailableItemAmount(Cost.Key) < Cost.Value)
+		{
+			return false;
+		}
+	}
+	for (const TPair<EItemType, int32>& Cost : Totals)
+	{
+		StoredItems.FindChecked(Cost.Key) -= Cost.Value;
+	}
+	BroadcastStorageChanged();
+	return true;
+}
+
 UResourceStorageComponent::UResourceStorageComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;

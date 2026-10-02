@@ -12,6 +12,7 @@ class USkeletalMeshComponent;
 class UStaticMesh;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCarryChangedSignature, int32, Current, int32, Max);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FPickupCompleted, AActor*, Collector, EItemType, Item, int32, Amount);
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class MINELEARNING_API UResourceCarryComponent : public UActorComponent
@@ -85,6 +86,8 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category="Item|Carry")
 	FOnCarryChangedSignature OnCarryChanged;
+	/** Emitted after the complete pickup transfer, never for generic inventory additions. */
+	UPROPERTY(BlueprintAssignable, Category="Item|Carry") FPickupCompleted OnPickupCompleted;
 
 protected:
 	virtual void OnRegister() override;
@@ -96,6 +99,9 @@ protected:
 #endif
 
 private:
+	// Pickup owns the transfer and defers carry notifications until source storage commits.
+	friend class AItemPickup;
+	int32 AddItemInternal(const FItemStack& Item, bool bNotify);
 	UPROPERTY(VisibleAnywhere, Category="Item|Carry")
 	FItemStack CurrentItem;
 

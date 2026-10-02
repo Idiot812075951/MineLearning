@@ -1,5 +1,6 @@
 #include "HaulerCharacter.h"
 #include "EnhancedInputComponent.h"
+#include "InputCoreTypes.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Engine/LocalPlayer.h"
@@ -13,6 +14,7 @@
 #include "MineLearning/Mining/SellStation.h"
 #include "Components/SceneComponent.h"
 #include "MineLearning/AI/MiningCompanionCharacter.h"
+#include "MineLearning/Combat/CombatComponent.h"
 
 FText AHaulerCharacter::GetPlayerTransferFailureReason() const
 {
@@ -21,7 +23,7 @@ FText AHaulerCharacter::GetPlayerTransferFailureReason() const
 		return NSLOCTEXT("Logistics", "TransferBusy", "正在装卸，请稍候。");
 	}
 	const AItemPickup* Nearest = nullptr;
-	float Distance = FMath::Square(260.f);
+	float Distance = FMath::Square(GetInteractionRange());
 	for (TActorIterator<AItemPickup> It(GetWorld()); It; ++It)
 	{
 		const float Candidate = FVector::DistSquared2D(GetActorLocation(), It->GetActorLocation());
@@ -40,7 +42,7 @@ FText AHaulerCharacter::GetPlayerTransferFailureReason() const
 		if (!ResourceCarryComponent->CanAcceptItem(Nearest->GetItemStack())) { return NSLOCTEXT("Logistics", "CargoMismatch", "货舱已满或货物类型不同，请先交付当前货物。"); }
 	}
 	return ResourceCarryComponent->IsEmpty()
-		? NSLOCTEXT("Logistics", "NoPickup", "附近没有可拾取的货物，请靠近货物后按 E。")
+		? NSLOCTEXT("Logistics", "NoPickup", "附近没有可拾取的货物，请靠近货物后按鼠标左键。")
 		: NSLOCTEXT("Logistics", "NoDelivery", "暂时无法交付，请靠近引导终点，或等待设备空闲。");
 }
 
@@ -59,11 +61,17 @@ void AHaulerCharacter::NotifyControllerChanged()
 void AHaulerCharacter::SetupPlayerInputComponent(UInputComponent* Input)
 {
 	Super::SetupPlayerInputComponent(Input);
+	Input->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AHaulerCharacter::TransferPlayer);
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(Input))
 	{
 		Enhanced->BindAction(PlayerMoveAction, ETriggerEvent::Triggered, this, &AHaulerCharacter::MovePlayer);
 		Enhanced->BindAction(PlayerLookAction, ETriggerEvent::Triggered, this, &AHaulerCharacter::LookPlayer);
 	}
+}
+
+void AHaulerCharacter::TransferPlayer()
+{
+	TryPlayerTransfer();
 }
 
 void AHaulerCharacter::MovePlayer(const FInputActionValue& Value)
@@ -102,21 +110,21 @@ bool AHaulerCharacter::TryPlayerTransfer()
 	{
 		FVector Destination;
 		GetPlayerDeliveryLocation(Destination);
-		if (FVector::DistSquared2D(GetActorLocation(), Destination) <= FMath::Square(260.f)
+		if (FVector::DistSquared2D(GetActorLocation(), Destination) <= FMath::Square(GetInteractionRange())
 			&& UItemLogisticsLibrary::DeliverItemToReceiver(PlayerDeliveryActor, ResourceCarryComponent->GetCurrentItem()))
 		{
 			ResourceCarryComponent->ClearItems();
 			HideCarriedItem();
 			PlayDropOffAnimation();
+			if (UCombatComponent* Combat = FindComponentByClass<UCombatComponent>()) { Combat->NotifyAttackResolved(true); }
 			PlayerDeliveryActor = nullptr;
 			PlayerDeliveryPoint = nullptr;
-			NextPlayerTransferTime = GetWorld()->GetTimeSeconds() + 0.6f;
 			return true;
 		}
 		if (NearbyMachine) { return false; }
 	}
 	AItemPickup* Best = nullptr;
-	float BestDistance = FMath::Square(260.f);
+	float BestDistance = FMath::Square(GetInteractionRange());
 	for (TActorIterator<AItemPickup> It(GetWorld()); It; ++It)
 	{
 		AItemPickup* Pickup = *It;
@@ -124,7 +132,12 @@ bool AHaulerCharacter::TryPlayerTransfer()
 		const float Distance = FVector::DistSquared2D(GetActorLocation(), Pickup->GetActorLocation());
 		if (Distance < BestDistance) { Best = Pickup; BestDistance = Distance; }
 	}
-	if (!Best) { return false; }
+	if (!Best)
+	{
+		PlayPickupAnimation();
+		if (UCombatComponent* Combat = FindComponentByClass<UCombatComponent>()) { Combat->NotifyAttackResolved(false); }
+		return true;
+	}
 	AActor* Route = Best->HasUsableExplicitDeliveryTarget() ? Best->GetExplicitDeliveryActor()
 		: UItemLogisticsLibrary::ResolveDestination(this, Best->GetItemStack(), Best->GetActorLocation());
 	USceneComponent* Point = Best->GetExplicitDeliveryPoint();
@@ -134,7 +147,7 @@ bool AHaulerCharacter::TryPlayerTransfer()
 	PlayerDeliveryPoint = Point;
 	ShowCarriedItem(ItemMesh);
 	PlayPickupAnimation();
-	NextPlayerTransferTime = GetWorld()->GetTimeSeconds() + 0.6f;
+	if (UCombatComponent* Combat = FindComponentByClass<UCombatComponent>()) { Combat->NotifyAttackResolved(true); }
 	return true;
 }
 
@@ -168,7 +181,7 @@ FText AHaulerCharacter::GetPlayerCargoDescription() const
 {
 	if (ResourceCarryComponent->IsEmpty())
 	{
-		return NSLOCTEXT("DemoRun", "CarrierEmptyManual", "Carrier 手动运输 · E 装货 / 卸货\n拾取地上的货物或设备产物，直接送到加工机 / 出售点按 E，无需订单。\n可装 4 件同类货物；仓库订单用于自动搬运或提取库存。" );
+		return NSLOCTEXT("DemoRun", "CarrierEmptyManual", "Carrier 手动运输 · 左键装货 / 卸货\n拾取地上的货物或设备产物，直接送到加工机 / 出售点按鼠标左键，无需订单。\n可装 4 件同类货物；仓库订单用于自动搬运或提取库存。" );
 	}
 	FVector Location = GetActorLocation();
 	GetPlayerDeliveryLocation(Location);
@@ -187,7 +200,7 @@ FText AHaulerCharacter::GetPlayerCargoDescription() const
 	const EItemType Item = ResourceCarryComponent->GetCurrentItem().ItemType;
 	const FText ItemName = Item == EItemType::IronOre ? NSLOCTEXT("DemoRun", "CargoOre", "原矿")
 		: (Item == EItemType::IronIngot ? NSLOCTEXT("DemoRun", "CargoIngot", "铁锭") : NSLOCTEXT("DemoRun", "CargoCoin", "金币"));
-	return FText::Format(NSLOCTEXT("DemoRun", "CarrierLoadedManual", "携带 {0} 件{3}（容量 4，未满也可交付）\n送往：{1} · 约 {2} 米\n也可直接靠近加工机 / 出售点按 E，无需订单。\n配方：2 原矿 → 1 铁锭；2 铁锭 → 4 金币。"),
+	return FText::Format(NSLOCTEXT("DemoRun", "CarrierLoadedManual", "携带 {0} 件{3}（容量 4，未满也可交付）\n送往：{1} · 约 {2} 米\n也可直接靠近加工机 / 出售点按鼠标左键，无需订单。\n配方：2 原矿 → 1 铁锭；2 铁锭 → 4 金币。"),
 		FText::AsNumber(ResourceCarryComponent->GetCurrentItemCount()), Destination,
 		FText::AsNumber(FMath::RoundToInt(FVector::Dist2D(GetActorLocation(), Location) / 100.f)), ItemName);
 }

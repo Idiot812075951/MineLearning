@@ -1,4 +1,5 @@
 #include "MiningCompanionCharacter.h"
+#include "MineLearning/Combat/UnitMovementComponent.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -61,6 +62,7 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->TargetArmLength = 400.0f;
 	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->SetUsingAbsoluteRotation(true);
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("PlayerFollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -77,10 +79,6 @@ AMiningCompanionCharacter::AMiningCompanionCharacter()
 	static ConstructorHelpers::FObjectFinder<UInputAction> LookActionFinder(
 		TEXT("/Game/MineLearning/Input/Actions/IA_Look.IA_Look"));
 	LookAction = LookActionFinder.Object;
-
-	static ConstructorHelpers::FObjectFinder<UInputAction> MiningSkillActionFinder(
-		TEXT("/Game/MineLearning/Input/Actions/IA_RobotSkill1.IA_RobotSkill1"));
-	MiningSkillAction = MiningSkillActionFinder.Object;
 
 	static ConstructorHelpers::FObjectFinder<UInputAction> PickupSkillActionFinder(
 		TEXT("/Game/MineLearning/Input/Actions/IA_RobotPickup.IA_RobotPickup"));
@@ -110,7 +108,12 @@ void AMiningCompanionCharacter::Tick(float DeltaSeconds)
 void AMiningCompanionCharacter::NotifyControllerChanged()
 {
 	Super::NotifyControllerChanged();
-	if (NormalWalkSpeed > 0.f)
+	SprintMovementScale = 1.f;
+	if (UUnitMovementComponent* Speed = FindComponentByClass<UUnitMovementComponent>())
+	{
+		Speed->SetLocomotionScale(1.f);
+	}
+	else if (NormalWalkSpeed > 0.f)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
 	}
@@ -157,6 +160,7 @@ void AMiningCompanionCharacter::NotifyControllerChanged()
 void AMiningCompanionCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMiningCompanionCharacter::TryUseMiningSkill);
 
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
@@ -168,15 +172,6 @@ void AMiningCompanionCharacter::SetupPlayerInputComponent(UInputComponent* Playe
 		if (LookAction)
 		{
 			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMiningCompanionCharacter::Look);
-		}
-
-		if (MiningSkillAction)
-		{
-			EnhancedInputComponent->BindAction(
-				MiningSkillAction,
-				ETriggerEvent::Started,
-				this,
-				&AMiningCompanionCharacter::TryUseMiningSkill);
 		}
 
 		if (PickupSkillAction)
@@ -220,19 +215,14 @@ void AMiningCompanionCharacter::TryUseMiningSkill()
 	}
 
 	AMineableOre* TargetOre = FindMineableOreInRange();
-	if (!TargetOre)
-	{
-		ShowNoMineableOreMessage();
-		return;
-	}
-
 	if (!MiningToolComponent || MiningToolComponent->IsMining())
 	{
 		return;
 	}
 
 	FVector ClosestPoint;
-	GetSquaredDistanceToOre(TargetOre, &ClosestPoint);
+	ClosestPoint = GetActorLocation() + GetActorForwardVector();
+	if (TargetOre) { GetSquaredDistanceToOre(TargetOre, &ClosestPoint); }
 	FVector TargetDirection = ClosestPoint - GetActorLocation();
 	TargetDirection.Z = 0.0f;
 	if (!TargetDirection.IsNearlyZero())
@@ -275,7 +265,8 @@ AMineableOre* AMiningCompanionCharacter::FindMineableOreInRange() const
 	}
 
 	AMineableOre* NearestOre = nullptr;
-	float NearestDistanceSq = FMath::Square(PlayerMiningInteractRadius);
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	float NearestDistanceSq = FMath::Square(Combat ? Combat->GetAttackRange() : 135.f);
 	for (TActorIterator<AMineableOre> It(World); It; ++It)
 	{
 		AMineableOre* Ore = *It;
@@ -383,7 +374,7 @@ void AMiningCompanionCharacter::RefreshPlayerInteractionState()
 	}
 
 	const bool bActionsAvailable = PlayerController && !IsPlayerActionLocked();
-	const bool bNewMiningAvailable = bActionsAvailable && FindMineableOreInRange() != nullptr;
+	const bool bNewMiningAvailable = bActionsAvailable;
 	const bool bNewPickupAvailable = bActionsAvailable
 		&& ResourceCarryComponent
 		&& !ResourceCarryComponent->IsFull()
@@ -477,11 +468,18 @@ void AMiningCompanionCharacter::UpdateSprint(float DeltaSeconds)
 		SprintRecoveryRemaining = FMath::Max(0.f, SprintRecoveryRemaining - DeltaSeconds);
 		SprintStamina = FMath::Min(1.f, SprintStamina + RecoveryTime / FMath::Max(SprintRecoveryDuration, 0.1f));
 	}
-	const float BoostSpeed = NormalWalkSpeed * SprintSpeedMultiplier;
 	const float TransitionTime = bSprinting ? SprintAccelerationTime : SprintDecelerationTime;
-	Movement->MaxWalkSpeed = FMath::FInterpConstantTo(Movement->MaxWalkSpeed,
-		bSprinting ? BoostSpeed : NormalWalkSpeed, DeltaSeconds,
-		(BoostSpeed - NormalWalkSpeed) / FMath::Max(TransitionTime, 0.01f));
+	SprintMovementScale = FMath::FInterpConstantTo(SprintMovementScale,
+		bSprinting ? SprintSpeedMultiplier : 1.f, DeltaSeconds,
+		(SprintSpeedMultiplier - 1.f) / FMath::Max(TransitionTime, 0.01f));
+	if (UUnitMovementComponent* Speed = FindComponentByClass<UUnitMovementComponent>())
+	{
+		Speed->SetLocomotionScale(SprintMovementScale);
+	}
+	else
+	{
+		Movement->MaxWalkSpeed = NormalWalkSpeed * SprintMovementScale;
+	}
 	if (PreviousStamina != SprintStamina || bWasSprinting != bSprinting)
 	{
 		OnSprintChanged.Broadcast(SprintStamina, bSprinting);
@@ -606,7 +604,8 @@ bool AMiningCompanionCharacter::PlayPlayerActionMontage(UAnimMontage* Montage, f
 		this,
 		&AMiningCompanionCharacter::OnPlayerActionMontageNotifyBegin);
 
-	if (AnimInstance->Montage_Play(Montage, PlayRate) <= 0.0f)
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	if (AnimInstance->Montage_Play(Montage, PlayRate * (Combat ? Combat->GetCastSpeedScale() : 1.f)) <= 0.0f)
 	{
 		AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(
 			this,
@@ -832,6 +831,8 @@ void AMiningCompanionCharacter::ShowCarryFullMessage() const
 void AMiningCompanionCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	CameraBoom->SetUsingAbsoluteRotation(true);
+	CameraBoom->AddTickPrerequisiteComponent(GetCharacterMovement());
 	NormalWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	SetActorTickEnabled(IsPlayerControlled());
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);

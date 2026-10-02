@@ -1,5 +1,8 @@
 #include "GunnerCharacter.h"
-#include "MineLearning/Demo/DemoRunComponent.h"
+#include "MineLearning/Combat/WeaponRecoilComponent.h"
+#include "MineLearning/Presentation/WeaponAppearanceComponent.h"
+#include "MineLearning/Combat/WeaponActionComponent.h"
+#include "MineLearning/Combat/AmmoInventoryComponent.h"
 #include "MineLearning/Combat/CombatDamageSubsystem.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
@@ -70,6 +73,9 @@ namespace
 
 AGunnerCharacter::AGunnerCharacter()
 {
+	Recoil = CreateDefaultSubobject<UWeaponRecoilComponent>(TEXT("WeaponRecoil"));
+	WeaponActions = CreateDefaultSubobject<UWeaponActionComponent>(TEXT("WeaponActions"));
+	CreateDefaultSubobject<UWeaponAppearanceComponent>(TEXT("WeaponAppearance"));
 	UHealthComponent* Health = CreateDefaultSubobject<UHealthComponent>(TEXT("CombatHealth"));
 	Health->Faction = ECombatFaction::Player;
 	UCombatComponent* Combat = CreateDefaultSubobject<UCombatComponent>(TEXT("Combat"));
@@ -111,6 +117,7 @@ AGunnerCharacter::AGunnerCharacter()
 	CameraBoom->TargetOffset = FVector(0.0f, 0.0f, 145.0f);
 	CameraBoom->SocketOffset = FVector(0.0f, 65.0f, 0.0f);
 	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->SetUsingAbsoluteRotation(true);
 	// The transformation pad is intentionally compact. Retraction there would
 	// collapse this first-pass third-person view into the Gunner's body.
 	CameraBoom->bDoCollisionTest = false;
@@ -135,8 +142,6 @@ AGunnerCharacter::AGunnerCharacter()
 		TEXT("/Game/MineLearning/Input/Actions/IA_Move.IA_Move"));
 	static ConstructorHelpers::FObjectFinder<UInputAction> LookActionFinder(
 		TEXT("/Game/MineLearning/Input/Actions/IA_Look.IA_Look"));
-	static ConstructorHelpers::FObjectFinder<UInputAction> FireActionFinder(
-		TEXT("/Game/MineLearning/Input/Actions/IA_RobotSkill1.IA_RobotSkill1"));
 	static ConstructorHelpers::FObjectFinder<UInputAction> SecondarySkillActionFinder(
 		TEXT("/Game/MineLearning/Input/Actions/IA_RobotPickup.IA_RobotPickup"));
 	WeaponMesh->SetStaticMesh(WeaponBodyFinder.Object);
@@ -147,7 +152,6 @@ AGunnerCharacter::AGunnerCharacter()
 	PlayerMappingContext = MappingContextFinder.Object;
 	MoveAction = MoveActionFinder.Object;
 	LookAction = LookActionFinder.Object;
-	FireAction = FireActionFinder.Object;
 	SecondarySkillAction = SecondarySkillActionFinder.Object;
 
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> TracerFinder(TEXT("/Game/MineLearning/Characters/Gunner/FX/NS_GunnerProjectile.NS_GunnerProjectile"));
@@ -163,9 +167,13 @@ AGunnerCharacter::AGunnerCharacter()
 void AGunnerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	// Keep body yaw changes from rotating the camera between movement and spring-arm ticks.
+	CameraBoom->SetUsingAbsoluteRotation(true);
+	CameraBoom->AddTickPrerequisiteComponent(GetCharacterMovement());
 
 	MagazineSize = FMath::Max(MagazineSize, 1);
-	CurrentAmmo = MagazineSize;
+	WeaponActions->OnWeaponStateChanged.AddUniqueDynamic(this, &AGunnerCharacter::NotifyAmmoChanged);
+	WeaponActions->Initialize(MagazineSize);
 	WeaponBaseRelativeRotation = WeaponMesh ? WeaponMesh->GetRelativeRotation() : FRotator::ZeroRotator;
 	AttachMagazineToWeapon();
 	RegisterReloadNotifyHandlers();
@@ -175,10 +183,12 @@ void AGunnerCharacter::BeginPlay()
 
 void AGunnerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	WeaponActions->OnWeaponStateChanged.RemoveDynamic(this, &AGunnerCharacter::NotifyAmmoChanged);
+	CancelReload();
+	GetWorldTimerManager().ClearTimer(ContinuousFireTimer);
 	GetWorldTimerManager().ClearTimer(ReloadTimerHandle);
 	GetWorldTimerManager().ClearTimer(PendingReloadTimerHandle);
 	GetWorldTimerManager().ClearTimer(BurstRoundTimerHandle);
-	GetWorldTimerManager().ClearTimer(BurstSafetyTimerHandle);
 	bReloadPending = false;
 	UnregisterReloadNotifyHandlers();
 	Super::EndPlay(EndPlayReason);
@@ -208,6 +218,9 @@ void AGunnerCharacter::PawnClientRestart()
 
 void AGunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AGunnerCharacter::StartPlayerFire);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AGunnerCharacter::StopPlayerFire);
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AGunnerCharacter::ToggleFireMode);
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent);
@@ -223,20 +236,6 @@ void AGunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	if (LookAction)
 	{
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AGunnerCharacter::Look);
-	}
-	// A Blueprint CDO can retain a removed input asset across Live Coding. Resolve
-	// the canonical shared skill action at the point where the binding needs it.
-	if (!IsValid(FireAction))
-	{
-		FireAction = LoadObject<UInputAction>(
-			nullptr,
-			TEXT("/Game/MineLearning/Input/Actions/IA_RobotSkill1.IA_RobotSkill1"));
-	}
-	if (FireAction)
-	{
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &AGunnerCharacter::StartPlayerFire);
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &AGunnerCharacter::StopPlayerAim);
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled, this, &AGunnerCharacter::StopPlayerAim);
 	}
 	if (SecondarySkillAction)
 	{
@@ -278,9 +277,9 @@ void AGunnerCharacter::StartPlayerFire()
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
-		// Holding Q turns only the Gunner toward the controller's aim. Character
+		// Holding left mouse turns only the Gunner toward the controller's aim. Character
 		// movement never writes back to ControlRotation, so the camera is untouched;
-		// releasing Q restores normal movement-facing rotation in StopPlayerAim.
+		// releasing left mouse restores normal movement-facing rotation in StopPlayerAim.
 		Movement->bOrientRotationToMovement = false;
 		Movement->bUseControllerDesiredRotation = true;
 		Movement->RotationRate.Yaw = 240.0f;
@@ -292,21 +291,41 @@ void AGunnerCharacter::StartPlayerFire()
 	TryResolvePendingPlayerShot();
 }
 
+void AGunnerCharacter::StopPlayerFire()
+{
+	bPlayerAimInputHeld = false;
+	GetWorldTimerManager().ClearTimer(ContinuousFireTimer);
+	// A quick tap still commits its first shot after body alignment.
+	if (!bPlayerShotPending)
+	{
+		StopPlayerAim();
+	}
+}
+
 void AGunnerCharacter::StopPlayerAim()
 {
 	bPlayerAimInputHeld = false;
-	// A quick Q tap still owes the player the queued shot. Keep turning until
-	// that shot is resolved, then restore movement-facing rotation below.
-	if (bPlayerShotPending)
-	{
-		return;
-	}
-
+	bPlayerShotPending = false;
+	GetWorldTimerManager().ClearTimer(ContinuousFireTimer);
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->bUseControllerDesiredRotation = false;
 		Movement->bOrientRotationToMovement = true;
-		Movement->RotationRate.Yaw = 360.0f;
+		Movement->RotationRate.Yaw = 360.f;
+	}
+}
+
+void AGunnerCharacter::CancelPlayerFire()
+{
+	StopPlayerAim();
+}
+
+void AGunnerCharacter::ContinuePlayerFire()
+{
+	if (bPlayerAimInputHeld && IsPlayerControlled() && !IsWeaponBusy() && !IsBurstMode())
+	{
+		bPlayerShotPending = true;
+		TryResolvePendingPlayerShot();
 	}
 }
 
@@ -336,7 +355,13 @@ void AGunnerCharacter::TryResolvePendingPlayerShot()
 	}
 
 	bPlayerShotPending = false;
-	TryFireAtAim(AimOrigin, AimRotation.Vector());
+	const bool bFired = TryFireAtAim(AimOrigin, AimRotation.Vector());
+	if (bPlayerAimInputHeld && !IsWeaponBusy() && !IsBurstMode()
+		&& (bFired || GetWorld()->GetTimeSeconds() < NextAllowedFireTime))
+	{
+		GetWorldTimerManager().SetTimer(ContinuousFireTimer, this, &AGunnerCharacter::ContinuePlayerFire,
+			FMath::Max(0.001, NextAllowedFireTime - GetWorld()->GetTimeSeconds()), false);
+	}
 	if (!bPlayerAimInputHeld)
 	{
 		StopPlayerAim();
@@ -346,6 +371,25 @@ void AGunnerCharacter::TryResolvePendingPlayerShot()
 void AGunnerCharacter::StartPlayerReload()
 {
 	RequestReload();
+}
+
+bool AGunnerCharacter::HasBurstMode() const
+{
+	return WeaponActions->HasBurstPattern();
+}
+
+bool AGunnerCharacter::IsBurstMode() const
+{
+	return WeaponActions->IsBurstEnabled();
+}
+
+void AGunnerCharacter::ToggleFireMode()
+{
+	if (IsPlayerControlled() && WeaponActions->ToggleBurstMode())
+	{
+		// Changing modes never turns an already-held key into a new attack request.
+		CancelPlayerFire();
+	}
 }
 
 void AGunnerCharacter::UpdatePlayerAim(const float DeltaSeconds)
@@ -377,7 +421,7 @@ void AGunnerCharacter::ConfigureControllerMode()
 	APlayerController* PlayerController = Cast<APlayerController>(Controller);
 	const bool bPlayerControlled = PlayerController != nullptr;
 	// Mouse look owns only the camera. Gunner faces movement normally and uses
-	// controller-desired rotation only while the player holds Q to aim.
+	// controller-desired rotation only while the player holds left mouse to aim.
 	bUseControllerRotationYaw = false;
 	SetActorTickEnabled(bPlayerControlled);
 
@@ -427,20 +471,6 @@ void AGunnerCharacter::ApplyLocalPlayerViewport()
 		FollowCamera->SetActive(true);
 	}
 	PlayerController->SetViewTarget(this);
-	PlayerController->bShowMouseCursor = true;
-
-	// Match the human form exactly: free cursor until the player holds a mouse
-	// button, then release camera capture again when that button is released.
-	FInputModeGameAndUI InputMode;
-	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-	InputMode.SetHideCursorDuringCapture(false);
-	PlayerController->SetInputMode(InputMode);
-	if (UGameViewportClient* ViewportClient = GetWorld() ? GetWorld()->GetGameViewport() : nullptr)
-	{
-		// Reset the persistent viewport settings left by older Gunner builds.
-		ViewportClient->SetMouseCaptureMode(EMouseCaptureMode::CaptureDuringMouseDown);
-		ViewportClient->SetMouseLockMode(EMouseLockMode::DoNotLock);
-	}
 
 }
 
@@ -474,20 +504,10 @@ bool AGunnerCharacter::TryFireAtAim(const FVector AimOrigin, const FVector AimDi
 		return false;
 	}
 
-	const FVector TraceEnd = AimOrigin + Direction * FMath::Max(PlayerAimRange, 100.0f);
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(GunnerPlayerAim), true, this);
-	QueryParams.AddIgnoredActor(this);
-
 	FShotTarget Target;
 	Target.bUseExactAimLocation = true;
-	Target.AimLocation = TraceEnd;
-	if (World->LineTraceSingleByChannel(Hit, AimOrigin, TraceEnd, ECC_Visibility, QueryParams))
-	{
-		Target.AimLocation = Hit.ImpactPoint;
-		Target.Actor = Hit.GetActor();
-	}
-
+	Target.AimOrigin = AimOrigin;
+	Target.AimDirection = Direction;
 	return TryStartAttack(Target);
 }
 
@@ -511,23 +531,38 @@ bool AGunnerCharacter::TryStartAttack(const FShotTarget& Target)
 		return false;
 	}
 
-	if (CurrentAmmo <= 0)
+	if (GetCurrentAmmo() <= 0)
 	{
 		BeginReload();
 		return false;
 	}
 
-	NextAllowedFireTime = Now + FMath::Max(FireInterval, 0.01f);
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	ActiveHeadMultiplier = GetShotMultiplier(EGunnerShotResult::Headshot);
+	ActiveGoldenMultiplier = GetShotMultiplier(EGunnerShotResult::GoldenHeadshot);
+	ActiveShotProbabilities = GetShotProbabilities(false);
 	// AI and player forms share the same configured point/burst selection.
-	const bool bUseBurst = CurrentAmmo >= 3 && FMath::FRand() < BurstChance;
+	const bool bUseBurst = WeaponActions->GetRoundsPerAttack() > 1;
+	const float BaseInterval = FMath::Max(0.01f, FireInterval);
+	const int32 Rounds = WeaponActions->GetRoundsPerAttack();
+	const float PatternInterval = BaseInterval / (bUseBurst ? FMath::Max(1.f, BurstFireRateMultiplier) : 1.f);
+	const float RoundInterval = Combat ? Combat->GetAttackInterval(PatternInterval) : FMath::Max(0.2f, PatternInterval);
+	const float AttackSpeed = BaseInterval / (RoundInterval * Rounds);
+	const UAnimMontage* AttackMontage = bUseBurst ? BurstFireMontage : FireMontage;
+	// Gameplay owns cadence. Fit recovery into that period instead of letting
+	// a long animation silently override the configured weapon fire interval.
+	ActiveFirePlayRate = bUseBurst ? (4.f / 24.f) / RoundInterval
+		: AttackSpeed * (AttackMontage ? FMath::Max(1.f, AttackMontage->GetPlayLength() / BaseInterval) : 1.f);
+	NextAllowedFireTime = Now + FMath::Max(RoundInterval * Rounds,
+		bUseBurst && AttackMontage ? AttackMontage->GetPlayLength() / ActiveFirePlayRate : 0.f);
 
 	if (!bUseBurst)
 	{
 		UE_LOG(LogTemp, Log, TEXT("[Gunner] AttackMode=Single Ammo=%d/%d Target=%s"),
-			CurrentAmmo, MagazineSize, *GetNameSafe(TargetOre));
+			GetCurrentAmmo(), MagazineSize, *GetNameSafe(TargetOre));
 		ResolveShot(Target, false);
 		const float ShotMontageDuration = PlayFireMontage();
-		if (CurrentAmmo <= 0)
+		if (GetCurrentAmmo() <= 0)
 		{
 			QueueReloadAfterSingleShot(ShotMontageDuration);
 		}
@@ -538,43 +573,19 @@ bool AGunnerCharacter::TryStartAttack(const FShotTarget& Target)
 	BurstRoundsResolved = 0;
 	BurstTarget = Target;
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] AttackMode=Burst queued Ammo=%d/%d Target=%s NotifyFrames=2,6,10"),
-		CurrentAmmo, MagazineSize, *GetNameSafe(TargetOre));
-	if (!PlayBurstFireMontage())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Gunner] Burst Montage unavailable; resolving the three rounds immediately"));
-		while (bBurstInProgress && BurstRoundsResolved < 3)
-		{
-			ResolveBurstRound(TEXT("missing montage fallback"));
-		}
-	}
-	else
-	{
-		// Resolve exactly on source-animation frames 2/6/10 (24 fps).  The Montage
-		// asset can lose its editor-authored named notifies, so gameplay must not
-		// depend on those events to spawn projectiles or muzzle effects.
-		World->GetTimerManager().SetTimer(
-			BurstRoundTimerHandle,
-			this,
-			&AGunnerCharacter::ResolveBurstTimedShot,
-			4.0f / 24.0f,
-			true,
-			2.0f / 24.0f);
-
-		// This is still a final recovery guard for an interrupted or disabled world timer.
-		World->GetTimerManager().SetTimer(
-			BurstSafetyTimerHandle,
-			this,
-			&AGunnerCharacter::ResolveOutstandingBurstShots,
-			FMath::Max(BurstFireMontage->GetPlayLength() + MontageSafetyPadding, 0.01f),
-			false);
-	}
+		GetCurrentAmmo(), MagazineSize, *GetNameSafe(TargetOre));
+	PlayBurstFireMontage();
+	// Gameplay keeps the same cadence even if the presentation asset is absent.
+	World->GetTimerManager().SetTimer(
+		BurstRoundTimerHandle, this, &AGunnerCharacter::ResolveBurstTimedShot,
+		RoundInterval, true, RoundInterval * 0.5f);
 
 	return true;
 }
 
 bool AGunnerCharacter::RequestReload()
 {
-	if (CurrentAmmo >= MagazineSize || bIsReloading || bReloadPending || bBurstInProgress)
+	if (GetCurrentAmmo() >= GetMagazineSize() || bIsReloading || bReloadPending || bBurstInProgress)
 	{
 		return false;
 	}
@@ -583,21 +594,55 @@ bool AGunnerCharacter::RequestReload()
 	return bIsReloading;
 }
 
-void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBurstAccuracy, const int32 BurstRoundIndex)
+void AGunnerCharacter::ResolveShot(const FShotTarget& RequestedTarget, const bool bUseBurstAccuracy, const int32 BurstRoundIndex)
 {
+	FShotTarget Target = RequestedTarget;
 	AActor* TargetOre = Target.Actor.Get();
-	const bool bOreIsValid = UCombatDamageSubsystem::CanDamageTarget(this, TargetOre);
-	if ((!Target.bUseExactAimLocation && !bOreIsValid) || CurrentAmmo <= 0)
+	bool bOreIsValid = UCombatDamageSubsystem::CanDamageTarget(this, TargetOre);
+	if ((!Target.bUseExactAimLocation && !bOreIsValid) || GetCurrentAmmo() <= 0)
 	{
 		return;
 	}
 
-	--CurrentAmmo;
-	NotifyAmmoChanged();
+	const FWeaponShotContext ShotContext = WeaponActions->PrepareShot();
+	if (!WeaponActions->ConsumeRound())
+	{
+		return;
+	}
+	WeaponActions->CommitShot();
 
-	const EGunnerShotResult Result = bOreIsValid
-		? RollShotResult(bUseBurstAccuracy)
-		: EGunnerShotResult::Miss;
+	if (Target.bUseExactAimLocation)
+	{
+		FVector Origin = Target.AimOrigin;
+		FVector Direction = Target.AimDirection;
+		// Each burst round follows the current aim rather than a stale target snapshot.
+		if (bUseBurstAccuracy)
+		{
+			if (APlayerController* Player = Cast<APlayerController>(GetController()))
+			{
+				FRotator View;
+				Player->GetPlayerViewPoint(Origin, View);
+				Direction = View.Vector();
+			}
+		}
+		Direction = Recoil->ApplyShot(Direction);
+		Target.AimLocation = Origin + Direction * FMath::Max(PlayerAimRange, 10000.f);
+		Target.Actor.Reset();
+		FHitResult Hit;
+		FCollisionQueryParams Query(SCENE_QUERY_STAT(GunnerRecoilShot), true, this);
+		if (GetWorld()->LineTraceSingleByChannel(Hit, Origin, Target.AimLocation, ECC_Visibility, Query))
+		{
+			Target.AimLocation = Hit.ImpactPoint;
+			Target.Actor = Hit.GetActor();
+		}
+		TargetOre = Target.Actor.Get();
+		bOreIsValid = UCombatDamageSubsystem::CanDamageTarget(this, TargetOre);
+	}
+
+	UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	const bool bInRange = bOreIsValid && (!Combat || Combat->IsInAttackRange(TargetOre));
+	const EGunnerShotResult Result = bOreIsValid && !bInRange ? EGunnerShotResult::OutOfRange
+		: bInRange && (!Combat || !Combat->RollAIAttackMiss()) ? RollShotResult(bUseBurstAccuracy) : EGunnerShotResult::Miss;
 	const FVector MuzzleLocation = GetMuzzleLocation();
 	const FVector TargetLocation = CalculateShotTarget(Target, Result);
 	// Capture bounds before damage: a lethal hit can destroy the target immediately.
@@ -610,20 +655,22 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 	const FVector TargetTop = TargetOrigin + FVector(0.f, 0.f, TargetExtent.Z);
 	float AppliedDamage = 0.0f;
 
-	if (bOreIsValid && Result != EGunnerShotResult::Miss)
+	if (bOreIsValid && Result != EGunnerShotResult::Miss && Result != EGunnerShotResult::OutOfRange)
 	{
 		FCombatDamageRequest Request;
 		Request.Source = this;
 		Request.Target = TargetOre;
 		Request.SkillId = TEXT("Primary");
-		Request.Multiplier = GetShotMultiplier(Result);
+		Request.SnapshotDamage = (Combat ? Combat->EvaluateDamage(TEXT("Primary")) : 0.f) * ShotContext.DamageMultiplier;
+		Request.Multiplier = Result == EGunnerShotResult::GoldenHeadshot ? ActiveGoldenMultiplier
+			: Result == EGunnerShotResult::Headshot ? ActiveHeadMultiplier : 1.f;
 		Request.HitLocation = TargetLocation;
 		Request.HitNormal = (MuzzleLocation - TargetLocation).GetSafeNormal();
 		AppliedDamage = GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).AppliedDamage;
 	}
 
 	DrawDefaultShotVisual(Result, MuzzleLocation, TargetLocation);
-	PlayProductionShotVisual(Result, MuzzleLocation, TargetLocation);
+	PlayProductionShotVisual(Result, MuzzleLocation, TargetLocation, ShotContext.ImpactScale);
 	PlayShotVisuals(Result, MuzzleLocation, TargetLocation);
 	OnWeaponFired.Broadcast();
 	OnShotResolved.Broadcast(Result, MuzzleLocation, TargetLocation, AppliedDamage);
@@ -631,12 +678,17 @@ void AGunnerCharacter::ResolveShot(const FShotTarget& Target, const bool bUseBur
 	{
 		OnCriticalHit.Broadcast(Result == EGunnerShotResult::GoldenHeadshot, IsValid(TargetOre) ? TargetOre : nullptr, TargetTop);
 	}
+	if (Combat)
+	{
+		if (Result == EGunnerShotResult::OutOfRange) { Combat->NotifyAttackOutOfRange(); }
+		Combat->NotifyAttackResolved(AppliedDamage > 0.f, false);
+	}
 
 	const FString Mode = bUseBurstAccuracy
 		? FString::Printf(TEXT("Burst %d/3"), BurstRoundIndex)
 		: TEXT("Single");
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] %s Result=%s Ammo=%d/%d Damage=%.1f Target=%s"),
-		*Mode, *UEnum::GetValueAsString(Result), CurrentAmmo, MagazineSize, AppliedDamage, *GetNameSafe(TargetOre));
+		*Mode, *UEnum::GetValueAsString(Result), GetCurrentAmmo(), MagazineSize, AppliedDamage, *GetNameSafe(TargetOre));
 
 }
 FVector AGunnerCharacter::GetMuzzleLocation() const
@@ -647,19 +699,17 @@ FVector AGunnerCharacter::GetMuzzleLocation() const
 EGunnerShotResult AGunnerCharacter::RollShotResult(bool bUseBurstAccuracy) const
 {
 	const float AccuracyScale = bUseBurstAccuracy ? 0.5f : 1.0f;
-	const float BaseGolden = FMath::Max(GoldenHeadshotChance, 0.0f);
-	const float BaseHead = FMath::Max(HeadshotChance, 0.0f);
+	const float BaseGolden = ActiveShotProbabilities.Z;
+	const float BaseHead = ActiveShotProbabilities.Y;
 	const float Golden = BaseGolden * AccuracyScale;
 	const float Head = BaseHead * AccuracyScale;
-	// The reduced burst headshot chance becomes an ordinary body shot, preserving
-	// the configured miss chance and making each special-hit probability exactly half.
-	const float Body = FMath::Max(BodyShotChance + (BaseGolden - Golden) + (BaseHead - Head), 0.0f);
-	const float Miss = FMath::Max(MissChance, 0.0f);
-	const float Total = Golden + Head + Body + Miss;
+	// Accuracy is geometric. Critical outcomes never turn a valid hit into a miss.
+	const float Body = ActiveShotProbabilities.X + (BaseGolden - Golden) + (BaseHead - Head);
+	const float Total = Golden + Head + Body;
 
 	if (Total <= UE_SMALL_NUMBER)
 	{
-		return EGunnerShotResult::Miss;
+		return EGunnerShotResult::BodyShot;
 	}
 
 	const float Roll = FMath::FRandRange(0.0f, Total);
@@ -675,7 +725,7 @@ EGunnerShotResult AGunnerCharacter::RollShotResult(bool bUseBurstAccuracy) const
 	{
 		return EGunnerShotResult::BodyShot;
 	}
-	return EGunnerShotResult::Miss;
+	return EGunnerShotResult::BodyShot;
 }
 
 FVector AGunnerCharacter::CalculateShotTarget(const FShotTarget& Target, const EGunnerShotResult Result) const
@@ -730,7 +780,7 @@ float AGunnerCharacter::PlayFireMontage()
 
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
-		return AnimInstance->Montage_Play(FireMontage);
+		return AnimInstance->Montage_Play(FireMontage, ActiveFirePlayRate, EMontagePlayReturnType::Duration);
 	}
 
 	return 0.0f;
@@ -745,7 +795,7 @@ bool AGunnerCharacter::PlayBurstFireMontage()
 
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
 	{
-		return AnimInstance->Montage_Play(BurstFireMontage) > 0.0f;
+		return AnimInstance->Montage_Play(BurstFireMontage, ActiveFirePlayRate) > 0.0f;
 	}
 
 	return false;
@@ -759,32 +809,17 @@ void AGunnerCharacter::EndBurst(const TCHAR* Reason)
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Burst complete Rounds=%d Reason=%s Ammo=%d/%d"),
-		BurstRoundsResolved, Reason, CurrentAmmo, MagazineSize);
+		BurstRoundsResolved, Reason, GetCurrentAmmo(), MagazineSize);
 	GetWorldTimerManager().ClearTimer(BurstRoundTimerHandle);
-	GetWorldTimerManager().ClearTimer(BurstSafetyTimerHandle);
 	bBurstInProgress = false;
 	BurstTarget = FShotTarget();
-	if (CurrentAmmo <= 0)
+	if (GetCurrentAmmo() <= 0)
 	{
 		BeginReload();
 	}
 }
 
-void AGunnerCharacter::ResolveOutstandingBurstShots()
-{
-	if (!bBurstInProgress)
-	{
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Burst ended with %d unresolved round(s); resolving safely"), 3 - BurstRoundsResolved);
-	while (bBurstInProgress && BurstRoundsResolved < 3)
-	{
-		ResolveBurstRound(TEXT("safety fallback"));
-	}
-}
-
-void AGunnerCharacter::DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const
+void AGunnerCharacter::DrawDefaultShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End, float ImpactScale) const
 {
 	if (!bDrawShotDebug || !GetWorld())
 	{
@@ -801,7 +836,7 @@ void AGunnerCharacter::DrawDefaultShotVisual(EGunnerShotResult Result, const FVe
 	DrawDebugSphere(GetWorld(), End, Result == EGunnerShotResult::Miss ? 8.0f : 12.0f, 8, Color, false, TracerLifeSeconds);
 }
 
-void AGunnerCharacter::PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End) const
+void AGunnerCharacter::PlayProductionShotVisual(EGunnerShotResult Result, const FVector& Start, const FVector& End, float ImpactScale) const
 {
 	UWorld* World = GetWorld();
 	if (!World)
@@ -848,7 +883,11 @@ void AGunnerCharacter::PlayProductionShotVisual(EGunnerShotResult Result, const 
 		: (Result == EGunnerShotResult::Headshot ? HeadshotSystem : nullptr);
 	if (SpecialSystem)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, SpecialSystem, End, (-Direction).Rotation(), FVector::OneVector, true, true);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, SpecialSystem, End, (-Direction).Rotation(), FVector(ImpactScale), true, true);
+	}
+	if (ImpactScale > 1.f && !SpecialSystem && Result == EGunnerShotResult::BodyShot)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, HeadshotSystem, End, (-Direction).Rotation(), FVector(ImpactScale), true, true);
 	}
 }
 
@@ -866,11 +905,13 @@ void AGunnerCharacter::BeginReload()
 	{
 		return;
 	}
-	if (UDemoRunComponent* Account = GetAmmoAccount(); Account && !Account->ConsumeGunnerMagazine())
+	if (UAmmoInventoryComponent* Account = GetAmmoAccount(); Account && !Account->ReserveMagazine())
 	{
 		return;
 	}
 
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	ActiveReloadSpeed = Combat ? Combat->GetCastSpeedScale() : 1.f;
 	bIsReloading = true;
 	OnReloadStateChanged.Broadcast(true);
 	if (PlayReloadMontage())
@@ -879,7 +920,7 @@ void AGunnerCharacter::BeginReload()
 			ReloadTimerHandle,
 			this,
 			&AGunnerCharacter::ForceCompleteReload,
-			FMath::Max(ReloadMontage->GetPlayLength() + MontageSafetyPadding, 0.01f),
+			FMath::Max(ReloadMontage->GetPlayLength() / ActiveReloadSpeed, 0.01f),
 			false);
 		UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload Montage started (%.3fs)"), ReloadMontage->GetPlayLength());
 		return;
@@ -890,14 +931,14 @@ void AGunnerCharacter::BeginReload()
 		ReloadTimerHandle,
 		this,
 		&AGunnerCharacter::CompleteReload,
-		FMath::Max(ReloadDuration, 0.01f),
+		FMath::Max(ReloadDuration / ActiveReloadSpeed, 0.01f),
 		false);
 	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Reload animation unavailable; using %.2fs fallback"), ReloadDuration);
 }
 
 void AGunnerCharacter::QueueReloadAfterSingleShot(const float ShotMontageDuration)
 {
-	if (CurrentAmmo > 0 || bIsReloading || bReloadPending || !GetWorld())
+	if (GetCurrentAmmo() > 0 || bIsReloading || bReloadPending || !GetWorld())
 	{
 		return;
 	}
@@ -930,12 +971,17 @@ void AGunnerCharacter::CompleteReload()
 
 	GetWorldTimerManager().ClearTimer(ReloadTimerHandle);
 	AttachMagazineToWeapon();
-	CurrentAmmo = FMath::Max(MagazineSize, 1);
+	if (AmmoAccount && !AmmoAccount->CommitMagazine())
+	{
+		CancelReload();
+		return;
+	}
+	WeaponActions->CommitReload(MagazineSize);
 	bIsReloading = false;
 	ActiveReloadMontage = nullptr;
-	NotifyAmmoChanged();
 	OnReloadStateChanged.Broadcast(false);
-	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload complete Ammo=%d/%d"), CurrentAmmo, MagazineSize);
+	ContinuePlayerFire();
+	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload complete Ammo=%d/%d"), GetCurrentAmmo(), MagazineSize);
 }
 
 bool AGunnerCharacter::PlayReloadMontage()
@@ -956,7 +1002,7 @@ bool AGunnerCharacter::PlayReloadMontage()
 	RegisterReloadNotifyHandlers();
 
 	ActiveReloadMontage = ReloadMontage;
-	if (AnimInstance->Montage_Play(ActiveReloadMontage) <= 0.0f)
+	if (AnimInstance->Montage_Play(ActiveReloadMontage, ActiveReloadSpeed) <= 0.0f)
 	{
 		ActiveReloadMontage = nullptr;
 		return false;
@@ -970,20 +1016,20 @@ bool AGunnerCharacter::PlayReloadMontage()
 
 void AGunnerCharacter::ForceCompleteReload()
 {
-	if (!bIsReloading)
-	{
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[Gunner] Reload Montage timeout; forcing state recovery"));
-	if (ActiveReloadMontage && GetMesh())
-	{
-		if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-		{
-			AnimInstance->Montage_Stop(0.05f, ActiveReloadMontage);
-		}
-	}
 	CompleteReload();
+}
+
+void AGunnerCharacter::CancelReload()
+{
+	if (AmmoAccount)
+	{
+		AmmoAccount->CancelReservation();
+	}
+	GetWorldTimerManager().ClearTimer(ReloadTimerHandle);
+	bIsReloading = false;
+	ActiveReloadMontage = nullptr;
+	OnReloadStateChanged.Broadcast(false);
+	AttachMagazineToWeapon();
 }
 
 void AGunnerCharacter::HandleReloadMontageEnded(UAnimMontage* Montage, bool bInterrupted)
@@ -994,7 +1040,7 @@ void AGunnerCharacter::HandleReloadMontageEnded(UAnimMontage* Montage, bool bInt
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Reload montage ended Interrupted=%s"), bInterrupted ? TEXT("true") : TEXT("false"));
-	CompleteReload();
+	if (bInterrupted) { CancelReload(); } else { CompleteReload(); }
 }
 
 void AGunnerCharacter::AttachMagazineToHand()
@@ -1118,7 +1164,7 @@ void AGunnerCharacter::ResolveBurstRound(const TCHAR* Trigger)
 	UE_LOG(LogTemp, Log, TEXT("[Gunner] Burst %s received Round=%d/3"), Trigger, BurstRoundsResolved);
 	ResolveShot(BurstTarget, true, BurstRoundsResolved);
 
-	if (BurstRoundsResolved >= 3 || CurrentAmmo <= 0)
+	if (BurstRoundsResolved >= 3 || GetCurrentAmmo() <= 0)
 	{
 		EndBurst(BurstRoundsResolved >= 3 ? TEXT("all burst rounds resolved") : TEXT("magazine exhausted"));
 	}
@@ -1136,42 +1182,98 @@ float AGunnerCharacter::GetShotMultiplier(EGunnerShotResult Result) const
 	{
 		return FMath::Clamp(GoldenHeadshotMultiplier + Intelligence * GoldenIntelligenceScale, 1.f, FMath::Max(1.f, GoldenMultiplierMax));
 	}
-	return Result == EGunnerShotResult::Miss ? 0.f : 1.f;
+	return Result == EGunnerShotResult::Miss || Result == EGunnerShotResult::OutOfRange ? 0.f : 1.f;
 }
 
 FText AGunnerCharacter::GetCombatMechanics() const
 {
-	const float Total = FMath::Max(0.f, GoldenHeadshotChance) + FMath::Max(0.f, HeadshotChance) + FMath::Max(0.f, BodyShotChance) + FMath::Max(0.f, MissChance);
-	return FText::Format(NSLOCTEXT("Combat", "GunnerMechanics", "身体 ×1 | 爆头 ×{0} | 黄金爆头 ×{1}\n能量提高爆头倍率；上限 {2} / {3}。黄金爆头不直接秒杀。\n命中按权重随机：单发爆头 {4}% / 黄金 {5}%；三连发两者概率减半。\n{6}\n弹匣：1 铁锭购买 20 发；换形态保留弹药，R 消耗备用弹匣装填。"),
+	const FVector4 Probabilities = GetShotProbabilities(false);
+	return FText::Format(NSLOCTEXT("Combat", "GunnerMechanics", "身体 ×1 | 爆头 ×{0} | 黄金爆头 ×{1}\n能量提高爆头倍率；上限 {2} / {3}。黄金爆头不直接秒杀。\n有效命中不会随机打空：单发爆头 {4}% / 黄金 {5}%；三连发两者概率减半。\n{6}\n弹匣：1 铁锭购买 20 发；换形态保留弹药，R 消耗备用弹匣装填。"),
 		FText::AsNumber(GetShotMultiplier(EGunnerShotResult::Headshot)), FText::AsNumber(GetShotMultiplier(EGunnerShotResult::GoldenHeadshot)),
 		FText::AsNumber(HeadshotMultiplierMax), FText::AsNumber(GoldenMultiplierMax),
-		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, HeadshotChance) / Total * 100.f : 0.f),
-		FText::AsNumber(Total > 0.f ? FMath::Max(0.f, GoldenHeadshotChance) / Total * 100.f : 0.f),
+		FText::AsNumber(Probabilities.Y * 100.f),
+		FText::AsNumber(Probabilities.Z * 100.f),
 		GetAmmoStatusText());
 }
 
-UDemoRunComponent* AGunnerCharacter::GetAmmoAccount() const
+FVector4 AGunnerCharacter::GetShotProbabilities(bool bBurst) const
 {
-	UDemoRunComponent* Run = IsPlayerControlled() && Controller ? Controller->FindComponentByClass<UDemoRunComponent>() : nullptr;
-	return Run && Run->IsEnabled() ? Run : nullptr;
+	FVector4 Values(0.f, FMath::Max(0.f, HeadshotChance), FMath::Max(0.f, GoldenHeadshotChance), 0.f);
+	const double CriticalTotal = Values.Y + Values.Z;
+	if (CriticalTotal > 1.0) { Values /= CriticalTotal; }
+	Values.X = FMath::Max(0.0, 1.0 - Values.Y - Values.Z);
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	const double Transfer = FMath::Clamp(static_cast<double>(Combat ? Combat->GetModifiers().GoldenProbability : 0.f), -Values.Z, Values.X);
+	Values.X -= Transfer;
+	Values.Z += Transfer;
+	if (bBurst)
+	{
+		Values.X += (Values.Y + Values.Z) * 0.5;
+		Values.Y *= 0.5;
+		Values.Z *= 0.5;
+	}
+	return Values;
+}
+
+UAmmoInventoryComponent* AGunnerCharacter::GetAmmoAccount() const
+{
+	return AmmoAccount;
+}
+
+void AGunnerCharacter::SetAmmoAccount(UAmmoInventoryComponent* Account)
+{
+	AmmoAccount = Account;
+}
+
+bool AGunnerCharacter::TryLoadEmptyMagazine()
+{
+	if (!HasAuthority() || GetCurrentAmmo() > 0 || IsWeaponBusy()
+		|| !AmmoAccount || !AmmoAccount->ReserveMagazine())
+	{
+		return false;
+	}
+	if (!AmmoAccount->CommitMagazine())
+	{
+		AmmoAccount->CancelReservation();
+		return false;
+	}
+	// Use the ordinary reload commit so magazine-capacity effects still apply.
+	WeaponActions->CommitReload(MagazineSize);
+	return true;
 }
 
 void AGunnerCharacter::NotifyAmmoChanged()
 {
-	if (UDemoRunComponent* Run = GetAmmoAccount()) { Run->RecordGunnerAmmo(CurrentAmmo); }
-	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+	OnAmmoChanged.Broadcast(GetCurrentAmmo(), GetMagazineSize());
+}
+
+int32 AGunnerCharacter::GetCurrentAmmo() const
+{
+	return WeaponActions->GetCurrentAmmo();
+}
+
+int32 AGunnerCharacter::GetMagazineSize() const
+{
+	return WeaponActions->GetCapacity();
+}
+
+float AGunnerCharacter::GetEffectiveAttackRange() const
+{
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	return Combat ? Combat->GetAttackRange() : 900.f;
 }
 
 void AGunnerCharacter::RestoreLoadedAmmo(int32 Ammo)
 {
-	CurrentAmmo = FMath::Clamp(Ammo, 0, MagazineSize);
-	OnAmmoChanged.Broadcast(CurrentAmmo, MagazineSize);
+	FWeaponRuntimeState State = WeaponActions->Export();
+	State.Ammo = FMath::Clamp(Ammo, 0, State.Capacity);
+	WeaponActions->Restore(State);
 }
 
 FText AGunnerCharacter::GetAmmoStatusText() const
 {
-	const UDemoRunComponent* Run = GetAmmoAccount();
+	const UAmmoInventoryComponent* Account = GetAmmoAccount();
 	return FText::Format(NSLOCTEXT("Gunner", "AmmoBudget", "子弹 {0}/{1} · 备用弹匣 {2}"),
-		FText::AsNumber(CurrentAmmo), FText::AsNumber(MagazineSize),
-		Run ? FText::AsNumber(Run->GetReserveMagazines()) : FText::FromString(TEXT("—")));
+		FText::AsNumber(GetCurrentAmmo()), FText::AsNumber(GetMagazineSize()),
+		Account ? FText::AsNumber(Account->GetAvailableMagazines()) : FText::FromString(TEXT("AI")));
 }

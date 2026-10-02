@@ -1,6 +1,7 @@
 #include "AGurenCharacter.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "MineLearning/Combat/CombatDamageSubsystem.h"
 #include "MineLearning/Combat/CombatComponent.h"
@@ -240,7 +241,25 @@ void AGurenCharacter::TryPrimaryAttack()
 	{
 		return;
 	}
-	Anim->Montage_Play(PrimaryAttackMontage);
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	TArray<float> HitTimes;
+	for (const FAnimNotifyEvent& Notify : PrimaryAttackMontage->Notifies)
+	{
+		const FString Name = Notify.Notify ? Notify.Notify->GetNotifyName() : Notify.NotifyName.ToString();
+		if (Name == TEXT("HIT_A1") || Name == TEXT("HIT_A2") || Name == TEXT("HIT_A3"))
+		{
+			HitTimes.Add(Notify.GetTriggerTime());
+		}
+	}
+	HitTimes.Sort();
+	float MinGap = PrimaryAttackMontage->GetPlayLength();
+	for (int32 Index = 1; Index < HitTimes.Num(); ++Index)
+	{
+		const float Gap = HitTimes[Index] - HitTimes[Index - 1];
+		if (Gap > KINDA_SMALL_NUMBER) { MinGap = FMath::Min(MinGap, Gap); }
+	}
+	if (!HitTimes.IsEmpty()) { MinGap = FMath::Min(MinGap, PrimaryAttackMontage->GetPlayLength() - HitTimes.Last() + HitTimes[0]); }
+	Anim->Montage_Play(PrimaryAttackMontage, Combat ? Combat->GetAttackPlayRate(MinGap) : 1.f);
 }
 
 void AGurenCharacter::HandlePrimaryAttackNotify(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
@@ -257,16 +276,21 @@ void AGurenCharacter::HandlePrimaryAttackNotify(FName NotifyName, const FBranchi
 		return;
 	}
 	const FVector Start = GetActorLocation();
-	const FVector End = Start + GetActorForwardVector() * PrimaryAttackReach;
+	UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	const float Reach = Combat ? Combat->GetAttackRange() : 400.f;
+	const FVector End = Start + GetActorForwardVector() * FMath::Max(0.f, Reach - PrimaryAttackRadius);
 	TArray<FHitResult> Hits;
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(GurenPrimary), false, this);
 	GetWorld()->SweepMultiByObjectType(Hits, Start, End, FQuat::Identity,
 		FCollisionObjectQueryParams::AllObjects, FCollisionShape::MakeSphere(PrimaryAttackRadius), Params);
 	TSet<AActor*> AppliedTargets;
+	bool bHitAny = false;
+	const bool bMiss = Combat && Combat->RollAIAttackMiss();
 	for (const FHitResult& Hit : Hits)
 	{
 		AActor* Target = Hit.GetActor();
-		if (AppliedTargets.Contains(Target) || !UCombatDamageSubsystem::CanDamageTarget(this, Target))
+		if (bMiss || AppliedTargets.Contains(Target) || !UCombatDamageSubsystem::CanDamageTarget(this, Target)
+			|| (Combat && !Combat->IsInAttackRange(Target)))
 		{
 			continue;
 		}
@@ -281,10 +305,12 @@ void AGurenCharacter::HandlePrimaryAttackNotify(FName NotifyName, const FBranchi
 		Request.Source = this;
 		Request.Target = Target;
 		Request.SkillId = TEXT("Primary");
+		Request.SnapshotDamage = Combat ? Combat->EvaluateDamage(TEXT("Primary")) : 0.f;
 		Request.HitLocation = Hit.ImpactPoint;
 		Request.HitNormal = Hit.ImpactNormal;
-		GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request);
+		bHitAny |= GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).AppliedDamage > 0.f;
 	}
+	if (Combat) { Combat->NotifyAttackResolved(bHitAny); }
 }
 
 void AGurenCharacter::EndPlay(const EEndPlayReason::Type Reason)

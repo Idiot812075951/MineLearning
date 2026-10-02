@@ -51,9 +51,6 @@ private:
 	UPROPERTY(EditAnywhere, Category="Gunner AI", meta=(ClampMin="0.0"))
 	float SearchRadius = 5000.0f;
 
-	UPROPERTY(EditAnywhere, Category="Gunner AI", meta=(ClampMin="100.0"))
-	float AttackRange = 900.0f;
-
 	UPROPERTY(EditAnywhere, Category="Gunner AI", meta=(ClampMin="1.0"))
 	float RotationSpeed = 360.0f;
 };

@@ -39,6 +39,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Q Skill") UGrabbableComponent* GetSelectedTarget() const { return SelectedTarget.Get(); }
 	UFUNCTION(BlueprintPure, Category = "Q Skill") TArray<UGrabbableComponent*> GetCandidates() const;
 	UFUNCTION(BlueprintPure, Category = "Q Skill") float GetExecutionScale() const { return ExecutionScale; }
+	float GetCastSpeedScale() const { return ActiveCastSpeed; }
 	UFUNCTION(BlueprintPure, Category = "Q Skill") FVector GetGripLocation() const;
 	UPROPERTY(BlueprintAssignable, Category = "Q Skill") FGurenQStageChanged OnStageChanged;
 	UPROPERTY(BlueprintAssignable, Category = "Q Skill") FGurenQContact OnGrabContact;
@@ -69,6 +70,7 @@ private:
 	FTransform OriginalMeshTransform;
 	FTransform StandTransform;
 	float ExecutionScale = 1.f;
+	float ActiveCastSpeed = 1.f;
 	bool bOriginalOrientToMovement = true;
 	bool bAttached = false;
 	bool bFinishing = false;

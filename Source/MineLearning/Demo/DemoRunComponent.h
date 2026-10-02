@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "MineLearning/Combat/CombatTypes.h"
 #include "MineLearning/PlayerTransformZone.h"
+#include "MineLearning/Mining/ItemTypes.h"
 #include "DemoRunComponent.generated.h"
 
 class AWarehouseDepot;
@@ -11,6 +12,11 @@ class AMineableOre;
 class APawn;
 enum class EItemType : uint8;
 struct FDemoGuidance;
+struct FFormPurchaseRow;
+class UAmmoInventoryComponent;
+DECLARE_MULTICAST_DELEGATE_OneParam(FDemoUnitReady, APawn*);
+DECLARE_DELEGATE_RetVal(bool, FPrepareProductionRun);
+DECLARE_DELEGATE_RetVal_OneParam(bool, FFormPermissionQuery, EPlayerTransformationForm);
 
 UENUM(BlueprintType)
 enum class EDemoPhase : uint8 { Briefing, Production, BossChallenge, Victory };
@@ -31,6 +37,11 @@ class MINELEARNING_API UDemoRunComponent : public UActorComponent
 	GENERATED_BODY()
 public:
 	UDemoRunComponent();
+	FDemoUnitReady OnUnitReady;
+	FPrepareProductionRun PrepareRun;
+	FFormPermissionQuery HasFormPermission;
+	void ConfigureFormCost(EPlayerTransformationForm Form, const TArray<FItemStack>& Cost);
+	AWarehouseDepot* GetWarehouse() const { return Warehouse; }
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	UFUNCTION(BlueprintPure, Category="Demo") bool IsEnabled() const;
@@ -48,10 +59,7 @@ public:
 	bool GetGuidanceDestination(FVector& OutLocation) const;
 	bool IsFormUnlocked(EPlayerTransformationForm Form) const;
 	void ApplyCoreBonus(APawn* Pawn) const;
-	void RecordGunnerAmmo(int32 Ammo);
-	bool ConsumeGunnerMagazine();
-	int32 GetLoadedGunnerAmmo() const { return LoadedGunnerAmmo; }
-	UFUNCTION(BlueprintPure, Category="Demo") int32 GetReserveMagazines() const { return ReserveMagazines; }
+	UFUNCTION(BlueprintPure, Category="Demo") int32 GetReserveMagazines() const;
 	UPROPERTY(BlueprintAssignable, Category="Demo") FCombatStateChanged OnRunChanged;
 	UPROPERTY(EditAnywhere, Category="Demo|Boss", meta=(ClampMin="1")) float ChallengeDuration = 240.f;
 	UPROPERTY(EditAnywhere, Category="Demo|Boss") FVector BossLocation = FVector(0.f, -850.f, 250.f);
@@ -89,8 +97,7 @@ private:
 	float StartedAt = 0.f;
 	float BossStartedAt = 0.f;
 	float FinishedAt = 0.f;
-	int32 LoadedGunnerAmmo = 0;
-	int32 ReserveMagazines = 0;
+	TMap<EPlayerTransformationForm, TArray<FItemStack>> FormCosts;
 	bool bGunnerUnlocked = false;
 	bool bGurenUnlocked = false;
 };

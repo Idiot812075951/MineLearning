@@ -48,6 +48,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Arrival") FVector GetFlightLocation() const;
 	UFUNCTION(BlueprintPure, Category = "Arrival") bool HasGround() const { return bHasGround; }
 	UFUNCTION(BlueprintPure, Category = "Arrival") float GetStageTime() const { return StageTime; }
+	float GetCastSpeedScale() const { return ActiveCastSpeed; }
 	UFUNCTION(BlueprintPure, Category = "Arrival") float GetStageDuration(EGurenUltimateStage InStage) const;
 	const TArray<FArrivalTarget>& GetTargets() const { return Targets; }
 	FBox GetTargetBounds() const;
@@ -90,6 +91,7 @@ private:
 	FVector AttackDirection = FVector::ForwardVector;
 	FVector OriginalVelocity = FVector::ZeroVector;
 	float StageTime = 0.f;
+	float ActiveCastSpeed = 1.f;
 	EMovementMode OriginalMovementMode = MOVE_Walking;
 	uint8 OriginalCustomMode = 0;
 	bool bHasGround = false;

@@ -1,9 +1,14 @@
 #include "CombatComponent.h"
+#include "CombatDamageSubsystem.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/World.h"
 #include "HealthComponent.h"
 #include "MineLearning/AI/GunnerCharacter.h"
 #include "MineLearning/Manifestation/Guren/GurenQSkillComponent.h"
 #include "MineLearning/Interaction/GrabbableComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Components/PrimitiveComponent.h"
+#include "GameFramework/Pawn.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -25,9 +30,9 @@ FCombatAttributes UCombatComponent::GetAttributes() const
 {
 	const UCombatConfig* Definition = GetConfig();
 	FCombatAttributes Result = Definition ? Definition->Attributes : FCombatAttributes();
-	Result.Strength = FMath::Max(0.f, Result.Strength + AttributeBonus.Strength);
-	Result.Agility = FMath::Max(0.f, Result.Agility + AttributeBonus.Agility);
-	Result.Intelligence = FMath::Max(0.f, Result.Intelligence + AttributeBonus.Intelligence);
+	Result.Strength = FMath::Max(0.f, (Result.Strength + AttributeBonus.Strength + EffectiveModifiers.Attributes.Strength) * FMath::Max(0.f, 1.f + EffectiveModifiers.AttributePercent.Strength));
+	Result.Agility = FMath::Max(0.f, (Result.Agility + AttributeBonus.Agility + EffectiveModifiers.Attributes.Agility) * FMath::Max(0.f, 1.f + EffectiveModifiers.AttributePercent.Agility));
+	Result.Intelligence = FMath::Max(0.f, (Result.Intelligence + AttributeBonus.Intelligence + EffectiveModifiers.Attributes.Intelligence) * FMath::Max(0.f, 1.f + EffectiveModifiers.AttributePercent.Intelligence));
 	return Result;
 }
 
@@ -47,6 +52,136 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UCombatComponent, AttributeBonus);
+	DOREPLIFETIME(UCombatComponent, EffectiveModifiers);
+}
+
+bool UCombatComponent::SetModifier(FName Source, const FCombatModifiers& Modifier)
+{
+	if (!GetOwner()->HasAuthority() || Source.IsNone() || !Modifier.IsValid())
+	{
+		return false;
+	}
+	Modifiers.Add(Source, Modifier);
+	RecomputeModifiers();
+	return true;
+}
+
+void UCombatComponent::RemoveModifier(FName Source)
+{
+	if (GetOwner()->HasAuthority() && Modifiers.Remove(Source) > 0)
+	{
+		RecomputeModifiers();
+	}
+}
+
+void UCombatComponent::RecomputeModifiers()
+{
+	EffectiveModifiers = {};
+	// Stable ordering also defines the winner if configured weapon styles conflict.
+	TArray<FName> Sources;
+	Modifiers.GetKeys(Sources);
+	Sources.Sort(FNameLexicalLess());
+	for (FName Source : Sources)
+	{
+		EffectiveModifiers.Add(Modifiers[Source]);
+	}
+	OnAttributesChanged.Broadcast();
+}
+
+float UCombatComponent::EvaluateDamage(FName SkillId) const
+{
+	const UCombatConfig* Definition = GetConfig();
+	const FSkillDamageSpec* Skill = Definition ? Definition->FindSkill(SkillId) : nullptr;
+	return Skill && Skill->bDealsDamage ? FMath::Max(0.f, Skill->Evaluate(GetAttributes())
+		+ (SkillId == PrimarySkillId ? EffectiveModifiers.PrimaryDamageFlat : 0.f))
+		* (SkillId == PrimarySkillId ? FMath::Max(0.f, 1.f + EffectiveModifiers.PrimaryDamage) : 1.f) : 0.f;
+}
+
+float UCombatComponent::GetAttackRange() const
+{
+	const UCombatConfig* Definition = GetConfig();
+	return (Definition ? Definition->AttackRange : 200.f) * GetAttackRangeScale();
+}
+
+float UCombatComponent::GetAttackInterval(float BaseInterval) const
+{
+	const UCombatConfig* Definition = GetConfig();
+	const float Cap = FMath::Max(0.1f, Definition ? Definition->MaxAttacksPerSecond : 5.f);
+	return FMath::Max(1.f / Cap, FMath::Max(0.001f, BaseInterval) / GetAttackSpeedScale());
+}
+
+float UCombatComponent::GetAttackPlayRate(float BaseHitInterval) const
+{
+	return FMath::Max(0.001f, BaseHitInterval) / GetAttackInterval(BaseHitInterval);
+}
+
+float UCombatComponent::GetMaxMoveSpeed() const
+{
+	const UCombatConfig* Definition = GetConfig();
+	return FMath::Max(1.f, Definition ? Definition->MaxMoveSpeed : 1000.f);
+}
+
+float UCombatComponent::GetAttackDistance(const AActor* Target) const
+{
+	if (!IsValid(Target)) { return TNumericLimits<float>::Max(); }
+	float Distance = FVector::Distance(GetOwner()->GetActorLocation(), Target->GetActorLocation());
+	TInlineComponentArray<UPrimitiveComponent*> Components(Target);
+	for (const UPrimitiveComponent* Component : Components)
+	{
+		if (!Component->IsCollisionEnabled()) { continue; }
+		FVector ClosestPoint;
+		const float SurfaceDistance = Component->GetClosestPointOnCollision(GetOwner()->GetActorLocation(), ClosestPoint);
+		if (SurfaceDistance >= 0.f) { Distance = FMath::Min(Distance, SurfaceDistance); }
+	}
+	return Distance;
+}
+
+bool UCombatComponent::IsInAttackRange(const AActor* Target) const
+{
+	return GetAttackDistance(Target) <= GetAttackRange();
+}
+
+void UCombatComponent::NotifyAttackResolved(bool bHit, bool bCheckAimOnMiss)
+{
+	if (GetOwner()->HasAuthority())
+	{
+		// Empty melee swings still detect a valid target beyond reach for player feedback.
+		const APawn* Pawn = Cast<APawn>(GetOwner());
+		if (!bHit && bCheckAimOnMiss && Pawn && Pawn->IsPlayerControlled())
+		{
+			FVector Origin;
+			FRotator View;
+			Pawn->GetController()->GetPlayerViewPoint(Origin, View);
+			FHitResult Hit;
+			FCollisionQueryParams Query(SCENE_QUERY_STAT(AttackMissRange), true, Pawn);
+			if (GetWorld()->LineTraceSingleByChannel(Hit, Origin, Origin + View.Vector() * 10000.f, ECC_Visibility, Query)
+				&& UCombatDamageSubsystem::CanDamageTarget(Pawn, Hit.GetActor()) && !IsInAttackRange(Hit.GetActor()))
+			{
+				NotifyAttackOutOfRange();
+			}
+		}
+		OnPrimaryAttackResolved.Broadcast(bHit, GetOwner()->GetVelocity().SizeSquared2D() > FMath::Square(10.f));
+	}
+}
+
+bool UCombatComponent::IsStrafing() const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	const float Yaw = Pawn && Pawn->IsPlayerControlled() ? Pawn->GetControlRotation().Yaw : GetOwner()->GetActorRotation().Yaw;
+	const FVector LocalVelocity = FRotator(0.f, Yaw, 0.f).UnrotateVector(GetOwner()->GetVelocity());
+	return LocalVelocity.SizeSquared2D() > FMath::Square(10.f) && FMath::Abs(LocalVelocity.Y) > FMath::Abs(LocalVelocity.X);
+}
+
+void UCombatComponent::NotifyAttackOutOfRange()
+{
+	if (GetOwner()->HasAuthority()) { OnAttackOutOfRange.Broadcast(); }
+}
+
+bool UCombatComponent::RollAIAttackMiss() const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	return Pawn && Pawn->GetController() && !Pawn->IsPlayerControlled()
+		&& FMath::FRand() < FMath::Clamp(EffectiveModifiers.AIMissChance, 0.f, 1.f);
 }
 
 FCombatPanelViewData UCombatComponent::GetPanelData() const
@@ -64,6 +199,11 @@ FCombatPanelViewData UCombatComponent::GetPanelData() const
 	Lines.Add(FText::Format(NSLOCTEXT("Combat", "PanelHeader", "{0}\n生命  {1} / {2}\n\n力量 Strength  {3}    敏捷 Agility  {4}    能量 Energy  {5}\n\n技能与计算"),
 		Result.Name, FText::AsNumber(Result.Health), FText::AsNumber(Result.MaxHealth),
 		FText::AsNumber(Result.Attributes.Strength), FText::AsNumber(Result.Attributes.Agility), FText::AsNumber(Result.Attributes.Intelligence)));
+	Lines.Add(FText::Format(NSLOCTEXT("Combat", "SpeedModifiers", "移速倍率 {0} | 攻速倍率 {1} | 施法倍率 {2}"),
+		FText::AsNumber(GetMoveSpeedScale()), FText::AsNumber(GetAttackSpeedScale()), FText::AsNumber(GetCastSpeedScale())));
+	Lines.Add(FText::Format(NSLOCTEXT("Combat", "AttackLimits", "普攻距离 {0} 米 · 移速上限 {1} cm/s · 普攻上限 {2} 次/秒"),
+		FText::AsNumber(GetAttackRange() / 100.f), FText::AsNumber(GetMaxMoveSpeed()),
+		FText::AsNumber(Definition ? Definition->MaxAttacksPerSecond : 5.f)));
 	if (Definition)
 	{
 		for (const FSkillDamageSpec& Spec : Definition->Skills)
@@ -73,7 +213,7 @@ FCombatPanelViewData UCombatComponent::GetPanelData() const
 			Skill.Contributions.Strength = Result.Attributes.Strength * Spec.StrengthScale;
 			Skill.Contributions.Agility = Result.Attributes.Agility * Spec.AgilityScale;
 			Skill.Contributions.Intelligence = Result.Attributes.Intelligence * Spec.IntelligenceScale;
-			Skill.Damage = Spec.Evaluate(Result.Attributes);
+			Skill.Damage = EvaluateDamage(Spec.SkillId);
 			const int32 FirstLine = Lines.Num();
 			Lines.Add(FText::Format(NSLOCTEXT("Combat", "SkillTitle", "\n{0} · {1}\n{2}"), Spec.Input, Spec.Name, Spec.Description));
 			if (Spec.bDealsDamage)

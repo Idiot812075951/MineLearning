@@ -52,6 +52,7 @@ UNiagaraComponent* UGurenUltimatePresentationComponent::SpawnRadiation(const FVe
 	if (Effect)
 	{
 		Effects.Add(Effect);
+		Effect->SetCustomTimeDilation(Skill->GetCastSpeedScale());
 		Effect->SetVariableFloat(TEXT("User.Intensity"), 0.65f);
 		Effect->SetVariableFloat(TEXT("User.HeatIntensity"), 0.5f);
 	}
@@ -188,6 +189,7 @@ void UGurenUltimatePresentationComponent::TargetPierced(int32 TargetIndex)
 				Effect->SetVariableFloat(TEXT("User.ParticleScale"), Size);
 				Effect->SetVariableFloat(TEXT("User.ParticleSpeed"), Speed * FMath::Sqrt(Size));
 				Effect->SetVariableFloat(TEXT("User.EffectDuration"), Duration);
+				Effect->SetCustomTimeDilation(Skill->GetCastSpeedScale());
 				Effect->SetVariableFloat(TEXT("User.InwardDepth"), Snapshot.bBoundsFallback ? Mesh->Bounds.BoxExtent.GetMin() : 2.f);
 				Effect->SetVariablePosition(TEXT("User.ScatterCenterWS"), Snapshot.Center - Skill->GetAttackDirection() * Snapshot.Radius * 0.35f);
 				Effect->SetVariablePosition(TEXT("User.DissolveOriginWS"), Snapshot.Center);
@@ -225,6 +227,10 @@ void UGurenUltimatePresentationComponent::TargetPierced(int32 TargetIndex)
 			TargetCharges[TargetIndex] = UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), TargetChargeSystem,
 				Bounds.GetCenter(), FRotator::ZeroRotator, FVector(FMath::Clamp(Bounds.GetExtent().GetMax() / 45.f, 0.7f, 8.f)),
 				false, true, ENCPoolMethod::None, false);
+			if (TargetCharges[TargetIndex])
+			{
+				TargetCharges[TargetIndex]->SetCustomTimeDilation(Skill->GetCastSpeedScale());
+			}
 		}
 	}
 	if (BeatSounds.IsValidIndex(2) && BeatSounds[2])
@@ -236,7 +242,7 @@ void UGurenUltimatePresentationComponent::TargetPierced(int32 TargetIndex)
 void UGurenUltimatePresentationComponent::UpdateTargets(float DeltaTime)
 {
 	const EGurenUltimateStage Stage = Skill->GetStage();
-	const float Remaining = Stage == EGurenUltimateStage::Arrival ? Skill->GetStageDuration(Stage) - Skill->GetStageTime() : DisintegrateLeadTime + 1.f;
+	const float Remaining = Stage == EGurenUltimateStage::Arrival ? (Skill->GetStageDuration(Stage) - Skill->GetStageTime()) * Skill->GetCastSpeedScale() : DisintegrateLeadTime + 1.f;
 
 	for (const FArrivalMaterialSnapshot& Snapshot : Materials)
 	{
@@ -631,6 +637,8 @@ void UGurenUltimatePresentationComponent::UpdateArm(float DeltaTime)
 void UGurenUltimatePresentationComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* TickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, TickFunction);
+	// Presentation curves use authored time; gameplay stage durations use world time.
+	DeltaTime *= Skill->GetCastSpeedScale();
 	Age += DeltaTime;
 	const EGurenUltimateStage Stage = Skill->GetStage();
 	UpdateCamera(DeltaTime);

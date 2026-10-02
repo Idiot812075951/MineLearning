@@ -146,11 +146,22 @@ void AHaulerCharacter::PlayInteractionAnimation(UAnimSequence* Sequence, bool bP
 	GetWorldTimerManager().ClearTimer(InteractionNotifyFallbackHandle);
 	GetWorldTimerManager().ClearTimer(InteractionFinishedHandle);
 
-	const float Duration = IsValid(Sequence) ? Sequence->GetPlayLength() : 0.1f;
+	// This action is both an attack and a skill: combine bonuses, not multipliers.
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	const FCombatModifiers Bonuses = Combat ? Combat->GetModifiers() : FCombatModifiers();
+	const float BaseDuration = IsValid(Sequence) ? Sequence->GetPlayLength() : 0.2f;
+	const UCombatConfig* Config = Combat ? Combat->GetConfig() : nullptr;
+	const float MaxRate = Config ? Config->MaxAttacksPerSecond : 5.f;
+	const float Speed = FMath::Min(FMath::Max(0.1f, 1.f + Bonuses.AttackSpeed + Bonuses.CastSpeed), BaseDuration * MaxRate);
+	const float Duration = BaseDuration / Speed;
+	if (IsPlayerControlled())
+	{
+		NextPlayerTransferTime = GetWorld()->GetTimeSeconds() + Duration + 0.12f / Speed;
+	}
 	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance(); IsValid(Sequence) && AnimInstance)
 	{
 		AnimInstance->PlaySlotAnimationAsDynamicMontage(
-			Sequence, TEXT("DefaultSlot"), 0.08f, 0.10f, 1.0f, 1, -1.0f, 0.0f);
+			Sequence, TEXT("DefaultSlot"), 0.08f / Speed, 0.10f / Speed, Speed, 1, -1.0f, 0.0f);
 	}
 
 	if (bPickup)
@@ -160,7 +171,7 @@ void AHaulerCharacter::PlayInteractionAnimation(UAnimSequence* Sequence, bool bP
 			FMath::Max(0.05f, Duration * 0.88f), false);
 		GetWorldTimerManager().SetTimer(
 			InteractionFinishedHandle, this, &AHaulerCharacter::HandlePickupAnimationFinished,
-			Duration + 0.12f, false);
+			Duration + 0.12f / Speed, false);
 	}
 	else
 	{
@@ -169,7 +180,7 @@ void AHaulerCharacter::PlayInteractionAnimation(UAnimSequence* Sequence, bool bP
 			FMath::Max(0.05f, Duration * 0.88f), false);
 		GetWorldTimerManager().SetTimer(
 			InteractionFinishedHandle, this, &AHaulerCharacter::HandleDropOffAnimationFinished,
-			Duration + 0.12f, false);
+			Duration + 0.12f / Speed, false);
 	}
 }
 
@@ -210,4 +221,10 @@ void AHaulerCharacter::HandleDropOffAnimationFinished()
 bool AHaulerCharacter::HasVisibleCargo() const
 {
 	return CarriedItemVisual && CarriedItemVisual->IsVisible();
+}
+
+float AHaulerCharacter::GetInteractionRange() const
+{
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	return Combat ? Combat->GetAttackRange() : 260.f;
 }

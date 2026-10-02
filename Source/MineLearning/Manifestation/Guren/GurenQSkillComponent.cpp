@@ -1,4 +1,5 @@
 #include "GurenQSkillComponent.h"
+#include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/CombatDamageSubsystem.h"
 #include "MineLearning/Combat/HealthComponent.h"
 
@@ -164,6 +165,8 @@ void UGurenQSkillComponent::TryCast()
 		return;
 	}
 	Target = Candidate;
+	const UCombatComponent* Combat = Character->FindComponentByClass<UCombatComponent>();
+	ActiveCastSpeed = Combat ? Combat->GetCastSpeedScale() : 1.f;
 	OriginalMeshTransform = Character->GetMesh()->GetRelativeTransform();
 	ExecutionScale = CalculateScale(Candidate);
 	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
@@ -197,7 +200,7 @@ void UGurenQSkillComponent::TryCast()
 		Warp->AddOrUpdateWarpTargetFromTransform(TEXT("Q_DashTarget"), StandTransform);
 	}
 	SetComponentTickEnabled(true);
-	GetWorld()->GetTimerManager().SetTimer(Watchdog, this, &UGurenQSkillComponent::Cancel, ExecutionTimeout, false);
+	GetWorld()->GetTimerManager().SetTimer(Watchdog, this, &UGurenQSkillComponent::Cancel, ExecutionTimeout / ActiveCastSpeed, false);
 	const float Distance = FVector::Dist2D(Character->GetActorLocation(), StandLocation);
 	SetStage(Distance > DirectGrabRange ? EGurenQStage::Dash : EGurenQStage::Grab);
 	RefreshTargets();
@@ -213,7 +216,7 @@ void UGurenQSkillComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	}
 	if (Stage == EGurenQStage::Grab && !bAttached)
 	{
-		GetOwner()->SetActorLocation(FMath::VInterpTo(GetOwner()->GetActorLocation(), StandTransform.GetLocation(), DeltaTime, ReachSpeed), true);
+		GetOwner()->SetActorLocation(FMath::VInterpTo(GetOwner()->GetActorLocation(), StandTransform.GetLocation(), DeltaTime, ReachSpeed * ActiveCastSpeed), true);
 	}
 }
 

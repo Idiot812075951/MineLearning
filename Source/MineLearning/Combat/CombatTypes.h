@@ -36,6 +36,8 @@ struct FCombatDamageRequest
 	UPROPERTY(BlueprintReadWrite) TObjectPtr<AActor> Target = nullptr;
 	UPROPERTY(BlueprintReadWrite) FName SkillId;
 	UPROPERTY(BlueprintReadWrite) float Multiplier = 1.f;
+	/** Negative means evaluate live. Nonnegative is a server-owned attack-start snapshot. */
+	float SnapshotDamage = -1.f;
 	// Ability-owned authorization: Q locks this at contact, Arrival uses pre-hit HP.
 	UPROPERTY(BlueprintReadWrite) bool bExecute = false;
 	UPROPERTY(BlueprintReadWrite) bool bNonLethal = false;

@@ -82,6 +82,7 @@ bool APlayerTransformZone::TrySelectForm(
 		return false;
 	}
 
+	APawn* PreviousPawn = PlayerController ? PlayerController->GetPawn() : nullptr;
 	if (!TrySwapPawn(PlayerController, TargetPawnClass))
 	{
 		return false;
@@ -89,6 +90,10 @@ bool APlayerTransformZone::TrySelectForm(
 
 	UE_LOG(LogPlayerTransformation, Log, TEXT("Player selected transformation form %s."),
 		*UEnum::GetValueAsString(Form));
+	if (PreviousPawn != PlayerController->GetPawn())
+	{
+		OnTransformationCommitted.Broadcast(PlayerController, PlayerController->GetPawn(), Form);
+	}
 	return true;
 }
 

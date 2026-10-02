@@ -1,4 +1,5 @@
 #include "HaulerAIController.h"
+#include "MineLearning/Combat/CombatComponent.h"
 
 #include "HaulerCharacter.h"
 #include "EngineUtils.h"
@@ -246,7 +247,7 @@ bool AHaulerAIController::MoveToCurrentPickup()
 	bIssuingMoveRequest = true;
 	const EPathFollowingRequestResult::Type Result = MoveToActor(
 		TargetPickup,
-		PickupAcceptanceRadius,
+		Hauler->GetInteractionRange(),
 		true,
 		true,
 		true,
@@ -302,6 +303,13 @@ bool AHaulerAIController::CollectCurrentPickup()
 	}
 
 	const bool bUseExplicitDelivery = TargetPickup->HasUsableExplicitDeliveryTarget();
+	UCombatComponent* Combat = Hauler->FindComponentByClass<UCombatComponent>();
+	if (Combat && (!Combat->IsInAttackRange(TargetPickup) || Combat->RollAIAttackMiss()))
+	{
+		Combat->NotifyAttackResolved(false);
+		ResetToIdle();
+		return false;
+	}
 	AActor* CurrentDestination = bUseExplicitDelivery
 		? TargetPickup->GetExplicitDeliveryActor()
 		: UItemLogisticsLibrary::ResolveDestination(
@@ -341,6 +349,7 @@ bool AHaulerAIController::CollectCurrentPickup()
 	UE_LOG(LogTemp, Display, TEXT("[HaulerV1] Picked ItemType=%d Amount=%d"),
 		static_cast<int32>(PickupItem.ItemType), CarryComponent->GetCurrentItem().Amount);
 	bPickupCommitted = true;
+	if (Combat) { Combat->NotifyAttackResolved(true); }
 	return true;
 }
 
@@ -437,6 +446,13 @@ bool AHaulerAIController::DepositCurrentItem()
 	}
 
 	const FItemStack CarriedItem = CarryComponent->GetCurrentItem();
+	UCombatComponent* Combat = Hauler->FindComponentByClass<UCombatComponent>();
+	if (Combat && Combat->RollAIAttackMiss())
+	{
+		Combat->NotifyAttackResolved(false);
+		ResetToIdle();
+		return false;
+	}
 	if (HasValidExplicitDeliveryRoute(CarriedItem))
 	{
 		AActor* CurrentDestination = IsValid(ExplicitDeliveryStorage)
@@ -490,6 +506,7 @@ bool AHaulerAIController::DepositCurrentItem()
 	CarryComponent->ClearItems();
 	Hauler->HideCarriedItem();
 	bDropOffCommitted = true;
+	if (Combat) { Combat->NotifyAttackResolved(true); }
 	return true;
 }
 
@@ -702,7 +719,7 @@ void AHaulerAIController::TickDirectMove(float DeltaSeconds)
 	if (State == EHaulerState::MovingToPickup && IsValid(TargetPickup))
 	{
 		TargetLocation = TargetPickup->GetActorLocation();
-		AcceptanceRadius = PickupAcceptanceRadius;
+		AcceptanceRadius = Hauler->GetInteractionRange();
 	}
 	else if (State == EHaulerState::MovingToDestination && IsValid(TargetDestination))
 	{

@@ -22,7 +22,9 @@ FCombatDamageResult UCombatDamageSubsystem::ApplyDamage(const FCombatDamageReque
 	const UCombatConfig* Definition = Combat ? Combat->GetConfig() : nullptr;
 	const FSkillDamageSpec* Skill = Definition ? Definition->FindSkill(Request.SkillId) : nullptr;
 	if (!Skill || !Skill->bDealsDamage) { return {}; }
-	const float Damage = Skill->Evaluate(Combat->GetAttributes()) * Request.Multiplier;
+	if (Request.SkillId == Combat->PrimarySkillId && !Combat->IsInAttackRange(Request.Target)) { return {}; }
+	if (!FMath::IsFinite(Request.SnapshotDamage)) { return {}; }
+	const float Damage = (Request.SnapshotDamage >= 0.f ? Request.SnapshotDamage : Combat->EvaluateDamage(Request.SkillId)) * Request.Multiplier;
 	if (!FMath::IsFinite(Damage)) { return {}; }
 	return Request.Target->FindComponentByClass<UHealthComponent>()->ApplyResolvedDamage(Request, Damage);
 }

@@ -1,4 +1,5 @@
 #include "GurenUltimateComponent.h"
+#include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/CombatDamageSubsystem.h"
 #include "MineLearning/Combat/HealthComponent.h"
 #include "GurenQSkillComponent.h"
@@ -225,6 +226,8 @@ bool UGurenUltimateComponent::TryStart(AActor* RequestedTarget)
 	}
 	bCommitted = false;
 	SetComponentTickEnabled(true);
+	const UCombatComponent* Combat = Character->FindComponentByClass<UCombatComponent>();
+	ActiveCastSpeed = Combat ? Combat->GetCastSpeedScale() : 1.f;
 	SetStage(EGurenUltimateStage::Ready);
 	return IsUltimateActive();
 }
@@ -234,7 +237,7 @@ float UGurenUltimateComponent::GetStageDuration(EGurenUltimateStage InStage) con
 	const int32 Index = static_cast<int32>(InStage) - 1;
 	const float Duration = StageDurations.IsValidIndex(Index) ? FMath::Max(0.1f, StageDurations[Index]) : 0.5f;
 	return InStage == EGurenUltimateStage::Launch || InStage == EGurenUltimateStage::Impact
-		? Duration / FMath::Max(0.1f, FlightSpeedMultiplier) : Duration;
+		? Duration / (FMath::Max(0.1f, FlightSpeedMultiplier) * ActiveCastSpeed) : Duration / ActiveCastSpeed;
 }
 
 FVector UGurenUltimateComponent::EvaluateArc(const FVector& Start, const FVector& End, const FVector& Side, float Width, float Alpha)
