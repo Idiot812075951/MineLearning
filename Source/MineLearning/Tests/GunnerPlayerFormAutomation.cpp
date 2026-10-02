@@ -199,15 +199,7 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 			TEXT("Gunner gameplay class does not own a skill-bar widget"),
 			FindFProperty<FObjectProperty>(AGunnerCharacter::StaticClass(), TEXT("PlayerSkillWidget")));
 
-		const FFloatProperty* BurstChanceProperty = FindFProperty<FFloatProperty>(
-			AGunnerCharacter::StaticClass(),
-			TEXT("BurstChance"));
-		if (TestNotNull(TEXT("Burst probability remains configurable"), BurstChanceProperty))
-		{
-			TestTrue(
-				TEXT("Default attack has the established 50 percent burst chance"),
-				FMath::IsNearlyEqual(BurstChanceProperty->GetPropertyValue_InContainer(Gunner), 0.5f));
-		}
+
 
 		TestNotNull(TEXT("Player camera boom"), Gunner->FindComponentByClass<USpringArmComponent>());
 		TestNotNull(TEXT("Player follow camera"), Gunner->FindComponentByClass<UCameraComponent>());
@@ -220,32 +212,26 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 		UEnhancedInputComponent* InputComponent = NewObject<UEnhancedInputComponent>(Gunner);
 		Gunner->SetupPlayerInputComponent(InputComponent);
 		TestEqual(
-			TEXT("Movement, look, fire and reload provide six trigger bindings"),
+			TEXT("Move/look/reload remain Enhanced Input; left mouse fire is removed"),
 			InputComponent->GetActionEventBindings().Num(),
-			6);
+			3);
 
-		const FEnhancedInputActionEventBinding* FireStartedBinding = nullptr;
-		const FEnhancedInputActionEventBinding* FireCompletedBinding = nullptr;
-		for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : InputComponent->GetActionEventBindings())
+		FInputKeyBinding* FireStartedBinding = nullptr;
+		FInputKeyBinding* FireCompletedBinding = nullptr;
+		for (FInputKeyBinding& Binding : InputComponent->KeyBindings)
 		{
-			if (!Binding || !Binding->GetAction()
-				|| Binding->GetAction()->GetName() != TEXT("IA_RobotSkill1"))
+			if (Binding.Chord.Key == EKeys::LeftMouseButton)
 			{
-				continue;
-			}
-
-			if (Binding->GetTriggerEvent() == ETriggerEvent::Started)
-			{
-				FireStartedBinding = Binding.Get();
-			}
-			else if (Binding->GetTriggerEvent() == ETriggerEvent::Completed)
-			{
-				FireCompletedBinding = Binding.Get();
+				if (Binding.KeyEvent == IE_Pressed) { FireStartedBinding = &Binding; }
+				if (Binding.KeyEvent == IE_Released) { FireCompletedBinding = &Binding; }
 			}
 		}
-
-		TestNotNull(TEXT("Q fire Started binding"), FireStartedBinding);
-		TestNotNull(TEXT("Q fire Completed binding"), FireCompletedBinding);
+		for (const auto& Binding : InputComponent->GetActionEventBindings())
+		{
+			TestFalse(TEXT("Gunner has no old Q action"), Binding->GetAction()->GetName() == TEXT("IA_RobotSkill1"));
+		}
+		TestNotNull(TEXT("Left mouse pressed"), FireStartedBinding);
+		TestNotNull(TEXT("Left mouse released"), FireCompletedBinding);
 		APlayerController* PlayerController = World->SpawnActor<APlayerController>(
 			APlayerController::StaticClass(),
 			FVector::ZeroVector,
@@ -265,43 +251,50 @@ bool FGunnerPlayerFormCombatTest::RunTest(const FString& Parameters)
 				TEXT("Transient local player resolves its controller"),
 				LocalPlayer->GetPlayerController(World),
 				PlayerController);
+			const EMouseCaptureMode CaptureBefore = TestViewportClient->GetMouseCaptureMode();
+			const EMouseLockMode LockBefore = TestViewportClient->GetMouseLockMode();
 			PlayerController->Possess(Gunner);
-			TestTrue(TEXT("Gunner keeps the same visible cursor as the human form"), PlayerController->bShowMouseCursor);
+			TestFalse(TEXT("Gunner does not override controller cursor policy"), PlayerController->bShowMouseCursor);
 			TestTrue(TEXT("Local controller possesses the Gunner form"), PlayerController->GetPawn() == Gunner);
 			TestEqual(
-				TEXT("Mouse capture begins only while a mouse button is held"),
+				TEXT("Gunner preserves controller mouse capture policy"),
 				TestViewportClient->GetMouseCaptureMode(),
-				EMouseCaptureMode::CaptureDuringMouseDown);
+				CaptureBefore);
 			TestEqual(
-				TEXT("Gunner does not lock the cursor to the game viewport"),
+				TEXT("Gunner preserves controller mouse lock policy"),
 				TestViewportClient->GetMouseLockMode(),
-				EMouseLockMode::DoNotLock);
+				LockBefore);
 			PlayerController->SetControlRotation(FRotator(0.0f, 90.0f, 0.0f));
 
+			Gunner->RestoreLoadedAmmo(20);
 			const int32 InitialAmmo = Gunner->GetCurrentAmmo();
-			const FInputActionInstance FireActionInstance(FireStartedBinding->GetAction());
-			FireStartedBinding->Execute(FireActionInstance);
+			FireStartedBinding->KeyDelegate.Execute(EKeys::LeftMouseButton);
 			TestEqual(
-				TEXT("Q does not fire before Gunner faces the aim yaw"),
+				TEXT("Left mouse does not fire before Gunner faces the aim yaw"),
 				Gunner->GetCurrentAmmo(),
 				InitialAmmo);
 
-			// Exercise a quick tap directly through the bindings. Releasing Q must
+			// Exercise a quick tap directly through the bindings. Releasing left mouse must
 			// not discard the shot that is still waiting for body alignment.
-			FireCompletedBinding->Execute(FireActionInstance);
+			FireCompletedBinding->KeyDelegate.Execute(EKeys::LeftMouseButton);
 			TestEqual(
-				TEXT("Quick Q release keeps the pending aligned shot"),
+				TEXT("Quick left mouse release keeps the pending aligned shot"),
 				Gunner->GetCurrentAmmo(),
 				InitialAmmo);
 
+			USpringArmComponent* Boom = Gunner->FindComponentByClass<USpringArmComponent>();
+			Boom->TickComponent(1.f / 60.f, LEVELTICK_All, nullptr);
+			const FTransform CameraBeforeTurn = Gunner->FindComponentByClass<UCameraComponent>()->GetComponentTransform();
 			Gunner->SetActorRotation(FRotator(0.0f, 90.0f, 0.0f));
+			TestTrue(TEXT("Body turn cannot move or rotate the view between spring-arm ticks"),
+				CameraBeforeTurn.Equals(Gunner->FindComponentByClass<UCameraComponent>()->GetComponentTransform(), 0.01f));
 			Gunner->Tick(1.0f / 60.0f);
 			const int32 SpentRounds = InitialAmmo - Gunner->GetCurrentAmmo();
-			TestTrue(TEXT("Aligned Q attack consumes one or three rounds"), SpentRounds == 1 || SpentRounds == 3);
+			TestTrue(TEXT("Aligned left mouse attack consumes one or three rounds"), SpentRounds == 1 || SpentRounds == 3);
 			if (Movement)
 			{
-				TestFalse(TEXT("Quick Q tap exits controller-facing rotation after firing"), Movement->bUseControllerDesiredRotation);
-				TestTrue(TEXT("Quick Q tap restores movement-facing rotation after firing"), Movement->bOrientRotationToMovement);
+				TestFalse(TEXT("Quick left mouse tap exits controller-facing rotation after firing"), Movement->bUseControllerDesiredRotation);
+				TestTrue(TEXT("Quick left mouse tap restores movement-facing rotation after firing"), Movement->bOrientRotationToMovement);
 			}
 
 			PlayerController->UnPossess();

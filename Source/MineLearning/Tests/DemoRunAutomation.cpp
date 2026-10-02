@@ -2,6 +2,8 @@
 #include "Misc/AutomationTest.h"
 #include "MineLearning/MineLearningPlayerController.h"
 #include "MineLearning/Demo/DemoRunComponent.h"
+#include "MineLearning/Roguelite/MineRunCoordinatorComponent.h"
+#include "MineLearning/Roguelite/MetaProgressComponent.h"
 #include "MineLearning/Combat/CombatComponent.h"
 #include "MineLearning/Combat/HealthComponent.h"
 #include "MineLearning/Mining/WarehouseDepot.h"
@@ -94,6 +96,11 @@ public:
   const float Now = World->GetTimeSeconds();
   if (Step == 0)
   {
+   auto* Coordinator = PC->GetRunCoordinator();
+   auto* Catalog = DuplicateObject(Coordinator->GetCatalog(), GetTransientPackage());
+   Catalog->SaveSlot = TEXT("Automation_BossEconomy_") + FGuid::NewGuid().ToString();
+   Coordinator->GetMetaProgress()->Initialize(Catalog);
+   TestProfile = Coordinator->GetMetaProgress();
    Test->TestTrue(TEXT("Start unlimited production"), Run->ExecuteCommand(EDemoCommand::Start));
    Test->TestEqual(TEXT("No production countdown"), Run->RemainingSeconds, 0.f);
    Storage->AddItem({EItemType::Coin,60}); Storage->AddItem({EItemType::IronIngot,40});
@@ -102,6 +109,18 @@ public:
    Test->TestTrue(TEXT("Third upgrade"),Run->ExecuteCommand(EDemoCommand::UpgradeStrength));
    Test->TestFalse(TEXT("Upgrade capped"),Run->ExecuteCommand(EDemoCommand::UpgradeStrength));
    Test->TestEqual(TEXT("Escalating upgrade total price 12"), Storage->GetAvailableItemAmount(EItemType::Coin),48);
+   // Form cost belongs to the catalog, not a historical hard-coded ingot assumption.
+   for (FName Id : Catalog->Forms->GetRowNames())
+   {
+    const FFormPurchaseRow* Form = Catalog->Forms->FindRow<FFormPurchaseRow>(Id, TEXT("BossEconomyTest"));
+    if (Form && Form->Form == EPlayerTransformationForm::Gunner)
+    {
+     for (const FItemStack& Cost : Form->Cost)
+     {
+      Test->TestTrue(TEXT("Configured form cost stocked"), Storage->AddItem(Cost));
+     }
+    }
+   }
    Test->TestTrue(TEXT("Unlock Gunner"),Run->ExecuteCommand(EDemoCommand::UnlockGunner));
    Test->TestTrue(TEXT("Transform Gunner"),Run->ExecuteCommand(EDemoCommand::Gunner));
    auto* Gunner = Cast<AGunnerCharacter>(PC->GetPawn());
@@ -109,9 +128,9 @@ public:
    Test->TestEqual(TEXT("No free initial magazine"),Gunner->GetCurrentAmmo(),0);
    Test->TestFalse(TEXT("Cannot reload without purchased magazine"),Gunner->RequestReload());
    Test->TestTrue(TEXT("Buy magazine"),Run->ExecuteCommand(EDemoCommand::BuyMagazine));
-   Test->TestEqual(TEXT("One ingot per magazine"),Storage->GetAvailableItemAmount(EItemType::IronIngot),37);
+   Test->TestEqual(TEXT("One ingot per magazine"),Storage->GetAvailableItemAmount(EItemType::IronIngot),39);
    Test->TestTrue(TEXT("Paid reload starts"),Gunner->RequestReload());
-   Test->TestEqual(TEXT("Reserve spent once"),Run->GetReserveMagazines(),0);
+   Test->TestEqual(TEXT("Reserved magazine is unavailable"),Run->GetReserveMagazines(),0);
    Test->TestFalse(TEXT("No duplicate reload"),Gunner->RequestReload());
    Test->TestFalse(TEXT("Cannot transform during reload"),Run->ExecuteCommand(EDemoCommand::OreBuddy));
    WaitUntil=Now+12;Step=1;return false;
@@ -121,20 +140,21 @@ public:
    auto* Gunner=Cast<AGunnerCharacter>(PC->GetPawn());
    if(Gunner->IsWeaponBusy()) { if(Now>WaitUntil){Test->AddError(TEXT("Reload stuck"));return true;} return false; }
    Test->TestEqual(TEXT("Real reload provides twenty rounds"),Gunner->GetCurrentAmmo(),20);
-   Gunner->RestoreLoadedAmmo(7);Run->RecordGunnerAmmo(7);
+   Test->TestEqual(TEXT("Completed reload spends reserve once"),Run->GetReserveMagazines(),0);
+   Gunner->RestoreLoadedAmmo(7);
    Test->TestTrue(TEXT("Leave Gunner"),Run->ExecuteCommand(EDemoCommand::OreBuddy));
    Test->TestTrue(TEXT("Return Gunner"),Run->ExecuteCommand(EDemoCommand::Gunner));
    Test->TestEqual(TEXT("Transform cannot refill ammo"),Cast<AGunnerCharacter>(PC->GetPawn())->GetCurrentAmmo(),7);
    Storage->TryReserveItem({EItemType::Coin,40});
    Test->TestFalse(TEXT("Reserved funds cannot summon"),Run->ExecuteCommand(EDemoCommand::SubmitMaterials));
-   Test->TestEqual(TEXT("Rejected summon atomic ingots"),Storage->GetAvailableItemAmount(EItemType::IronIngot),37);
+   Test->TestEqual(TEXT("Rejected summon atomic ingots"),Storage->GetAvailableItemAmount(EItemType::IronIngot),39);
    Storage->ReleaseReservedItem({EItemType::Coin,40});
    Run->ChallengeDuration=2;
    Test->TestTrue(TEXT("Summon without robot prerequisites"),Run->ExecuteCommand(EDemoCommand::SubmitMaterials));
    Test->TestNotNull(TEXT("Boss spawned"),Run->BossTarget.Get());
    Test->TestEqual(TEXT("Authored boss health"),Run->BossTarget->GetMaxHealth(),8000.f);
    Test->TestEqual(TEXT("Summon coins"),Storage->GetAvailableItemAmount(EItemType::Coin),28);
-   Test->TestEqual(TEXT("Summon ingots"),Storage->GetAvailableItemAmount(EItemType::IronIngot),25);
+   Test->TestEqual(TEXT("Summon ingots"),Storage->GetAvailableItemAmount(EItemType::IronIngot),27);
    Test->TestFalse(TEXT("No duplicate active summon"),Run->ExecuteCommand(EDemoCommand::SubmitMaterials));
    WaitUntil=Now+3;Step=2;return false;
   }
@@ -145,7 +165,7 @@ public:
    Test->TestFalse(TEXT("Timeout is not game over"),Run->IsFinished());
    Test->TestNull(TEXT("Expired target removed"),Run->BossTarget.Get());
    Test->TestEqual(TEXT("Core survives timeout"),Run->CoreBonus.Strength,15.f);
-   Test->TestEqual(TEXT("Ammo survives timeout"),Run->GetLoadedGunnerAmmo(),7);
+   Test->TestEqual(TEXT("Ammo survives timeout"),Cast<AGunnerCharacter>(PC->GetPawn())->GetCurrentAmmo(),7);
    Run->ChallengeDuration=240;
    Test->TestTrue(TEXT("Paid retry"),Run->ExecuteCommand(EDemoCommand::SubmitMaterials));
    Test->TestEqual(TEXT("Retry charged again"),Storage->GetAvailableItemAmount(EItemType::Coin),8);
@@ -157,8 +177,13 @@ public:
   }
   return true;
  }
+ ~FDemoBossEconomyCheck() override
+ {
+  if (TestProfile.IsValid()) { TestProfile->ClearProfile(); }
+ }
 private:
  FAutomationTestBase* Test;
+ TWeakObjectPtr<UMetaProgressComponent> TestProfile;
  int32 Step=0;
  float WaitUntil=0;
 };
@@ -200,7 +225,7 @@ public:
   }
   if(Run->GetPhase()==EDemoPhase::Victory)
   {
-   Test->AddInfo(FString::Printf(TEXT("Full 8000 HP boss defeated with real Gunner shots in %.1fs; loaded=%d reserves=%d"),Now-Started,Run->GetLoadedGunnerAmmo(),Run->GetReserveMagazines()));
+   Test->AddInfo(FString::Printf(TEXT("Full 8000 HP boss defeated with real Gunner shots in %.1fs; loaded=%d reserves=%d"),Now-Started,Cast<AGunnerCharacter>(PC->GetPawn())->GetCurrentAmmo(),Run->GetReserveMagazines()));
    Test->TestTrue(TEXT("Boss is sustained combat"),Now-Started>30.f);
    return true;
   }

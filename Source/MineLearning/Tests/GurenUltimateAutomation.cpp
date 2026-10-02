@@ -97,7 +97,18 @@ bool FGurenUltimateLifecycleTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Original movement mode restored"), Character->GetCharacterMovement()->MovementMode.GetValue(), MOVE_Flying);
 	}
 	Player->SetIgnoreMoveInput(true);
+	FCombatModifiers Speed;
+	Speed.CastSpeed = 1.f;
+	Combat->SetModifier(TEXT("Test.CastSpeed"), Speed);
+	TestTrue(TEXT("Accelerated R starts"), Skill->TryStart(Target));
+	TestEqual(TEXT("Ready duration is halved"), Skill->GetStageDuration(EGurenUltimateStage::Ready), Skill->StageDurations[0] / 2.f);
+	Combat->RemoveModifier(TEXT("Test.CastSpeed"));
+	TestEqual(TEXT("Running R keeps its start speed"), Skill->GetCastSpeedScale(), 2.f);
+	Skill->TickComponent(Skill->StageDurations[0] / 2.f + 0.001f, LEVELTICK_All, nullptr);
+	TestEqual(TEXT("Timeline actually enters Launch in half time"), Skill->GetStage(), EGurenUltimateStage::Launch);
+	Skill->Abort();
 	TestTrue(TEXT("Start preserves an existing external input lock"), Skill->TryStart(Target));
+	TestEqual(TEXT("Next cast uses expired buff state"), Skill->GetCastSpeedScale(), 1.f);
 	Skill->Abort();
 	TestTrue(TEXT("External move lock remains after exit"), Player->IsMoveInputIgnored());
 	Player->SetIgnoreMoveInput(false);
