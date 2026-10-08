@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "PlayerTransformZone.h"
 #include "Combat/CombatTypes.h"
+#include "TransformationGuard.h"
 #include "MineLearningPlayerController.generated.h"
 
 class AWarehouseDepot;
@@ -13,6 +14,8 @@ class UDemoRunComponent;
 class ADemoRouteGuide;
 class UMineRunCoordinatorComponent;
 class ARogueliteShop;
+class UInputAction;
+class UInputMappingContext;
 enum class EDemoCommand : uint8;
 enum class EGurenQStage : uint8;
 
@@ -36,12 +39,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 
 /** Persistent owner of transformation-selection input across pawn swaps. */
 UCLASS()
-class MINELEARNING_API AMineLearningPlayerController : public APlayerController
+class MINELEARNING_API AMineLearningPlayerController : public APlayerController, public ITransformationGuard
 {
 	GENERATED_BODY()
 
 public:
 	AMineLearningPlayerController();
+	virtual bool CanTransform() const override;
+	void ActivateSummonerAbility();
+	void CycleContextTarget();
 	UFUNCTION(BlueprintPure, Category="Roguelite") UMineRunCoordinatorComponent* GetRunCoordinator() const { return RunCoordinator; }
 	UFUNCTION(BlueprintCallable, Category="Roguelite") void ToggleRogueliteMenu();
 	UFUNCTION(BlueprintCallable, Category="Roguelite") void OpenRoguelitePage(ERoguelitePage Page);
@@ -75,6 +81,8 @@ public:
 	UFUNCTION(Exec) void BuffRemove(FName Id);
 	UFUNCTION(Exec, BlueprintCallable, Category="GM") void BuffClear();
 	UFUNCTION(Exec) void BuffList();
+	/** GM acquisition through the real run build; still enforces talent/identity eligibility. */
+	UFUNCTION(Exec) void UpgradeAdd(FName Id);
 
 	virtual void SetupInputComponent() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -101,6 +109,9 @@ public:
 	FTransformationSelectionVisibilityChangedSignature OnTransformationSelectionVisibilityChanged;
 
 private:
+	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputAction> SummonerAbilityAction;
+	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputAction> CycleContextAction;
+	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputMappingContext> RunAbilityMapping;
 	UPROPERTY(VisibleAnywhere, Category="Roguelite") TObjectPtr<UMineRunCoordinatorComponent> RunCoordinator;
 	UPROPERTY(Transient) TObjectPtr<UUserWidget> RogueliteWidget;
 	UPROPERTY(EditDefaultsOnly, Category="UI") TSoftClassPtr<UUserWidget> RunMenuWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/GameplayRuntime/UI/WBP_RogueliteHub.WBP_RogueliteHub_C")));

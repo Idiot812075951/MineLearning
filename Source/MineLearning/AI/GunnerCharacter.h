@@ -59,6 +59,7 @@ class MINELEARNING_API AGunnerCharacter : public ACharacter, public ITransformat
 public:
 	AGunnerCharacter();
 	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
+	virtual EAutonomousOutput GetAutonomousOutput() const override { return EAutonomousOutput::PrimaryDamage; }
 	virtual bool CanTransform() const override;
 	UFUNCTION(BlueprintPure, Category = "Combat") float GetShotMultiplier(EGunnerShotResult Result) const;
 	UFUNCTION(BlueprintPure, Category = "Combat") FText GetCombatMechanics() const;

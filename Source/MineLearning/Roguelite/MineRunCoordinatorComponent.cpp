@@ -1,6 +1,8 @@
 #include "MineRunCoordinatorComponent.h"
 #include "MineLearning/Presentation/CombatFeedbackComponent.h"
 #include "MetaProgressComponent.h"
+#include "RunAbilityComponent.h"
+#include "MineLearning/AI/CooperativeHaulingComponent.h"
 #include "RunBuildComponent.h"
 #include "UpgradeDraftComponent.h"
 #include "RogueliteShop.h"
@@ -83,6 +85,7 @@ void UMineRunCoordinatorComponent::Initialize()
 		TransformationBindings.Add(*Zone, Zone->OnTransformationCommitted.AddUObject(this, &UMineRunCoordinatorComponent::Transformed));
 	}
 	AssembleUnit(Player->GetPawn());
+	if (URunAbilityComponent* Abilities = GetOwner()->FindComponentByClass<URunAbilityComponent>()) { Abilities->SetControlledUnit(Player->GetPawn()); }
 	OnControlledUnitReady.Broadcast(Player->GetPawn());
 	Respond(true, LOCTEXT("Ready", "身份免费选择 · 专属能力局内抽取"));
 }
@@ -91,6 +94,8 @@ bool UMineRunCoordinatorComponent::PrepareRun()
 {
 	if (!bReady || Build->IsRunActive()) { return false; }
 	Build->BeginRun(Catalog, Meta->GetResearchedNodes(), Meta->GetSelectedSummoner());
+	const FSummonerRow Identity = Catalog->GetSummonerData(Build->GetSummoner());
+	Run->ConfigureStartingCrew(Identity.StartingOreBuddies, Identity.StartingCarriers);
 	FFormPurchasedQuery Query;
 	Query.BindUObject(Run, &UDemoRunComponent::IsFormUnlocked);
 	Draft->Initialize(Catalog, Build, Run->GetWarehouse()->GetStorageComponent(), Query);
@@ -198,6 +203,8 @@ void UMineRunCoordinatorComponent::AssembleUnit(APawn* Unit)
 			Effects->RevokeDefinition(Source);
 		}
 	}
+	if (URunAbilityComponent* Abilities = GetOwner()->FindComponentByClass<URunAbilityComponent>()) { Abilities->RegisterUnit(Unit); }
+	if (UCooperativeHaulingComponent* Hauling = GetOwner()->FindComponentByClass<UCooperativeHaulingComponent>()) { Hauling->RegisterUnit(Unit); }
 }
 
 void UMineRunCoordinatorComponent::RefreshUnits()
@@ -211,11 +218,25 @@ void UMineRunCoordinatorComponent::BuildChanged()
 	if (!bReady) { return; }
 	RefreshUnits();
 	bool Enabled = false;
+	UOverclockDefinition* Overclock = nullptr;
+	UAIWorkDefinition* Work = nullptr;
+	URelayHaulingDefinition* Relay = nullptr;
+	USharedCarryDefinition* Pair = nullptr;
 	for (const TPair<FName, int32>& Owned : Build->GetOwnedUpgrades())
 	{
 		const FUpgradeRow* Row = Catalog->FindUpgrade(Owned.Key);
 		Enabled |= Build->IsRunActive() && Row && Row->bGrantsPhantomCompanion;
+		if (Build->IsRunActive() && Row)
+		{
+			if (Row->OverclockAbility) { Overclock = Row->OverclockAbility; }
+			if (Row->AIWorkAbility) { Work = Row->AIWorkAbility; }
+			if (Row->RelayAbility) { Relay = Row->RelayAbility; }
+			if (Row->SharedCarryAbility) { Pair = Row->SharedCarryAbility; }
+		}
 	}
+	if (URunAbilityComponent* Abilities = GetOwner()->FindComponentByClass<URunAbilityComponent>()) { Abilities->Configure(Overclock, Work); }
+	if (UCooperativeHaulingComponent* Hauling = GetOwner()->FindComponentByClass<UCooperativeHaulingComponent>()) { Hauling->Configure(Relay, Pair); }
+	if (Run && Run->GetWarehouse()) { Run->GetWarehouse()->SetDispatchBatchSize(Pair ? Pair->DispatchBatchSize : 4); }
 	if (Enabled && !bPhantomAbilityActive)
 	{
 		bPhantomAbilityActive = true;
@@ -250,7 +271,9 @@ void UMineRunCoordinatorComponent::PawnChanged(APawn* OldPawn, APawn* NewPawn)
 			Weapon->Restore(Initial);
 		}
 	}
+	AssembleUnit(OldPawn);
 	AssembleUnit(NewPawn);
+	if (URunAbilityComponent* Abilities = GetOwner()->FindComponentByClass<URunAbilityComponent>()) { Abilities->SetControlledUnit(NewPawn); }
 	if (UUnitEffectComponent* Effects = NewPawn ? NewPawn->FindComponentByClass<UUnitEffectComponent>() : nullptr) { Effects->RefreshRuntimeState(); }
 	if (!NewPawn) { Phantoms->Clear(); }
 	OnControlledUnitReady.Broadcast(NewPawn);

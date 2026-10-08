@@ -1,4 +1,6 @@
 #include "RunContentCatalog.h"
+#include "RunAbilityComponent.h"
+#include "MineLearning/AI/CooperativeHaulingComponent.h"
 #include "GameFramework/Pawn.h"
 
 FTalentNodeRow URunContentCatalog::GetTalentData(FName Id) const
@@ -72,8 +74,15 @@ bool URunContentCatalog::ValidateCatalog(FString& Error) const
 	for (FName Id : Upgrades->GetRowNames())
 	{
 		const FUpgradeRow* Row = FindUpgrade(Id);
+		if ((Row->OverclockAbility && !Row->OverclockAbility->IsValidConfiguration())
+			|| (Row->AIWorkAbility && !Row->AIWorkAbility->IsValidConfiguration())
+			|| (Row->RelayAbility && !Row->RelayAbility->IsValidConfiguration())
+			|| (Row->SharedCarryAbility && !Row->SharedCarryAbility->IsValidConfiguration()))
+		{
+			Error = TEXT("Invalid ability configuration: ") + Id.ToString(); return false;
+		}
 		if (Row->MaxRank < 1 || !FMath::IsFinite(Row->Weight) || Row->Weight <= 0.f
-			|| (Row->Effects.IsEmpty() && !Row->bGrantsPhantomCompanion))
+			|| (Row->Effects.IsEmpty() && !Row->bGrantsPhantomCompanion && !Row->OverclockAbility && !Row->AIWorkAbility && !Row->RelayAbility && !Row->SharedCarryAbility))
 		{
 			Error = TEXT("Invalid upgrade: ") + Id.ToString(); return false;
 		}

@@ -11,6 +11,10 @@
 class APawn;
 class UMaterialInterface;
 class ARogueliteShop;
+class UOverclockDefinition;
+class UAIWorkDefinition;
+class URelayHaulingDefinition;
+class USharedCarryDefinition;
 
 UENUM(BlueprintType)
 enum class EUnlockKind : uint8 { Form, Upgrade, Summoner };
@@ -47,6 +51,9 @@ struct FSummonerRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FText DisplayName;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FText Description;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UMaterialInterface> Icon;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bAllowTransformation = true;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0", ClampMax="3")) int32 StartingOreBuddies = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(ClampMin="0", ClampMax="3")) int32 StartingCarriers = 0;
 };
 
 USTRUCT(BlueprintType)
@@ -66,6 +73,10 @@ struct FUpgradeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) TArray<TObjectPtr<UUnitEffectDefinition>> Effects;
 	/** Application-layer capability; numeric effects never create pawns. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) bool bGrantsPhantomCompanion = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UOverclockDefinition> OverclockAbility;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<UAIWorkDefinition> AIWorkAbility;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<URelayHaulingDefinition> RelayAbility;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) TObjectPtr<USharedCarryDefinition> SharedCarryAbility;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FText Category;
 	/** Short card copy. Full rules remain in Description for the tooltip. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) FText ShortDescription;

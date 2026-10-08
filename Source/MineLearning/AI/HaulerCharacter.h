@@ -24,6 +24,7 @@ class MINELEARNING_API AHaulerCharacter : public ACharacter, public IAutonomousU
 public:
 	AHaulerCharacter();
 	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
+	virtual EAutonomousOutput GetAutonomousOutput() const override { return EAutonomousOutput::CarryCapacity; }
 	virtual void BeginPlay() override;
 	virtual void NotifyControllerChanged() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;

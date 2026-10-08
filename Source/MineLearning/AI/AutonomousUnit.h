@@ -4,6 +4,8 @@
 #include "UObject/Interface.h"
 #include "AutonomousUnit.generated.h"
 
+enum class EAutonomousOutput : uint8 { None, PrimaryDamage, CarryCapacity };
+
 UINTERFACE(MinimalAPI, BlueprintType)
 class UAutonomousUnit : public UInterface
 {
@@ -16,4 +18,5 @@ class MINELEARNING_API IAutonomousUnit
 	GENERATED_BODY()
 public:
 	virtual bool SupportsAutonomousControl() const = 0;
+	virtual EAutonomousOutput GetAutonomousOutput() const { return EAutonomousOutput::None; }
 };

@@ -40,6 +40,7 @@ public:
 	FDemoUnitReady OnUnitReady;
 	FPrepareProductionRun PrepareRun;
 	FFormPermissionQuery HasFormPermission;
+	void ConfigureStartingCrew(int32 OreBuddies, int32 Carriers);
 	void ConfigureFormCost(EPlayerTransformationForm Form, const TArray<FItemStack>& Cost);
 	AWarehouseDepot* GetWarehouse() const { return Warehouse; }
 	virtual void BeginPlay() override;
@@ -100,4 +101,6 @@ private:
 	TMap<EPlayerTransformationForm, TArray<FItemStack>> FormCosts;
 	bool bGunnerUnlocked = false;
 	bool bGurenUnlocked = false;
+	int32 InitialOreBuddies = 0;
+	int32 InitialCarriers = 0;
 };

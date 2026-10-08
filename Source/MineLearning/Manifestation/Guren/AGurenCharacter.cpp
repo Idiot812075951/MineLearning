@@ -176,7 +176,6 @@ void AGurenCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AGurenCharacter::TryPrimaryAttack);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AGurenCharacter::StartQSkill);
 	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &AGurenCharacter::StartUltimate);
-	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AGurenCharacter::CycleQTarget);
 
 	if (UEnhancedInputComponent* EnhancedInputComponent =
 		Cast<UEnhancedInputComponent>(PlayerInputComponent))

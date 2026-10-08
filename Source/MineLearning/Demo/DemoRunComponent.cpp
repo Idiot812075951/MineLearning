@@ -1,4 +1,5 @@
 #include "DemoRunComponent.h"
+#include "MineLearning/TransformationGuard.h"
 
 #include "MineLearning/AI/GunnerCharacter.h"
 #include "MineLearning/AI/HaulerCharacter.h"
@@ -166,8 +167,15 @@ bool UDemoRunComponent::ExecuteCommand(EDemoCommand Command)
 		if (!PrepareRun.IsBound() || !PrepareRun.Execute()) { return Respond(false, LOCTEXT("RunNotReady", "玩法配置或天赋存档未就绪，未开工。")); }
 		Phase = EDemoPhase::Production;
 		StartedAt = GetWorld()->GetTimeSeconds();
-		ChangeForm(EPlayerTransformationForm::OreBuddy);
-		return Respond(true, LOCTEXT("StartedFree", "Q 钻采 / R 拾取 · E 交互 · Tab 生产 · 商店抽升级"));
+		// Starter funding is spent through the same recruitment transaction. If a
+		// spawn fails, unspent funding stays available for a normal purchase retry.
+		const int32 StarterCoins = InitialOreBuddies * 8 + InitialCarriers * 4;
+		if (StarterCoins > 0) { Warehouse->GetStorageComponent()->AddItem({EItemType::Coin, StarterCoins}); }
+		for (int32 Index = 0; Index < InitialOreBuddies; ++Index) { PurchaseRobot(false); }
+		for (int32 Index = 0; Index < InitialCarriers; ++Index) { PurchaseRobot(true); }
+		const ITransformationGuard* Guard = Cast<ITransformationGuard>(GetOwner());
+		if (!Guard || Guard->CanTransform()) { ChangeForm(EPlayerTransformationForm::OreBuddy); }
+		return Respond(true, LOCTEXT("StartedFree", "左键工作 · E 交互 · Tab 生产 · 商店抽升级"));
 	}
 	if (Command == EDemoCommand::UnlockAll && Warehouse)
 	{
@@ -358,6 +366,10 @@ void UDemoRunComponent::ApplyCoreBonus(APawn* Pawn) const
 
 bool UDemoRunComponent::ChangeForm(EPlayerTransformationForm Form)
 {
+	if (const ITransformationGuard* Guard = Cast<ITransformationGuard>(GetOwner()); Guard && !Guard->CanTransform())
+	{
+		return Respond(false, LOCTEXT("IdentityBlocksTransformation", "面向同事编程：本局无法幻化。"));
+	}
 	if (!IsFormUnlocked(Form)) { return Respond(false, LOCTEXT("FormLocked", "该形态尚未解锁，请先用仓库铁锭解锁。")); }
 	for (TActorIterator<APlayerTransformZone> It(GetWorld()); It; ++It)
 	{
@@ -367,6 +379,13 @@ bool UDemoRunComponent::ChangeForm(EPlayerTransformationForm Form)
 		}
 	}
 	return Respond(false, LOCTEXT("FormFailed", "当前无法幻化，请先结束正在执行的动作。"));
+}
+
+void UDemoRunComponent::ConfigureStartingCrew(int32 OreBuddies, int32 Carriers)
+{
+	if (Phase != EDemoPhase::Briefing) { return; }
+	InitialOreBuddies = FMath::Clamp(OreBuddies, 0, 3);
+	InitialCarriers = FMath::Clamp(Carriers, 0, 3 - InitialOreBuddies);
 }
 
 void UDemoRunComponent::InventoryChanged()

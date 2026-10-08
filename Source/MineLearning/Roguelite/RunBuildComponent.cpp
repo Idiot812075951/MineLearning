@@ -1,5 +1,10 @@
 #include "RunBuildComponent.h"
 
+bool URunBuildComponent::AllowsTransformation() const
+{
+	return !Catalog || !RunId.IsValid() || Catalog->GetSummonerData(Summoner).bAllowTransformation;
+}
+
 URunBuildComponent::URunBuildComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;

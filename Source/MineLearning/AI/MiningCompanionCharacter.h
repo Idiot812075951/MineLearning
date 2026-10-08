@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Animation/AnimMontage.h"
@@ -37,6 +37,7 @@ class MINELEARNING_API AMiningCompanionCharacter : public ACharacter, public ITr
 public:
 	AMiningCompanionCharacter();
 	virtual bool SupportsAutonomousControl() const override { return AIControllerClass != nullptr; }
+	virtual EAutonomousOutput GetAutonomousOutput() const override { return EAutonomousOutput::PrimaryDamage; }
 	virtual bool CanTransform() const override { return !IsPlayerActionLocked() && !IsSprinting(); }
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

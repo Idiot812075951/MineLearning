@@ -5,6 +5,7 @@
 #include "MineLearning/AI/MiningCompanionCharacter.h"
 
 #include "MineLearning/Combat/HealthComponent.h"
+#include "MineLearning/TransformationGuard.h"
 
 #include "MineLearning/Mining/ItemPickup.h"
 #include "MineLearning/Mining/ItemLogisticsLibrary.h"
@@ -30,6 +31,8 @@ FDemoGuidance UDemoRunComponent::ResolveGuidance() const
 	FDemoGuidance Guide;
 	const APlayerController* PC = Cast<APlayerController>(GetOwner());
 	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const ITransformationGuard* Guard = Cast<ITransformationGuard>(PC);
+	const bool bCanTransform = !Guard || Guard->CanTransform();
 	if (!Pawn || IsFinished() || !IsEnabled()) { return Guide; }
 	const auto Command = [&Guide](EDemoCommand Action, const FText& Text)
 	{
@@ -91,11 +94,11 @@ FDemoGuidance UDemoRunComponent::ResolveGuidance() const
 		return Command(EDemoCommand::BuyOreBuddy, LOCTEXT("BuyBuddy", "[Tab] 自动 OreBuddy · 8 金币"));
 	}
 	const bool bWorkersReady = PurchasedCarriers > 0 && PurchasedOreBuddies > 0;
-	if (!bGunnerUnlocked && Available(EItemType::IronOre) >= 4)
+	if (bCanTransform && !bGunnerUnlocked && Available(EItemType::IronOre) >= 4)
 	{
 		return Command(EDemoCommand::UnlockGunner, LOCTEXT("UnlockGunner", "[Tab] 购买 Gunner · 4 原矿"));
 	}
-	if (bGunnerUnlocked && GetReserveMagazines() < 14 && Ingots > BossIngotCost)
+	if (bCanTransform && bGunnerUnlocked && GetReserveMagazines() < 14 && Ingots > BossIngotCost)
 	{
 		return Command(EDemoCommand::BuyMagazine, LOCTEXT("PrepareAmmo", "[Tab] 购买备用弹匣 · 1 铁锭"));
 	}
@@ -113,6 +116,11 @@ FDemoGuidance UDemoRunComponent::ResolveGuidance() const
 		return Command(EDemoCommand::SellTwo, LOCTEXT("Sell", "[Tab] 出售 · 1 铁锭 → 2 金币"));
 	}
 	AItemPickup* Pickup = nullptr;
+	if (!bCanTransform)
+	{
+		Guide.Instruction = LOCTEXT("CoordinateWorkers", "AI 自动生产 · [Tab] 下单 · 商店购买专属升级");
+		return Guide;
+	}
 	float BestDistance = MAX_flt;
 	for (TActorIterator<AItemPickup> It(GetWorld()); It; ++It)
 	{

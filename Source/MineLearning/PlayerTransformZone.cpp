@@ -60,6 +60,7 @@ bool APlayerTransformZone::TrySelectForm(
 	{
 		return false;
 	}
+	if (const ITransformationGuard* Guard = Cast<ITransformationGuard>(PlayerController); Guard && !Guard->CanTransform()) { return false; }
 	TSubclassOf<APawn> TargetPawnClass;
 	switch (Form)
 	{

@@ -3,6 +3,13 @@
 #include "Roguelite/RogueliteShop.h"
 #include "Roguelite/UpgradeDraftComponent.h"
 #include "Roguelite/MineRunCoordinatorComponent.h"
+#include "Roguelite/RunAbilityComponent.h"
+#include "AI/CooperativeHaulingComponent.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
+#include "Manifestation/Guren/AGurenCharacter.h"
 #include "Roguelite/MetaProgressComponent.h"
 #include "Roguelite/RunBuildComponent.h"
 #include "Roguelite/UpgradeDraftComponent.h"
@@ -213,6 +220,11 @@ AMineLearningPlayerController::AMineLearningPlayerController()
 	CreateDefaultSubobject<UUpgradeDraftComponent>(TEXT("UpgradeDraft"));
 	CreateDefaultSubobject<UPhantomCompanionComponent>(TEXT("PhantomCompanion"));
 	RunCoordinator = CreateDefaultSubobject<UMineRunCoordinatorComponent>(TEXT("RunCoordinator"));
+	CreateDefaultSubobject<URunAbilityComponent>(TEXT("RunAbilities"));
+	CreateDefaultSubobject<UCooperativeHaulingComponent>(TEXT("CooperativeHauling"));
+	SummonerAbilityAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/MineLearning/Input/Actions/IA_SummonerAbility.IA_SummonerAbility")));
+	CycleContextAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/MineLearning/Input/Actions/IA_CycleContextTarget.IA_CycleContextTarget")));
+	RunAbilityMapping = TSoftObjectPtr<UInputMappingContext>(FSoftObjectPath(TEXT("/Game/MineLearning/Input/IMC_RunAbilities.IMC_RunAbilities")));
 	CreateDefaultSubobject<USummonerNameplateComponent>(TEXT("SummonerNameplate"));
 	DemoWidgetClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_DemoRun.WBP_V2_DemoRun_C")));
 	CombatDetailsKey = EKeys::I;
@@ -229,13 +241,30 @@ void AMineLearningPlayerController::SetupInputComponent()
 		return;
 	}
 
+	bool bAbilityBound = false;
+	bool bContextBound = false;
+	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
+	{
+		if (UInputAction* Action = SummonerAbilityAction.LoadSynchronous()) { Enhanced->BindAction(Action, ETriggerEvent::Started, this, &AMineLearningPlayerController::ActivateSummonerAbility); bAbilityBound = true; }
+		if (UInputAction* Action = CycleContextAction.LoadSynchronous()) { Enhanced->BindAction(Action, ETriggerEvent::Started, this, &AMineLearningPlayerController::CycleContextTarget); bContextBound = true; }
+		if (ULocalPlayer* Local = GetLocalPlayer())
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Input = Local->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+			{
+				if (UInputMappingContext* Mapping = RunAbilityMapping.LoadSynchronous()) { Input->AddMappingContext(Mapping, 5); }
+			}
+		}
+	}
+	// Keep native input usable if an optional authored mapping is unavailable.
+	if (!bAbilityBound) { InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AMineLearningPlayerController::ActivateSummonerAbility); }
+	if (!bContextBound) { InputComponent->BindKey(EKeys::X, IE_Pressed, this, &AMineLearningPlayerController::CycleContextTarget); }
 	InputComponent->BindKey(CombatDetailsKey, IE_Pressed, this, &AMineLearningPlayerController::ToggleCombatDetails);
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMineLearningPlayerController::SelectCombatUnitUnderCursor).bConsumeInput = false;
 	InputComponent->BindKey(EKeys::E, IE_Pressed, this, &AMineLearningPlayerController::HandleInteraction);
 	InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AMineLearningPlayerController::CloseMenus);
 	InputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AMineLearningPlayerController::ToggleDemoTerminal);
 	InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &AMineLearningPlayerController::ToggleRogueliteMenu);
-	InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AMineLearningPlayerController::OpenTalents);
+	InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AMineLearningPlayerController::OpenTalents);
 	InputComponent->BindKey(EKeys::B, IE_Pressed, this, &AMineLearningPlayerController::OpenCodex);
 	InputComponent->BindKey(EKeys::Zero, IE_Pressed, this, &AMineLearningPlayerController::SelectHumanForm);
 	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMineLearningPlayerController::SelectOreBuddyForm);
@@ -249,6 +278,13 @@ void AMineLearningPlayerController::SetupInputComponent()
 
 void AMineLearningPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (ULocalPlayer* Local = GetLocalPlayer())
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Input = Local->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+		{
+			if (UInputMappingContext* Mapping = RunAbilityMapping.Get()) { Input->RemoveMappingContext(Mapping); }
+		}
+	}
 	GetWorld()->RemoveOnActorSpawnedHandler(PawnCameraSpawnHandle);
 	DemoRun->OnRunChanged.RemoveDynamic(this, &AMineLearningPlayerController::DemoRunChanged);
 	if (UUpgradeDraftComponent* Draft = FindComponentByClass<UUpgradeDraftComponent>())
@@ -828,6 +864,13 @@ void AMineLearningPlayerController::CombatDamage(float Amount)
 #endif
 }
 
+void AMineLearningPlayerController::UpgradeAdd(FName Id)
+{
+	const bool bGranted = RunCoordinator && RunCoordinator->GrantDebugUpgrade(Id);
+	OnInteractionFeedback.Broadcast(bGranted ? NSLOCTEXT("GM", "UpgradeGranted", "GM：已获得升级")
+		: NSLOCTEXT("GM", "UpgradeRejected", "GM：升级未获得，请检查 ID、身份、天赋与当前阶段"));
+}
+
 void AMineLearningPlayerController::BuffAdd(FName Id, float Duration)
 {
 	URunContentCatalog* Catalog = RunCoordinator->GetCatalog();
@@ -983,4 +1026,23 @@ void AMineLearningPlayerController::CombatSpawnDummy(float MaximumHealth)
 	SelectCombatUnit(Dummy);
 	UE_LOG(LogTemp, Display, TEXT("[Combat GM] Selected test target %s, HP %.1f. CombatSetHealth / CombatDamage / CombatHeal operate on it."), *Dummy->GetName(), MaximumHealth);
 #endif
+}
+
+bool AMineLearningPlayerController::CanTransform() const
+{
+	const URunBuildComponent* Build = FindComponentByClass<URunBuildComponent>();
+	return !Build || Build->AllowsTransformation();
+}
+
+void AMineLearningPlayerController::ActivateSummonerAbility()
+{
+	if (bRogueliteMenuOpen || bDemoTerminalOpen || bWarehouseScreenOpen || bTransformationSelectionOpen || bCombatDetailsOpen) { return; }
+	if (URunAbilityComponent* Ability = FindComponentByClass<URunAbilityComponent>()) { Ability->ActivateOverclock(); }
+}
+
+void AMineLearningPlayerController::CycleContextTarget()
+{
+	if (bRogueliteMenuOpen || bDemoTerminalOpen || bWarehouseScreenOpen || bTransformationSelectionOpen || bCombatDetailsOpen) { return; }
+	if (AGurenCharacter* Guren = Cast<AGurenCharacter>(GetPawn())) { Guren->QSkill->CycleTarget(); return; }
+	if (URunAbilityComponent* Ability = FindComponentByClass<URunAbilityComponent>()) { Ability->CycleFocus(); }
 }

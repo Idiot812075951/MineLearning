@@ -18,6 +18,7 @@ public:
 	FText GetAcquisitionBlock(FName Upgrade) const;
 	bool Acquire(FName Upgrade);
 	bool HasFormPermission(EPlayerTransformationForm Form) const;
+	bool AllowsTransformation() const;
 	UFUNCTION(BlueprintPure, Category="Run") int32 GetUpgradeRank(FName Id) const;
 	UFUNCTION(BlueprintPure, Category="Run") FName GetSummoner() const { return Summoner; }
 	UFUNCTION(BlueprintPure, Category="Run") bool IsRunActive() const { return bActive; }
