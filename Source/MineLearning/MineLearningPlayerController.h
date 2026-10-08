@@ -47,6 +47,7 @@ public:
 	AMineLearningPlayerController();
 	virtual void AddYawInput(float Value) override;
 	virtual void AddPitchInput(float Value) override;
+	virtual void UpdateRotation(float DeltaTime) override;
 	virtual bool CanTransform() const override;
 	void ActivateSummonerAbility();
 	void CycleContextTarget();

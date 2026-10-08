@@ -252,6 +252,26 @@ void AMineLearningPlayerController::AddPitchInput(float Value)
 	}
 }
 
+void AMineLearningPlayerController::UpdateRotation(float DeltaTime)
+{
+	const float PreviousViewYaw = GetControlRotation().Yaw;
+	Super::UpdateRotation(DeltaTime);
+
+	APawn* ControlledPawn = GetPawn();
+	const float ViewYawDelta = FMath::FindDeltaAngleDegrees(PreviousViewYaw, GetControlRotation().Yaw);
+	if (!IsLocalController() || !ControlledPawn || FMath::IsNearlyZero(ViewYawDelta)
+		|| ControlledPawn->GetPendingMovementInputVector().IsNearlyZero())
+	{
+		return;
+	}
+
+	// Player locomotion bindings express WASD in the previous control yaw because
+	// ProcessPlayerInput precedes UpdateRotation. Rebase that queued input to this
+	// frame's view before CharacterMovement consumes it. Yaw leaves Guren ascent intact.
+	const FVector MovementInput = ControlledPawn->ConsumeMovementInputVector();
+	ControlledPawn->AddMovementInput(FRotator(0.f, ViewYawDelta, 0.f).RotateVector(MovementInput));
+}
+
 void AMineLearningPlayerController::BeginCameraOrbit()
 {
 	bCameraOrbitDragged = false;
