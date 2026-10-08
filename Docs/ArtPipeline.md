@@ -54,3 +54,5 @@
 - `ArtSource/UI/Guren`：保留正式 Q 爪子图 `T_GurenGrabClaw.png`，以及实际 R 降临阶段渲染的幻化头像 `T_TransformPortrait_Guren.png`（768×1024）、技能近景 `T_GurenArrival.png`（512×512）。两张新图共用实际降临姿态与修订后的日蚀光环，各自构图；不保留旧图、制作脚本或验收截图。
 
 清理前已只读打开十个保留的 `.blend`，没有对待删除文件的外部依赖；红莲镜片图像已内嵌。清理不修改这些 `.blend` 的内容，也不修改当前打开的 Blender 未保存状态。UE 导入产物保持原样，需要重新导入时从上述源文件重新导出，不再依赖旧 FBX。
+
+- 肉鸽内容扩充：保留 ArtSource/UI/RogueliteExpansion/ 内 11 张正式卡牌图标源，已由 UE T_Expansion_* 使用；语义与 imagegen 提示见 ArtBriefs/RogueliteUI.md。临时协力箱子与姿态以 UE 为源，见 ArtBriefs/RogueliteCooperativeCargo.md，无新增 Blender 文件。
