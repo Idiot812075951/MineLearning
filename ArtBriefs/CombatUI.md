@@ -1,5 +1,7 @@
 # 战斗反馈与矿石配色
 
+2026-10-03 小型表现修正：蓄能钻头只通过 `MAT_OB07_ToolMetal` 材质槽的运行时 `ChargeIntensity/ChargeColor` 参数发出青色充能光；保留工具原始底色、粗糙度和材质函数，关闭时参数归零。Source of Truth 仍为既有 OreBuddy 网格与材质，保护骨架、动画、UV、履带及全身其他材质槽。攻击距离改变时沿用红色地面圈显示 2 秒。
+
 本轮修复最终矿石血量绑定、红莲处决反馈和 OreBuddy 自动采矿；重制 Gunner/OreBuddy 技能栏、喊话、技能提示与公共进度条。参考 ArtSource/UI/V2/References 的科幻 UI 与双层血条设计。保留角色模型、骨架、动画、履带、经济与伤害数值。
 
 UI 的可编辑源统一在 /Game/MineLearning/UI/V2。图标源为 ArtSource/UI/V2/AbilityAtlas.png；四等分依次为射击、换弹、钻采、抓取。深蓝内衬、金属亮边、青色功能高光，数量与快捷键分区，避免文字盖住图标。

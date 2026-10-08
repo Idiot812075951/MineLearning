@@ -1,4 +1,5 @@
 #include "WeaponRecoilComponent.h"
+#include "CombatComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -15,8 +16,10 @@ FVector UWeaponRecoilComponent::ApplyShot(FVector Direction)
 	const FVector2D Offset = SprayPattern.IsEmpty() ? FVector2D::ZeroVector : SprayPattern[Index];
 	const float Spread = FMath::Max(0.f, RandomSpreadDegrees) * FMath::Min(1.f, 0.2f + Heat / 8.f);
 	FRotator Rotation = Direction.Rotation();
-	Rotation.Yaw += Offset.X + FMath::FRandRange(-Spread, Spread);
-	Rotation.Pitch += FMath::Max(0.f, Offset.Y + FMath::FRandRange(-Spread, Spread));
+	const UCombatComponent* Combat = GetOwner()->FindComponentByClass<UCombatComponent>();
+	const float DriftScale = Combat ? FMath::Clamp(1.f + Combat->GetModifiers().BulletDrift, 0.f, 10.f) : 1.f;
+	Rotation.Yaw += (Offset.X + FMath::FRandRange(-Spread, Spread)) * DriftScale;
+	Rotation.Pitch += FMath::Max(0.f, Offset.Y + FMath::FRandRange(-Spread, Spread)) * DriftScale;
 	Heat = FMath::Min(Heat + 1.f, static_cast<float>(FMath::Max(10, SprayPattern.Num())));
 	LastShotTime = GetWorld()->GetTimeSeconds();
 	LastRecoveryTime = LastShotTime;

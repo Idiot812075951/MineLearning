@@ -18,6 +18,8 @@ struct FCombatModifiers
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float PrimaryDamage = 0.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float PrimaryDamageFlat = 0.f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float AttackRange = 0.f;
+	/** Scales both authored spray and random shot deviation. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly) float BulletDrift = 0.f;
 	/** Probability transferred from body shots, before burst accuracy reduction. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly) float GoldenProbability = 0.f;
 	/** Only AI attacks roll this. Player misses come from actual targeting. */

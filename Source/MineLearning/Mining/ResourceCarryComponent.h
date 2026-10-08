@@ -29,7 +29,14 @@ public:
 	int32 GetCurrentItemCount() const { return CurrentItem.Amount; }
 
 	UFUNCTION(BlueprintPure, Category="Item|Carry")
-	int32 GetCapacity() const { return Capacity; }
+	int32 GetCapacity() const;
+	/** Contributions are added before one final ceil; removing one never discards cargo. */
+	bool SetCapacityBonus(FName Source, float Percent);
+	void RemoveCapacityBonus(FName Source);
+	/** Atomic carry-to-carry transfer. Notifications occur only after both stores commit. */
+	int32 TransferTo(UResourceCarryComponent* Receiver, int32 MaxAmount = MAX_int32);
+	/** Capability of this receiver, used by paid logistics orders. */
+	UPROPERTY(EditAnywhere, Category="Item|Carry|Rules") bool bAcceptsLogisticsOrders = false;
 
 	/** Number of physical resource meshes currently shown on the carrier tray. */
 	int32 GetWorldPreviewItemCount() const;
@@ -68,7 +75,7 @@ public:
 	int32 GetCurrentOreCount() const;
 
 	UFUNCTION(BlueprintPure, Category="Mining|Carry")
-	int32 GetMaxOreCount() const { return Capacity; }
+	int32 GetMaxOreCount() const { return GetCapacity(); }
 
 	UFUNCTION(BlueprintPure, Category="Mining|Carry")
 	bool CanAddOre(int32 Amount) const;
@@ -107,6 +114,8 @@ private:
 
 	UPROPERTY(EditAnywhere, Category="Item|Carry", meta=(ClampMin="1"))
 	int32 Capacity = 5;
+	TMap<FName, float> CapacityBonuses;
+	bool bTransferInProgress = false;
 
 	UPROPERTY(EditAnywhere, Category="Item|Carry|Rules")
 	bool bAcceptAllCategories = true;

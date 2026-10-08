@@ -109,7 +109,7 @@ void UResourceCarryComponent::PostEditChangeProperty(FPropertyChangedEvent& Prop
 
 bool UResourceCarryComponent::IsFull() const
 {
-	return CurrentItem.Amount >= Capacity;
+	return CurrentItem.Amount >= GetCapacity();
 }
 
 bool UResourceCarryComponent::CanAcceptItem(const FItemStack& Item) const
@@ -141,7 +141,7 @@ int32 UResourceCarryComponent::AddItemInternal(const FItemStack& Item, bool bNot
 	}
 
 	const int32 OldCount = CurrentItem.Amount;
-	const int32 AddedAmount = FMath::Min(Item.Amount, Capacity - OldCount);
+	const int32 AddedAmount = FMath::Min(Item.Amount, GetCapacity() - OldCount);
 	if (!CurrentItem.IsValid())
 	{
 		CurrentItem.ItemType = Item.ItemType;
@@ -287,7 +287,7 @@ int32 UResourceCarryComponent::TakeAllOre()
 void UResourceCarryComponent::BroadcastCarryChanged()
 {
 	RefreshPreviewResources();
-	OnCarryChanged.Broadcast(CurrentItem.Amount, Capacity);
+	OnCarryChanged.Broadcast(CurrentItem.Amount, GetCapacity());
 }
 
 void UResourceCarryComponent::RefreshPreviewResources()
@@ -311,7 +311,7 @@ void UResourceCarryComponent::RefreshPreviewResources()
 		? PreviewResourceTransforms.Num()
 		: ResourceCarryPresentation::GeneratedSlotCount;
 	UWorld* World = GetWorld();
-	const int32 DisplayCapacity = FMath::Min(Capacity, PreviewSlotCount);
+	const int32 DisplayCapacity = FMath::Min(GetCapacity(), PreviewSlotCount);
 	if (DisplayCapacity <= 0)
 	{
 		return;
@@ -448,4 +448,44 @@ USkeletalMeshComponent* UResourceCarryComponent::FindOwnerSkeletalMesh() const
 	}
 
 	return Owner->FindComponentByClass<USkeletalMeshComponent>();
+}
+
+int32 UResourceCarryComponent::GetCapacity() const
+{
+	float Bonus = 0.f;
+	for (const TPair<FName, float>& Entry : CapacityBonuses) { Bonus += Entry.Value; }
+	return FMath::CeilToInt(FMath::Clamp(Capacity * (1.f + Bonus), 1.f, 1000000.f));
+}
+
+bool UResourceCarryComponent::SetCapacityBonus(FName Source, float Percent)
+{
+	if (Source.IsNone() || !FMath::IsFinite(Percent) || FMath::Abs(Percent) > 100.f) { return false; }
+	if (const float* Existing = CapacityBonuses.Find(Source); Existing && *Existing == Percent) { return true; }
+	CapacityBonuses.Add(Source, Percent);
+	BroadcastCarryChanged();
+	return true;
+}
+
+void UResourceCarryComponent::RemoveCapacityBonus(FName Source)
+{
+	if (CapacityBonuses.Remove(Source)) { BroadcastCarryChanged(); }
+}
+
+int32 UResourceCarryComponent::TransferTo(UResourceCarryComponent* Receiver, int32 MaxAmount)
+{
+	if (!IsValid(Receiver) || Receiver == this || !GetOwner()->HasAuthority()
+		|| !Receiver->GetOwner()->HasAuthority() || bTransferInProgress || Receiver->bTransferInProgress
+		|| MaxAmount <= 0 || !Receiver->CanAcceptItem(CurrentItem)) { return 0; }
+	TGuardValue<bool> SourceGuard(bTransferInProgress, true);
+	TGuardValue<bool> TargetGuard(Receiver->bTransferInProgress, true);
+	FItemStack Offered = CurrentItem;
+	Offered.Amount = FMath::Min(Offered.Amount, MaxAmount);
+	const int32 Accepted = Receiver->AddItemInternal(Offered, false);
+	if (Accepted <= 0) { return 0; }
+	Receiver->CarriedResourceMesh = GetPreviewResourceMesh();
+	CurrentItem.Amount -= Accepted;
+	if (CurrentItem.Amount == 0) { CarriedResourceMesh = nullptr; }
+	BroadcastCarryChanged();
+	Receiver->BroadcastCarryChanged();
+	return Accepted;
 }

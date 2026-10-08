@@ -6,6 +6,7 @@
 #include "UnitEffectComponent.generated.h"
 
 class UMaterialInterface;
+class USoundBase;
 class UCombatComponent;
 class UHealthComponent;
 class UUnitEffectDefinition;
@@ -32,6 +33,18 @@ struct FUnitEffectRule
 	UPROPERTY(EditAnywhere) float Chance = 1.f;
 	UPROPERTY(EditAnywhere) float Duration = 0.f;
 	UPROPERTY(EditAnywhere) FCombatModifiers Modifiers;
+	/** Logistics contribution, deliberately outside combat attributes. */
+	UPROPERTY(EditAnywhere) float CarryCapacityPercent = 0.f;
+	/** Additive visual scale offset. Never changes collision or navigation. */
+	UPROPERTY(EditAnywhere, Category="Presentation") float VisualScaleBonus = 0.f;
+	UPROPERTY(EditAnywhere, Category="Presentation") FText Status;
+	UPROPERTY(EditAnywhere, Category="Presentation") FLinearColor AuraColor = FLinearColor(1.f, 0.12f, 0.025f);
+	UPROPERTY(EditAnywhere, Category="Presentation") float GroundRingIntensity = 0.f;
+	UPROPERTY(EditAnywhere, Category="Presentation") bool bOverheadMarker = false;
+	UPROPERTY(EditAnywhere, Category="Presentation") bool bToolGlow = false;
+	UPROPERTY(EditAnywhere, Category="Presentation") bool bSteam = false;
+	/** Played by presentation when this cue first appears or changes, not on duration refresh. */
+	UPROPERTY(EditAnywhere, Category="Presentation") TObjectPtr<USoundBase> ActivationSound;
 	bool IsValid() const;
 };
 
@@ -54,6 +67,13 @@ struct FUnitEffectView
 	UPROPERTY(BlueprintReadOnly) TObjectPtr<UMaterialInterface> Icon;
 	UPROPERTY(BlueprintReadOnly) FText StatusText;
 	UPROPERTY(BlueprintReadOnly) float AuraIntensity = 0.f;
+	UPROPERTY(BlueprintReadOnly) float VisualScaleBonus = 0.f;
+	UPROPERTY(BlueprintReadOnly) FLinearColor AuraColor = FLinearColor::White;
+	UPROPERTY(BlueprintReadOnly) float GroundRingIntensity = 0.f;
+	UPROPERTY(BlueprintReadOnly) bool bOverheadMarker = false;
+	UPROPERTY(BlueprintReadOnly) bool bToolGlow = false;
+	UPROPERTY(BlueprintReadOnly) bool bSteam = false;
+	UPROPERTY(BlueprintReadOnly) TObjectPtr<USoundBase> ActivationSound;
 	UPROPERTY(BlueprintReadOnly) float Remaining = 0.f;
 	UPROPERTY(BlueprintReadOnly) bool bTimed = false;
 	UPROPERTY(BlueprintReadOnly) int32 StackCount = 0;

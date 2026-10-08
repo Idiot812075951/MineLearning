@@ -1,7 +1,6 @@
 #include "ItemPickup.h"
 
 #include "ItemLogisticsLibrary.h"
-#include "MineLearning/AI/HaulerCharacter.h"
 #include "ResourceCarryComponent.h"
 #include "ResourceStorageComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -300,7 +299,8 @@ bool AItemPickup::IsAvailableFor(AActor* Collector) const
 	{
 		return false;
 	}
-	if (bRequiresHauler && !Collector->IsA<AHaulerCharacter>())
+	const UResourceCarryComponent* Carry = Collector->FindComponentByClass<UResourceCarryComponent>();
+	if (bRequiresHauler && (!Carry || !Carry->bAcceptsLogisticsOrders))
 	{
 		return false;
 	}

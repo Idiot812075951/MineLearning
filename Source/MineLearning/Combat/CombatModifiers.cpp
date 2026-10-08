@@ -4,7 +4,8 @@ bool FCombatModifiers::IsValid() const
 {
 	if (!FMath::IsFinite(AttributePercent.Strength) || !FMath::IsFinite(AttributePercent.Agility)
 		|| !FMath::IsFinite(AttributePercent.Intelligence) || !FMath::IsFinite(PrimaryDamageFlat)
-		|| !FMath::IsFinite(AttackRange) || !FMath::IsFinite(AIMissChance) || AIMissChance < 0.f || AIMissChance > 1.f)
+		|| !FMath::IsFinite(AttackRange) || !FMath::IsFinite(BulletDrift) || FMath::Abs(BulletDrift) > 100.f
+		|| !FMath::IsFinite(AIMissChance) || AIMissChance < 0.f || AIMissChance > 1.f)
 	{
 		return false;
 	}
@@ -29,6 +30,7 @@ void FCombatModifiers::Add(const FCombatModifiers& Other, float Scale)
 	PrimaryDamage += Other.PrimaryDamage * Scale;
 	PrimaryDamageFlat += Other.PrimaryDamageFlat * Scale;
 	AttackRange += Other.AttackRange * Scale;
+	BulletDrift += Other.BulletDrift * Scale;
 	GoldenProbability += Other.GoldenProbability * Scale;
 	AIMissChance += Other.AIMissChance * Scale;
 	if (!Other.WeaponStyle.IsNone())

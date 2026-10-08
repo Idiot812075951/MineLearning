@@ -3,6 +3,7 @@
 #include "CombatComponent.h"
 #include "HealthComponent.h"
 #include "UnitEffectDefinition.h"
+#include "MineLearning/Mining/ResourceCarryComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -11,6 +12,9 @@
 bool FUnitEffectRule::IsValid() const
 {
 	return !Id.IsNone() && FMath::IsFinite(AuraIntensity) && AuraIntensity >= 0.f && AuraIntensity <= 1.f && Modifiers.IsValid() && FMath::IsFinite(Chance) && Chance >= 0.f && Chance <= 1.f && FMath::IsFinite(Duration) &&
+		FMath::IsFinite(CarryCapacityPercent) && FMath::Abs(CarryCapacityPercent) <= 100.f &&
+		FMath::IsFinite(VisualScaleBonus) && FMath::Abs(VisualScaleBonus) <= 10.f &&
+		FMath::IsFinite(GroundRingIntensity) && GroundRingIntensity >= 0.f && GroundRingIntensity <= 10.f &&
 		(Trigger == EUnitEffectTrigger::Persistent ? Duration >= 0.f : Duration > 0.f && !EventName.IsNone());
 }
 
@@ -66,6 +70,10 @@ bool UUnitEffectComponent::ApplyEffect(const FUnitEffectRule& Effect, int32 Stac
 	Active.StackCount = StackCount;
 	Active.EndTime = Effect.Duration > 0.f ? GetWorld()->GetTimeSeconds() + Effect.Duration : 0.f;
 	Combat->SetModifier(Effect.Id, Effect.Modifiers);
+	if (UResourceCarryComponent* Carry = GetOwner()->FindComponentByClass<UResourceCarryComponent>())
+	{
+		Carry->SetCapacityBonus(Effect.Id, Effect.CarryCapacityPercent);
+	}
 	ScheduleNextChange();
 	OnEffectsChanged.Broadcast();
 	return true;
@@ -80,6 +88,10 @@ void UUnitEffectComponent::RemoveEffect(FName EffectId)
 	if (Combat)
 	{
 		Combat->RemoveModifier(EffectId);
+	}
+	if (UResourceCarryComponent* Carry = GetOwner()->FindComponentByClass<UResourceCarryComponent>())
+	{
+		Carry->RemoveCapacityBonus(EffectId);
 	}
 	ScheduleNextChange();
 	OnEffectsChanged.Broadcast();
@@ -96,6 +108,10 @@ void UUnitEffectComponent::RemoveAllEffects()
 	}
 	for (FName Id : Ids)
 	{
+		if (UResourceCarryComponent* Carry = GetOwner()->FindComponentByClass<UResourceCarryComponent>())
+		{
+			Carry->RemoveCapacityBonus(Id);
+		}
 		if (Combat)
 		{
 			Combat->RemoveModifier(Id);
@@ -219,6 +235,13 @@ TArray<FUnitEffectView> UUnitEffectComponent::GetActiveEffectViews() const
 		View.Name = Pair.Value.Definition.DisplayName;
 		View.Icon = Pair.Value.Definition.Icon;
 		View.AuraIntensity = Pair.Value.Definition.AuraIntensity;
+		View.VisualScaleBonus = Pair.Value.Definition.VisualScaleBonus;
+		View.AuraColor = Pair.Value.Definition.AuraColor;
+		View.GroundRingIntensity = Pair.Value.Definition.GroundRingIntensity;
+		View.bOverheadMarker = Pair.Value.Definition.bOverheadMarker;
+		View.bToolGlow = Pair.Value.Definition.bToolGlow;
+		View.bSteam = Pair.Value.Definition.bSteam;
+		View.ActivationSound = Pair.Value.Definition.ActivationSound;
 		View.bTimed = Pair.Value.EndTime > 0.f;
 		View.Remaining = GetRemainingTime(Pair.Key);
 		View.StackCount = Pair.Value.StackCount;
@@ -228,6 +251,10 @@ TArray<FUnitEffectView> UUnitEffectComponent::GetActiveEffectViews() const
 		View.StatusText = View.StackCount > 0
 			? FText::Format(NSLOCTEXT("UnitEffect", "Stacked", "{0} ×{1} · {2}"), View.Name, FText::AsNumber(View.StackCount), Duration)
 			: FText::Format(NSLOCTEXT("UnitEffect", "Status", "{0} · {1}"), View.Name, Duration);
+		if (!Pair.Value.Definition.Status.IsEmpty())
+		{
+			View.StatusText = FText::Format(NSLOCTEXT("UnitEffect", "CustomStatus", "{0} · {1}"), View.Name, Pair.Value.Definition.Status);
+		}
 	}
 	Result.Sort([](const FUnitEffectView& A, const FUnitEffectView& B) { return A.Source.LexicalLess(B.Source); });
 	return Result;

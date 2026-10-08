@@ -76,6 +76,7 @@ AHaulerCharacter::AHaulerCharacter()
 	DropOffAnimation = DropOffAnimFinder.Object;
 
 	ResourceCarryComponent = CreateDefaultSubobject<UResourceCarryComponent>(TEXT("ResourceCarryComponent"));
+	ResourceCarryComponent->bAcceptsLogisticsOrders = true;
 	// The Carrier owns player-scheduled warehouse routes in both directions:
 	// ore goes to the processor, ingots to the seller, and outputs return to storage.
 	ResourceCarryComponent->ConfigureAcceptance(
