@@ -23,6 +23,7 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, Category="Carrier|Cargo")
 	bool bHasCargo = false;
+	UPROPERTY(BlueprintReadOnly, Category="Carrier|Cargo") bool bSharedCarry = false;
 
 private:
 	UFUNCTION()

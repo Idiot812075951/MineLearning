@@ -357,7 +357,7 @@ bool AWarehouseDepot::RequestDeliveryOrder(
 	OreMeshes.Add(Item.ItemType == EItemType::IronIngot ? IronIngotMesh : OutboundOreMesh);
 	TArray<AItemPickup*> SpawnedOrders;
 	SpawnedOrders.Reserve(Item.Amount);
-	for (int32 Index = 0; Index < Item.Amount; Index += 4)
+	for (int32 Index = 0; Index < Item.Amount; Index += DispatchBatchSize)
 	{
 		AItemPickup* OrderPickup = GetWorld()->SpawnActor<AItemPickup>(
 			AItemPickup::StaticClass(),
@@ -375,7 +375,7 @@ bool AWarehouseDepot::RequestDeliveryOrder(
 
 		FItemStack UnitItem;
 		UnitItem.ItemType = Item.ItemType;
-		UnitItem.Amount = FMath::Min(4, Item.Amount - Index);
+		UnitItem.Amount = FMath::Min(DispatchBatchSize, Item.Amount - Index);
 		OrderPickup->InitializeItem(UnitItem, OreMeshes);
 		OrderPickup->ReleaseStationaryForCollection();
 		OrderPickup->SetWaitingVisualEnabled(false);

@@ -1,7 +1,9 @@
 #include "HaulerAIController.h"
 #include "MineLearning/Combat/CombatComponent.h"
+#include "MineLearning/Combat/HealthComponent.h"
 
 #include "HaulerCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "EngineUtils.h"
 #include "MineLearning/Mining/ItemLogisticsLibrary.h"
 #include "MineLearning/Mining/ItemPickup.h"
@@ -91,7 +93,7 @@ void AHaulerAIController::CacheHauler()
 void AHaulerAIController::TryFindWork()
 {
 	CacheHauler();
-	if (!Hauler || State != EHaulerState::Idle)
+	if (!Hauler || State != EHaulerState::Idle || CooperativeTask.IsValid())
 	{
 		return;
 	}
@@ -753,7 +755,7 @@ void AHaulerAIController::TickDirectMove(float DeltaSeconds)
 		CurrentLocation,
 		TargetLocation,
 		DeltaSeconds,
-		DirectMoveSpeed);
+		Hauler->GetCharacterMovement()->MaxWalkSpeed);
 	FHitResult MoveHit;
 	Hauler->SetActorLocation(NewLocation, true, &MoveHit);
 	if (MoveHit.bBlockingHit
@@ -772,5 +774,30 @@ void AHaulerAIController::TickDirectMove(float DeltaSeconds)
 		Facing.Pitch = 0.0f;
 		Facing.Roll = 0.0f;
 		Hauler->SetActorRotation(Facing);
+	}
+}
+
+bool AHaulerAIController::IsAvailableForCooperation() const
+{
+	const AHaulerCharacter* Unit = Cast<AHaulerCharacter>(GetPawn());
+	const UHealthComponent* Health = Unit ? Unit->FindComponentByClass<UHealthComponent>() : nullptr;
+	return Unit && (!Health || !Health->IsDead()) && State == EHaulerState::Idle && !CooperativeTask.IsValid()
+		&& Unit->GetResourceCarryComponent()->IsEmpty();
+}
+
+bool AHaulerAIController::ClaimCooperativeWork(AActor* Task)
+{
+	if (!IsValid(Task) || !IsAvailableForCooperation()) { return false; }
+	CooperativeTask = Task;
+	StopActiveMove();
+	return true;
+}
+
+void AHaulerAIController::ReleaseCooperativeWork(AActor* Task)
+{
+	if (CooperativeTask.Get() == Task)
+	{
+		CooperativeTask.Reset();
+		StopActiveMove();
 	}
 }

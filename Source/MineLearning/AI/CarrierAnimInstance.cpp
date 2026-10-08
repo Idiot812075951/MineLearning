@@ -1,6 +1,8 @@
 #include "CarrierAnimInstance.h"
 
 #include "HaulerCharacter.h"
+#include "HaulerAIController.h"
+#include "SharedCarryTask.h"
 #include "MineLearning/Mining/ResourceCarryComponent.h"
 
 void UCarrierAnimInstance::NativeInitializeAnimation()
@@ -23,6 +25,7 @@ void UCarrierAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		GroundSpeed = 0.0f;
 		bIsMoving = false;
 		bHasCargo = false;
+		bSharedCarry = false;
 		bHasOwnerLocationSample = false;
 		return;
 	}
@@ -44,6 +47,9 @@ void UCarrierAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	bIsMoving = GroundSpeed > 3.0f;
 	const UResourceCarryComponent* Carry = CachedHauler->GetResourceCarryComponent();
 	bHasCargo = Carry && !Carry->IsEmpty();
+	const AHaulerAIController* AI = Cast<AHaulerAIController>(CachedHauler->GetController());
+	const ASharedCarryTask* Task = AI ? Cast<ASharedCarryTask>(AI->GetCooperativeTask()) : nullptr;
+	bSharedCarry = Task && Task->GetPhase() == ESharedCarryPhase::Delivering;
 }
 
 void UCarrierAnimInstance::AnimNotify_Pickup()

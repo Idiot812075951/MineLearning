@@ -36,6 +36,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Item|Hauler|Debug", meta=(DevelopmentOnly))
 	void SearchNow();
+	bool IsAvailableForCooperation() const;
+	bool ClaimCooperativeWork(AActor* Task);
+	void ReleaseCooperativeWork(AActor* Task);
+	AActor* GetCooperativeTask() const { return CooperativeTask.Get(); }
 
 	void HandlePickupAnimationNotify();
 	void HandlePickupAnimationFinished();
@@ -113,4 +117,5 @@ private:
 	bool bPickupCommitted = false;
 	bool bDropOffCommitted = false;
 	float NavigationStallSeconds = 0.0f;
+	TWeakObjectPtr<AActor> CooperativeTask;
 };

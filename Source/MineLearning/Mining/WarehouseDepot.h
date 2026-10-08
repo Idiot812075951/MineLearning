@@ -65,6 +65,9 @@ class MINELEARNING_API AWarehouseDepot : public AResourceDepot
 
 public:
 	AWarehouseDepot();
+	/** Run-level dispatch policy; existing reservations are left intact. */
+	void SetDispatchBatchSize(int32 Size) { DispatchBatchSize = FMath::Clamp(Size, 1, 1000); }
+	int32 GetDispatchBatchSize() const { return DispatchBatchSize; }
 
 	UFUNCTION(BlueprintCallable, Category="Warehouse|Door")
 	void OpenWarehouse();
@@ -106,6 +109,7 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
+	int32 DispatchBatchSize = 4;
 	UPROPERTY(VisibleAnywhere, Category="Warehouse|Interaction")
 	TObjectPtr<UBoxComponent> WorkerInteractionTrigger;
 
