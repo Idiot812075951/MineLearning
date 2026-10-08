@@ -281,9 +281,9 @@ public:
 				FMath::IsNearlyEqual(MeanShotInterval(), FMath::Max(0.2f, 0.7f / 1.5f / 2.f), 0.035f));
 			Fire(ETriggerEvent::Completed);
 			bool bFoundToggle = false;
-			for (FInputKeyBinding& Binding : Gunner->InputComponent->KeyBindings)
+			for (FInputKeyBinding& Binding : Player->InputComponent->KeyBindings)
 			{
-				if (Binding.Chord.Key == EKeys::RightMouseButton && Binding.KeyEvent == IE_Pressed)
+				if (Binding.Chord.Key == EKeys::RightMouseButton && Binding.KeyEvent == IE_Released)
 				{
 					Binding.KeyDelegate.Execute(EKeys::RightMouseButton);
 					bFoundToggle = true;

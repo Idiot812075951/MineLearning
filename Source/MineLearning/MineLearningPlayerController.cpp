@@ -42,6 +42,7 @@
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "HAL/IConsoleManager.h"
@@ -233,6 +234,41 @@ AMineLearningPlayerController::AMineLearningPlayerController()
 		TEXT("/Game/MineLearning/UI/V2/Widgets/WBP_V2_Warehouse.WBP_V2_Warehouse_C")));
 }
 
+void AMineLearningPlayerController::AddYawInput(float Value)
+{
+	if (IsInputKeyDown(EKeys::RightMouseButton) && !IsLookInputIgnored())
+	{
+		bCameraOrbitDragged |= !FMath::IsNearlyZero(Value);
+		Super::AddYawInput(Value);
+	}
+}
+
+void AMineLearningPlayerController::AddPitchInput(float Value)
+{
+	if (IsInputKeyDown(EKeys::RightMouseButton) && !IsLookInputIgnored())
+	{
+		bCameraOrbitDragged |= !FMath::IsNearlyZero(Value);
+		Super::AddPitchInput(Value);
+	}
+}
+
+void AMineLearningPlayerController::BeginCameraOrbit()
+{
+	bCameraOrbitDragged = false;
+}
+
+void AMineLearningPlayerController::EndCameraOrbit()
+{
+	// A right click still toggles Gunner burst; orbiting never changes fire mode.
+	if (!bCameraOrbitDragged && !IsLookInputIgnored())
+	{
+		if (AGunnerCharacter* Gunner = Cast<AGunnerCharacter>(GetPawn()))
+		{
+			Gunner->ToggleFireMode();
+		}
+	}
+}
+
 void AMineLearningPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -242,6 +278,8 @@ void AMineLearningPlayerController::SetupInputComponent()
 	}
 
 	bool bAbilityBound = false;
+	InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AMineLearningPlayerController::BeginCameraOrbit);
+	InputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AMineLearningPlayerController::EndCameraOrbit);
 	bool bContextBound = false;
 	if (UEnhancedInputComponent* Enhanced = Cast<UEnhancedInputComponent>(InputComponent))
 	{
@@ -512,18 +550,15 @@ void AMineLearningPlayerController::RefreshMenuInputState()
 	if (IsLocalController())
 	{
 		bShowMouseCursor = bMenuOpen;
-		if (bMenuOpen)
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		SetInputMode(InputMode);
+		if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
 		{
-			FInputModeGameAndUI InputMode;
-			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-			InputMode.SetHideCursorDuringCapture(false);
-			SetInputMode(InputMode);
-		}
-		else
-		{
-			FInputModeGameOnly InputMode;
-			InputMode.SetConsumeCaptureMouseDown(false);
-			SetInputMode(InputMode);
+			Viewport->SetMouseLockMode(EMouseLockMode::DoNotLock);
+			// Temporary capture also forwards the first left click to fire in PIE.
+			Viewport->SetMouseCaptureMode(bMenuOpen ? EMouseCaptureMode::NoCapture : EMouseCaptureMode::CaptureDuringMouseDown);
 		}
 	}
 }

@@ -31,6 +31,9 @@
 #include "MineLearning/Mining/MiningToolComponent.h"
 #include "EnhancedInputComponent.h"
 #include "InputAction.h"
+#include "InputKeyEventArgs.h"
+#include "GameFramework/PlayerInput.h"
+#include "HAL/PlatformTime.h"
 
 // Exercise the shipped widget delegates and input bindings without simulated desktop input.
 class FRogueliteUIFlow : public IAutomationLatentCommand
@@ -125,6 +128,25 @@ public:
 			Test->TestTrue(TEXT("Run starts via UMG"), Coordinator->GetRunBuild()->IsRunActive());
 			Test->TestFalse(TEXT("Start closes UI and hides cursor"), Player->bShowMouseCursor);
 			Test->TestFalse(TEXT("Gameplay restores look input"), Player->IsLookInputIgnored());
+			Test->TestEqual(TEXT("Gameplay uses temporary capture for attack and orbit"), World->GetGameViewport()->GetMouseCaptureMode(), EMouseCaptureMode::CaptureDuringMouseDown);
+			Test->TestEqual(TEXT("Gameplay does not lock mouse"), World->GetGameViewport()->GetMouseLockMode(), EMouseLockMode::DoNotLock);
+			Player->RotationInput = FRotator::ZeroRotator;
+			Player->AddYawInput(3.f);
+			Player->AddPitchInput(2.f);
+			Test->TestTrue(TEXT("Free mouse cannot rotate any possessed form"), Player->RotationInput.IsZero());
+			Player->InputKey(FInputKeyEventArgs(nullptr, FInputDeviceId::CreateFromInternalId(0), EKeys::RightMouseButton, IE_Pressed, FPlatformTime::Cycles64()));
+			TArray<UInputComponent*> InputStack;
+			InputStack.Add(Player->InputComponent);
+			// Engine key state becomes held during input processing, before pawn Look callbacks.
+			Player->PlayerInput->ProcessInputStack(InputStack, 0.016f, false);
+			Player->AddYawInput(3.f);
+			Player->AddPitchInput(2.f);
+			Test->TestFalse(TEXT("Holding right mouse enables orbit"), Player->RotationInput.IsZero());
+			Player->InputKey(FInputKeyEventArgs(nullptr, FInputDeviceId::CreateFromInternalId(0), EKeys::RightMouseButton, IE_Released, FPlatformTime::Cycles64()));
+			Player->PlayerInput->ProcessInputStack(InputStack, 0.016f, false);
+			Player->RotationInput = FRotator::ZeroRotator;
+			Player->AddYawInput(3.f);
+			Test->TestTrue(TEXT("Release immediately stops orbit"), Player->RotationInput.IsZero());
 			Test->TestFalse(TEXT("Talent changes frozen"), Coordinator->Research(TEXT("Collector")));
 			ARogueliteShop* Shop = nullptr;
 			for (TActorIterator<ARogueliteShop> It(World); It; ++It)

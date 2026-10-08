@@ -45,6 +45,8 @@ class MINELEARNING_API AMineLearningPlayerController : public APlayerController,
 
 public:
 	AMineLearningPlayerController();
+	virtual void AddYawInput(float Value) override;
+	virtual void AddPitchInput(float Value) override;
 	virtual bool CanTransform() const override;
 	void ActivateSummonerAbility();
 	void CycleContextTarget();
@@ -109,6 +111,9 @@ public:
 	FTransformationSelectionVisibilityChangedSignature OnTransformationSelectionVisibilityChanged;
 
 private:
+	void BeginCameraOrbit();
+	void EndCameraOrbit();
+	bool bCameraOrbitDragged = false;
 	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputAction> SummonerAbilityAction;
 	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputAction> CycleContextAction;
 	UPROPERTY(EditDefaultsOnly, Category="Input|Run") TSoftObjectPtr<UInputMappingContext> RunAbilityMapping;

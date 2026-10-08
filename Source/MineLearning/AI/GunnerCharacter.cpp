@@ -220,7 +220,6 @@ void AGunnerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 {
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AGunnerCharacter::StartPlayerFire);
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AGunnerCharacter::StopPlayerFire);
-	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AGunnerCharacter::ToggleFireMode);
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent);
