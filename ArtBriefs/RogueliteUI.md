@@ -1,5 +1,30 @@
 # 肉鸽 UI 当前资产说明
 
+
+## 2026-10-03 内容扩充图标
+
+本轮增加 11 张独立图标，沿用深蓝背景、钢铁/金色主体与青色边光。Source of Truth 为 `ArtSource/UI/RogueliteExpansion/<ID>.png`；对应 UE 的 `UI/Art/T_Expansion_<ID>` 与 `MI_Icon_<ID>`。不替换旧源图，不保留生成过程脚本或验收帧。全部通过内置 imagegen 独立生成，未使用 API/CLI 降级。
+
+最终提示模板（每个 ID 替换 Subject）：
+
+> Create one square premium sci-fi roguelite buff card icon. Subject: {Subject}. Single very clear large central silhouette, polished stylized game illustration, engraved steel with gold trim, cyan rim light, deep navy almost black background, high contrast readable at 64 pixels, restrained particles, full object inside generous margin. No text, no letters, no numbers, no borders, no collage or grid. This is a standalone UI texture for a mining robot game.
+
+| ID | Subject |
+| --- | --- |
+| LongDrill | a single very long steel spiral mining drill bit pointing upper right with cyan reach streak |
+| HeavyDrill | a single thick heavy steel mining auger with huge tungsten teeth, orange impact chips |
+| ChargedDrill | a steel mining auger wrapped in bright cyan electricity and one glowing power cell |
+| GiantSlayerCarrier | a small agile humanoid mining robot with inward shrinking arrows and cyan motion streaks |
+| GoliathCarrier | a massive broad shouldered mining robot carrying a large crate, outward scale arrows |
+| RelayBaton | one robotic hand passing an orange ore chunk to another robotic hand, cyan forward motion |
+| CoopHeavyCarry | two small steel worker robots visibly holding opposite handles of one large blue sci-fi freight crate |
+| LongBarrel | one futuristic rifle with an unmistakably very long slender barrel and a distant crosshair |
+| ShortBarrelAssault | one short barrel compact assault rifle with a blazing orange muzzle and several speed streaks |
+| Overclock | a glowing orange computer processor surrounded by electric lightning and accelerated cyan arrows |
+| MainThread | one bright gold central processor connected by cyan lines to three smaller blue robot worker heads |
+
+已检查全部源图主体与语义，并在 UE 中导入；材质使用完整 UV，运行时纹理上限 512。卡牌、效果、永久节点和召唤师均引用对应材质。
+
 日期：2026-10-03。范围为肉鸽 UI 与运行时战斗反馈，不修改角色基础外观、场景、Rig、Animation 或其他美术源文件。
 
 ## 目标与实际资产
