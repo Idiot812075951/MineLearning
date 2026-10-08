@@ -29,6 +29,8 @@ public:
 	/** Distance to the target collision surface, not its center; shared by AI and attacks. */
 	float GetAttackDistance(const AActor* Target) const;
 	bool IsInAttackRange(const AActor* Target) const;
+	/** Nearest damageable target within current reach and with a clear line of sight. */
+	AActor* FindNearestAttackTarget() const;
 	void NotifyAttackResolved(bool bHit, bool bCheckAimOnMiss = true);
 	bool IsStrafing() const;
 	void NotifyAttackOutOfRange();

@@ -205,7 +205,7 @@ void UMiningToolComponent::ScheduleNextMiningHit()
         return;
     }
 
-    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
+    if (ActiveMiningTarget && !UCombatDamageSubsystem::CanDamageTarget(GetOwner(), ActiveMiningTarget))
     {
         StopScheduledMiningHits();
         return;
@@ -250,7 +250,7 @@ void UMiningToolComponent::HandleScheduledMiningHit()
         return;
     }
 
-    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
+    if (ActiveMiningTarget && !UCombatDamageSubsystem::CanDamageTarget(GetOwner(), ActiveMiningTarget))
     {
         StopScheduledMiningHits();
         return;
@@ -274,7 +274,7 @@ void UMiningToolComponent::HandleScheduledMiningHit()
         *GetNameSafe(ActiveMiningTarget)
     );
 
-    if (ActiveMiningTarget && (!IsValid(ActiveMiningTarget) || ActiveMiningTarget->IsDestroyed()))
+    if (ActiveMiningTarget && !UCombatDamageSubsystem::CanDamageTarget(GetOwner(), ActiveMiningTarget))
     {
         StopScheduledMiningHits();
         return;
@@ -308,12 +308,12 @@ float UMiningToolComponent::GetMiningHitMontageTime(int32 HitIndex) const
     return MiningLoopStartTime + LoopLength * HitAlpha;
 }
 
-bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
+bool UMiningToolComponent::StartMiningTarget(AActor* TargetOre)
 {
     const ACharacter* Character = GetOwnerCharacter();
     const bool bPlayer = Character && Character->IsPlayerControlled();
     const UCombatComponent* Combat = GetOwner()->FindComponentByClass<UCombatComponent>();
-    if ((!IsValid(TargetOre) && !bPlayer) || (IsValid(TargetOre) && (TargetOre->IsDestroyed()
+    if ((!IsValid(TargetOre) && !bPlayer) || (IsValid(TargetOre) && (!UCombatDamageSubsystem::CanDamageTarget(GetOwner(), TargetOre)
         || (Combat && !Combat->IsInAttackRange(TargetOre)))))
     {
         return false;
@@ -362,6 +362,7 @@ bool UMiningToolComponent::StartMiningTarget(AMineableOre* TargetOre)
         *GetNameSafe(GetOwner()),
         *GetNameSafe(ActiveMiningTarget)
     );
+    OnCycleStarted.Broadcast();
     ScheduleNextMiningHit();
 
     return true;
@@ -381,6 +382,7 @@ void UMiningToolComponent::FinishMining(bool bInterrupted, bool bBroadcastComple
     ActiveMiningTarget = nullptr;
     RestoreOwnerMovementAndRotation();
 
+    if (bWasMining) { OnCycleFinished.Broadcast(); }
     if (bBroadcastCompletion && bWasMining)
     {
         OnMiningFinished.Broadcast(bInterrupted);
@@ -464,10 +466,10 @@ void UMiningToolComponent::OnMiningMontageEnded(UAnimMontage* Montage, bool bInt
     FinishMining(bInterrupted, true);
 }
 
-bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
+bool UMiningToolComponent::ApplyMiningHitToTarget(AActor* TargetOre)
 {
     AActor* Owner = GetOwner();
-    if (!Owner || !IsValid(TargetOre) || TargetOre->IsDestroyed())
+    if (!UCombatDamageSubsystem::CanDamageTarget(Owner, TargetOre))
     {
         return false;
     }
@@ -485,7 +487,7 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
     Request.HitLocation = TargetOre->GetActorLocation();
     Request.HitNormal = (HitCenter - Request.HitLocation).GetSafeNormal();
 
-    if (UStaticMeshComponent* OreMesh = TargetOre->GetOreMesh())
+    if (UPrimitiveComponent* OreMesh = Cast<UPrimitiveComponent>(TargetOre->GetRootComponent()))
     {
         FVector ClosestPoint;
         if (OreMesh->GetClosestPointOnCollision(HitCenter, ClosestPoint) >= 0.0f)
@@ -505,6 +507,9 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
         Request.HitNormal = FVector::UpVector;
     }
 
+    FMiningHitContext Context;
+    OnPrepareHit.Broadcast(Context);
+    Request.Multiplier = Context.DamageMultiplier;
     if (!GetWorld()->GetSubsystem<UCombatDamageSubsystem>()->ApplyDamage(Request).bAccepted)
     {
         return false;
@@ -518,6 +523,8 @@ bool UMiningToolComponent::ApplyMiningHitToTarget(AMineableOre* TargetOre)
         *Request.HitNormal.ToCompactString(),
         *GetNameSafe(Owner)
     );
+    LastImpactScale = Context.ImpactScale;
+    OnHitCommitted.Broadcast();
     OnMiningHitConfirmed.Broadcast(Request.HitLocation, Request.HitNormal);
     return true;
 }

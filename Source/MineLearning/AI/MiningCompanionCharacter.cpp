@@ -214,7 +214,8 @@ void AMiningCompanionCharacter::TryUseMiningSkill()
 		return;
 	}
 
-	AMineableOre* TargetOre = FindMineableOreInRange();
+	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	AActor* TargetOre = Combat ? Combat->FindNearestAttackTarget() : nullptr;
 	if (!MiningToolComponent || MiningToolComponent->IsMining())
 	{
 		return;
@@ -222,7 +223,7 @@ void AMiningCompanionCharacter::TryUseMiningSkill()
 
 	FVector ClosestPoint;
 	ClosestPoint = GetActorLocation() + GetActorForwardVector();
-	if (TargetOre) { GetSquaredDistanceToOre(TargetOre, &ClosestPoint); }
+	if (TargetOre) { ClosestPoint = TargetOre->GetActorLocation(); }
 	FVector TargetDirection = ClosestPoint - GetActorLocation();
 	TargetDirection.Z = 0.0f;
 	if (!TargetDirection.IsNearlyZero())
@@ -256,36 +257,6 @@ void AMiningCompanionCharacter::TryUsePickupSkill()
 	StartPlayerCollectAction(TargetPickup);
 }
 
-AMineableOre* AMiningCompanionCharacter::FindMineableOreInRange() const
-{
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return nullptr;
-	}
-
-	AMineableOre* NearestOre = nullptr;
-	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
-	float NearestDistanceSq = FMath::Square(Combat ? Combat->GetAttackRange() : 135.f);
-	for (TActorIterator<AMineableOre> It(World); It; ++It)
-	{
-		AMineableOre* Ore = *It;
-		if (!IsValid(Ore) || Ore->IsActorBeingDestroyed() || Ore->IsDestroyed())
-		{
-			continue;
-		}
-
-		const float DistanceSq = GetSquaredDistanceToOre(Ore);
-		if (DistanceSq <= NearestDistanceSq)
-		{
-			NearestDistanceSq = DistanceSq;
-			NearestOre = Ore;
-		}
-	}
-
-	return NearestOre;
-}
-
 AItemPickup* AMiningCompanionCharacter::FindPickupInRange()
 {
 	UWorld* World = GetWorld();
@@ -315,34 +286,6 @@ AItemPickup* AMiningCompanionCharacter::FindPickupInRange()
 	}
 
 	return NearestPickup;
-}
-
-float AMiningCompanionCharacter::GetSquaredDistanceToOre(
-	const AMineableOre* Ore,
-	FVector* OutClosestPoint) const
-{
-	const FVector SearchLocation = GetActorLocation();
-	FVector ClosestPoint = Ore ? Ore->GetActorLocation() : SearchLocation;
-	float DistanceSq = FVector::DistSquared(SearchLocation, ClosestPoint);
-
-	if (Ore)
-	{
-		if (UStaticMeshComponent* OreMesh = Ore->GetOreMesh())
-		{
-			const float SurfaceDistance = OreMesh->GetClosestPointOnCollision(SearchLocation, ClosestPoint);
-			if (SurfaceDistance >= 0.0f)
-			{
-				DistanceSq = FMath::Square(SurfaceDistance);
-			}
-		}
-	}
-
-	if (OutClosestPoint)
-	{
-		*OutClosestPoint = ClosestPoint;
-	}
-
-	return DistanceSq;
 }
 
 void AMiningCompanionCharacter::StartPlayerInteractionMonitoring(APlayerController* PlayerController)
@@ -881,7 +824,7 @@ void AMiningCompanionCharacter::HandleMiningHitConfirmed(FVector HitLocation, FV
 			MiningImpactSystem,
 			HitLocation,
 			HitNormal.Rotation(),
-			FVector::OneVector,
+			FVector(MiningToolComponent ? MiningToolComponent->GetLastImpactScale() : 1.f),
 			true,
 			true
 		);

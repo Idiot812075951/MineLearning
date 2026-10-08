@@ -242,6 +242,11 @@ void AGurenCharacter::TryPrimaryAttack()
 		return;
 	}
 	const UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	if (AActor* Target = Combat ? Combat->FindNearestAttackTarget() : nullptr)
+	{
+		const FVector Direction = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		if (!Direction.IsNearlyZero()) { SetActorRotation(Direction.Rotation()); }
+	}
 	TArray<float> HitTimes;
 	for (const FAnimNotifyEvent& Notify : PrimaryAttackMontage->Notifies)
 	{
@@ -277,6 +282,11 @@ void AGurenCharacter::HandlePrimaryAttackNotify(FName NotifyName, const FBranchi
 	}
 	const FVector Start = GetActorLocation();
 	UCombatComponent* Combat = FindComponentByClass<UCombatComponent>();
+	if (AActor* Target = Combat ? Combat->FindNearestAttackTarget() : nullptr)
+	{
+		const FVector Direction = (Target->GetActorLocation() - Start).GetSafeNormal2D();
+		if (!Direction.IsNearlyZero()) { SetActorRotation(Direction.Rotation()); }
+	}
 	const float Reach = Combat ? Combat->GetAttackRange() : 400.f;
 	const FVector End = Start + GetActorForwardVector() * FMath::Max(0.f, Reach - PrimaryAttackRadius);
 	TArray<FHitResult> Hits;

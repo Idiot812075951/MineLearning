@@ -15,6 +15,8 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
+#include "MineLearning/Mining/MiningToolComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 class FCombatFeedbackCheck : public IAutomationLatentCommand
 {
@@ -32,8 +34,41 @@ public:
 		{
 			APlayerController* Player = World->GetFirstPlayerController();
 			if (!Test->TestNotNull(TEXT("PIE player"), Player)) { return true; }
-			AMiningCompanionCharacter* Buddy = World->SpawnActor<AMiningCompanionCharacter>();
+			UClass* BuddyClass = LoadClass<AMiningCompanionCharacter>(nullptr, TEXT("/Game/MineLearning/Characters/OreBuddy/Blueprints/BP_OreBuddy07.BP_OreBuddy07_C"));
+			AMiningCompanionCharacter* Buddy = World->SpawnActor<AMiningCompanionCharacter>(BuddyClass, FVector(0, 0, 300), FRotator::ZeroRotator);
 			Player->Possess(Buddy);
+			UCombatComponent* BuddyCombat = Buddy->FindComponentByClass<UCombatComponent>();
+			AMineableOre* SideOre = World->SpawnActor<AMineableOre>(FVector(0, 100, 300), FRotator::ZeroRotator);
+			Test->TestEqual(TEXT("Melee acquires target beside current facing"), BuddyCombat->FindNearestAttackTarget(), static_cast<AActor*>(SideOre));
+			Buddy->TryUseMiningSkill();
+			Test->TestTrue(TEXT("Mining turns toward in-range target"), FMath::IsNearlyEqual(Buddy->GetActorRotation().Yaw, 90.f, 0.1f));
+			UMiningToolComponent* Mining = Buddy->FindComponentByClass<UMiningToolComponent>();
+			Mining->CancelMining();
+			SideOre->SetActorLocation(FVector(0, 10000, 300));
+			Test->TestNull(TEXT("Melee never acquires outside current reach"), BuddyCombat->FindNearestAttackTarget());
+			Buddy->TryUseMiningSkill();
+			Test->TestTrue(TEXT("No target still plays complete mining swing"), Mining->IsMining());
+			Test->TestTrue(TEXT("Empty swing preserves facing"), FMath::IsNearlyEqual(Buddy->GetActorRotation().Yaw, 90.f, 0.1f));
+			Mining->CancelMining();
+			SideOre->Destroy();
+			UUnitEffectComponent* BuddyEffects = NewObject<UUnitEffectComponent>(Buddy);
+			Buddy->AddInstanceComponent(BuddyEffects); BuddyEffects->RegisterComponent();
+			UCombatFeedbackComponent* BuddyFeedback = NewObject<UCombatFeedbackComponent>(Buddy);
+			Buddy->AddInstanceComponent(BuddyFeedback); BuddyFeedback->RegisterComponent();
+			TArray<UMaterialInterface*> OriginalMaterials = Buddy->GetMesh()->GetMaterials();
+			FUnitEffectRule ChargeRule; ChargeRule.Id = TEXT("ToolVisualTest"); ChargeRule.bToolGlow = true; ChargeRule.AuraColor = FLinearColor(0.f, 0.8f, 1.f);
+			BuddyEffects->ApplyEffect(ChargeRule);
+			const int32 DrillSlot = Buddy->GetMesh()->GetMaterialIndex(TEXT("MAT_OB07_ToolMetal"));
+			UMaterialInstanceDynamic* DrillMaterial = DrillSlot != INDEX_NONE ? Cast<UMaterialInstanceDynamic>(Buddy->GetMesh()->GetMaterial(DrillSlot)) : nullptr;
+			Test->TestNotNull(TEXT("Charged drill uses its own dynamic material"), DrillMaterial);
+			if (DrillMaterial) { Test->TestEqual(TEXT("Drill charge material enabled"), DrillMaterial->K2_GetScalarParameterValue(TEXT("ChargeIntensity")), 1.f); }
+			for (int32 Slot = 0; Slot < OriginalMaterials.Num(); ++Slot)
+			{
+				if (Slot != DrillSlot) { Test->TestEqual(TEXT("Charging preserves every body material"), Buddy->GetMesh()->GetMaterial(Slot), OriginalMaterials[Slot]); }
+			}
+			Test->TestNull(TEXT("Tool charge never installs whole-body overlay"), Buddy->GetMesh()->GetOverlayMaterial());
+			BuddyEffects->RemoveEffect(TEXT("ToolVisualTest"));
+			if (DrillMaterial) { Test->TestEqual(TEXT("Charge material clears when effect ends"), DrillMaterial->K2_GetScalarParameterValue(TEXT("ChargeIntensity")), 0.f); }
 			Player->SetControlRotation(FRotator(-10.f, 30.f, 0.f));
 			Buddy->FindComponentByClass<USpringArmComponent>()->TickComponent(0.016f, LEVELTICK_All, nullptr);
 			UCameraComponent* Camera = Buddy->FindComponentByClass<UCameraComponent>();
@@ -59,6 +94,11 @@ public:
 			Test->TestFalse(TEXT("Roamer rejects non-Gunner even via direct grant"), Rule->SupportsTarget(Player));
 			Test->TestTrue(TEXT("Grant configured Gunner effect"), Effects->GrantDefinition(TEXT("Roamer"), Rule));
 			UCombatComponent* Combat = Gunner->FindComponentByClass<UCombatComponent>();
+			FCombatModifiers RangeBonus;
+			RangeBonus.AttackRange = 0.5f;
+			Combat->SetModifier(TEXT("RangeTest"), RangeBonus);
+			Test->TestTrue(TEXT("Range change immediately shows ring"), Feedback->IsRangeVisible());
+			Combat->RemoveModifier(TEXT("RangeTest"));
 			Gunner->GetCharacterMovement()->Velocity = FVector(0, 100, 0);
 			Combat->NotifyAttackResolved(true);
 			if (!Test->TestEqual(TEXT("Active Roamer"), Effects->GetActiveEffectViews().Num(), 1)) { return true; }

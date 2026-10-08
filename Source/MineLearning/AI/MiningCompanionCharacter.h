@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "Animation/AnimMontage.h"
@@ -8,7 +8,6 @@
 #include "MiningCompanionCharacter.generated.h"
 
 class AMiningCompanionAIController;
-class AMineableOre;
 class AItemPickup;
 class APlayerController;
 class UMiningToolComponent;
@@ -147,9 +146,7 @@ private:
 		Depositing
 	};
 
-	AMineableOre* FindMineableOreInRange() const;
 	AItemPickup* FindPickupInRange();
-	float GetSquaredDistanceToOre(const AMineableOre* Ore, FVector* OutClosestPoint = nullptr) const;
 	void StartPlayerInteractionMonitoring(APlayerController* PlayerController);
 	void RefreshPlayerInteractionState();
 	void TryAutoDeposit();

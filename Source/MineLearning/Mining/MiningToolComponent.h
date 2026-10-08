@@ -9,6 +9,14 @@
 class AMineableOre;
 class USkeletalMeshComponent;
 
+struct FMiningHitContext
+{
+	float DamageMultiplier = 1.f;
+	float ImpactScale = 1.f;
+};
+DECLARE_MULTICAST_DELEGATE(FMiningCycleEvent);
+DECLARE_MULTICAST_DELEGATE_OneParam(FPrepareMiningHit, FMiningHitContext&);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMiningFinishedSignature, bool, bInterrupted);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMiningHitConfirmedSignature, FVector, HitLocation, FVector, HitNormal);
 
@@ -22,7 +30,7 @@ public:
 	UMiningToolComponent();
 
 	UFUNCTION(BlueprintCallable, Category="Mining")
-	bool StartMiningTarget(AMineableOre* TargetOre);
+	bool StartMiningTarget(AActor* TargetOre);
 
 	UFUNCTION(BlueprintPure, Category="Mining")
 	bool IsMining() const;
@@ -32,6 +40,11 @@ public:
 	void SetMiningHitSocketName(FName NewSocketName);
 
 	void CancelMining();
+	FMiningCycleEvent OnCycleStarted;
+	FMiningCycleEvent OnCycleFinished;
+	FMiningCycleEvent OnHitCommitted;
+	FPrepareMiningHit OnPrepareHit;
+	UFUNCTION(BlueprintPure, Category="Mining|Feedback") float GetLastImpactScale() const { return LastImpactScale; }
 
 	UPROPERTY(BlueprintAssignable, Category="Mining")
 	FOnMiningFinishedSignature OnMiningFinished;
@@ -81,7 +94,7 @@ private:
 	static constexpr float MaxAttackSpeed = 2.0f;
 
 	UPROPERTY()
-	AMineableOre* ActiveMiningTarget = nullptr;
+	AActor* ActiveMiningTarget = nullptr;
 
 	FTimerHandle MiningHitTimerHandle;
 
@@ -97,6 +110,7 @@ private:
 	bool bPreviousOrientRotationToMovement = false;
 	bool bPreviousUseControllerDesiredRotation = false;
 	bool bPreviousUseControllerRotationYaw = false;
+	float LastImpactScale = 1.f;
 
 private:
 	void FinishMining(bool bInterrupted, bool bBroadcastCompletion);
@@ -108,7 +122,7 @@ private:
 	int32 GetClampedMiningHitCount() const;
 	float GetClampedAttackSpeed() const;
 	float GetMiningHitMontageTime(int32 HitIndex) const;
-	bool ApplyMiningHitToTarget(AMineableOre* TargetOre);
+	bool ApplyMiningHitToTarget(AActor* TargetOre);
 	void LockOwnerMovementAndRotation();
 	void RestoreOwnerMovementAndRotation();
 

@@ -142,6 +142,8 @@ bool AHaulerCharacter::TryPlayerTransfer()
 		: UItemLogisticsLibrary::ResolveDestination(this, Best->GetItemStack(), Best->GetActorLocation());
 	USceneComponent* Point = Best->GetExplicitDeliveryPoint();
 	UStaticMesh* ItemMesh = Best->SelectedDropMesh;
+	const FVector Direction = (Best->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	if (!Direction.IsNearlyZero()) { SetActorRotation(Direction.Rotation()); }
 	if (!Best->TryCollect(this)) { return false; }
 	PlayerDeliveryActor = Route;
 	PlayerDeliveryPoint = Point;

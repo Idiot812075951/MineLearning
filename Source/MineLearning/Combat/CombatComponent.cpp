@@ -2,6 +2,7 @@
 #include "CombatDamageSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "HealthComponent.h"
 #include "MineLearning/AI/GunnerCharacter.h"
 #include "MineLearning/Manifestation/Guren/GurenQSkillComponent.h"
@@ -139,6 +140,26 @@ float UCombatComponent::GetAttackDistance(const AActor* Target) const
 bool UCombatComponent::IsInAttackRange(const AActor* Target) const
 {
 	return GetAttackDistance(Target) <= GetAttackRange();
+}
+
+AActor* UCombatComponent::FindNearestAttackTarget() const
+{
+	AActor* Best = nullptr;
+	float BestDistance = GetAttackRange();
+	const FVector Origin = GetOwner()->GetActorLocation();
+	for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+	{
+		AActor* Candidate = *It;
+		if (!UCombatDamageSubsystem::CanDamageTarget(GetOwner(), Candidate)) { continue; }
+		const float Distance = GetAttackDistance(Candidate);
+		if (Distance > BestDistance) { continue; }
+		FCollisionQueryParams Query(SCENE_QUERY_STAT(MeleeTargetSight), false, GetOwner());
+		Query.AddIgnoredActor(Candidate);
+		if (GetWorld()->LineTraceTestByChannel(Origin, Candidate->GetActorLocation(), ECC_Visibility, Query)) { continue; }
+		Best = Candidate;
+		BestDistance = Distance;
+	}
+	return Best;
 }
 
 void UCombatComponent::NotifyAttackResolved(bool bHit, bool bCheckAimOnMiss)
